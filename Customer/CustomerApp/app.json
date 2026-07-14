@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "CustomerApp",
-    "slug": "customerapp",
+    "slug": "CustomerApp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
