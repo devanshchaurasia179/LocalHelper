@@ -1,5 +1,12 @@
 import { useState, useCallback } from 'react';
-import { ScrollView, Text, StyleSheet } from 'react-native';
+import {
+  ScrollView,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
@@ -8,6 +15,10 @@ import SearchBar from './SearchBar';
 import PromoBanner from './PromoBanner';
 import ServiceGrid from './ServiceGrid';
 import BottomNav from './BottomNav';
+import PartnerDetailSheet from './PartnerDetailSheet';
+
+import { useNearbyServices } from '@/hooks/useNearbyServices';
+import type { NearbyPartner } from '@/api/nearby.api';
 
 import { Provider, PromoOffer, NavRoute } from './types';
 import { colors, spacing, typography } from './theme';
@@ -15,7 +26,7 @@ import { useAuth } from '@/providers/AuthProvider';
 import { ROUTES } from '@/constants/routes';
 import type { Address } from './Header';
 
-// ─── Mock data. Replace with real API calls when ready. ──────────────────────
+// ─── Static promo (replace with real API when ready) ─────────────────────────
 
 const PROMO_OFFER: PromoOffer = {
   discountPercent: 10,
@@ -25,40 +36,22 @@ const PROMO_OFFER: PromoOffer = {
   image: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=400',
 };
 
-const PROVIDERS: Provider[] = [
-  {
-    id: '1',
-    name: 'Ryan Bergson',
-    category: 'Desk Cleaning',
-    pricePerHour: 35,
-    rating: 4.9,
-    image: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=300',
-  },
-  {
-    id: '2',
-    name: 'Ryan Bergson',
-    category: 'Floor Cleaning',
-    pricePerHour: 35,
-    rating: 4.9,
-    image: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=300',
-  },
-  {
-    id: '3',
-    name: 'Maria Lopez',
-    category: 'Window Cleaning',
-    pricePerHour: 28,
-    rating: 4.8,
-    image: 'https://images.unsplash.com/photo-1527515637462-cff94eecc1ac?w=300',
-  },
-  {
-    id: '4',
-    name: 'James Carter',
-    category: 'Deep Cleaning',
-    pricePerHour: 42,
-    rating: 4.7,
-    image: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=300',
-  },
-];
+// ─── Map backend NearbyPartner → UI Provider ──────────────────────────────────
+
+function toProvider(partner: NearbyPartner): Provider {
+  return {
+    id: partner._id,
+    name: partner.fullName,
+    category: partner.categories[0]?.name ?? 'General',
+    // visitingCredits acts as hourly rate; 0 means free / negotiable
+    pricePerHour: partner.visitingCredits ?? 0,
+    rating: partner.averageRating ?? 0,
+    image: partner.profilePhoto
+      ? partner.profilePhoto
+      : `https://ui-avatars.com/api/?name=${encodeURIComponent(partner.fullName)}&background=6C63FF&color=fff&size=300`,
+    distanceKm: partner.distanceKm,
+  };
+}
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
@@ -66,26 +59,50 @@ export default function Dashboard() {
   const { customer } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAddressIndex, setSelectedAddressIndex] = useState(0);
+  const [selectedPartner, setSelectedPartner] = useState<NearbyPartner | null>(null);
+
+  const { services, loading, refreshing, error, refresh } = useNearbyServices();
 
   const handleNavigate = useCallback((route: NavRoute) => {
     if (route === 'profile')  router.replace(ROUTES.APP.PROFILE as any);
     if (route === 'bookings') router.replace(ROUTES.APP.BOOKINGS as any);
   }, []);
 
-  // Pull first name from the authenticated customer; fallback to 'there'
+  // Map a NearbyPartner _id back to the full partner object for the sheet
+  const handleCardPress = useCallback(
+    (provider: Provider) => {
+      const partner = services.find((s) => s._id === provider.id) ?? null;
+      setSelectedPartner(partner);
+    },
+    [services]
+  );
+
   const firstName = customer?.name?.split(' ')[0] ?? 'there';
 
-  // Use customer's avatar initial as placeholder (no remote avatar stored)
   const avatarUri = `https://ui-avatars.com/api/?name=${encodeURIComponent(customer?.name ?? 'U')}&background=6C63FF&color=fff&size=200`;
 
-  // Addresses from backend; cast to our Address type
   const addresses: Address[] = (customer?.addresses ?? []) as Address[];
+
+  // Filter by search query (name or category)
+  const filteredProviders = services
+    .map(toProvider)
+    .filter((p) => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        p.name.toLowerCase().includes(q) ||
+        p.category.toLowerCase().includes(q)
+      );
+    });
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={refresh} />
+        }
       >
         <Header
           avatarUri={avatarUri}
@@ -110,14 +127,48 @@ export default function Dashboard() {
           onBookPress={() => console.log('Book floor cleaning')}
         />
 
-        <ServiceGrid
-          providers={PROVIDERS}
-          onCardPress={(provider) => console.log('Open provider', provider.id)}
-          onAddPress={(provider) => console.log('Add provider', provider.id)}
-        />
+        {/* ── Nearby Services ─────────────────────────────────────────────── */}
+        <Text style={styles.sectionTitle}>Nearby Services</Text>
+
+        {loading ? (
+          <ActivityIndicator
+            size="large"
+            color={colors.primary}
+            style={styles.loader}
+          />
+        ) : error ? (
+          <View style={styles.messageContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : filteredProviders.length === 0 ? (
+          <View style={styles.messageContainer}>
+            <Text style={styles.emptyText}>
+              {searchQuery.trim()
+                ? 'No services match your search.'
+                : 'No service providers available nearby right now.'}
+            </Text>
+          </View>
+        ) : (
+          <ServiceGrid
+            providers={filteredProviders}
+            onCardPress={handleCardPress}
+            onAddPress={handleCardPress}
+          />
+        )}
       </ScrollView>
 
       <BottomNav onNavigate={handleNavigate} />
+
+      {/* Partner detail + booking sheet */}
+      <PartnerDetailSheet
+        partner={selectedPartner}
+        visible={selectedPartner !== null}
+        onClose={() => setSelectedPartner(null)}
+        onBooked={() => {
+          setSelectedPartner(null);
+          refresh();
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -133,5 +184,30 @@ const styles = StyleSheet.create({
   title: {
     paddingHorizontal: spacing.md,
     marginTop: spacing.md,
+  },
+  sectionTitle: {
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.lg,
+    marginBottom: spacing.xs,
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: colors.textPrimary,
+  },
+  loader: {
+    marginTop: spacing.xl,
+  },
+  messageContainer: {
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.lg,
+  },
+  errorText: {
+    color: '#E53935',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  emptyText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    textAlign: 'center',
   },
 });

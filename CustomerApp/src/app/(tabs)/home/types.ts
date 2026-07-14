@@ -1,10 +1,11 @@
 export interface Provider {
   id: string;
   name: string;
-  category: string;
+  category: string;   // first category name, or 'General'
   pricePerHour: number;
   rating: number;
-  image: string; // require() result or remote URL
+  image: string;      // require() result or remote URL
+  distanceKm?: number;
 }
 
 export interface PromoOffer {
