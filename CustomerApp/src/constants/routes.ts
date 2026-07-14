@@ -16,6 +16,7 @@ export const ROUTES = {
   // Main app tabs
   APP: {
     HOME: "/(tabs)/home",
+    BOOKINGS: "/(tabs)/bookings",
     ORDERS: "/(tabs)/orders",
     PROFILE: "/(tabs)/profile",
   },

@@ -1,4 +1,8 @@
 import { api } from "./api";
+import type {
+  GetBookingsResponse,
+  StatusFilter,
+} from "@/app/(tabs)/bookings/bookings.types";
 
 // ─── Categories ───────────────────────────────────────────────────────────────
 
@@ -61,3 +65,32 @@ export type CreateBookingPayload = {
 // POST /api/bookings
 export const createBooking = (data: CreateBookingPayload) =>
   api.post("/bookings", data);
+
+// ─── Customer Bookings ────────────────────────────────────────────────────────
+
+// GET /api/bookings/customer  (paginated, optionally filtered by status)
+export const fetchCustomerBookings = (
+  statusFilter: StatusFilter = "all",
+  page = 1,
+  limit = 20
+): Promise<GetBookingsResponse> => {
+  const params: Record<string, string | number> = { page, limit };
+  if (statusFilter !== "all") params.status = statusFilter;
+  return api
+    .get<GetBookingsResponse>("/bookings/customer", { params })
+    .then((res) => res.data);
+};
+
+// GET /api/bookings/:id
+export const fetchBookingById = (id: string) =>
+  api.get(`/bookings/${id}`).then((res) => res.data.booking);
+
+// PATCH /api/bookings/:id/cancel
+export const cancelBooking = (id: string, reason?: string) =>
+  api.patch(`/bookings/${id}/cancel`, { reason }).then((res) => res.data);
+
+// POST /api/bookings/:id/review
+export const submitReview = (id: string, rating: number, comment?: string) =>
+  api
+    .post(`/bookings/${id}/review`, { rating, comment })
+    .then((res) => res.data);

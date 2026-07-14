@@ -30,3 +30,15 @@ export const getMe = () => api.get<GetMeResponse>("/customer/auth/me");
 // ─── Logout ───────────────────────────────────────────────────────────────────
 // POST /api/customer/auth/logout   (requires cookie – clears it server-side)
 export const logout = () => api.post("/customer/auth/logout");
+
+// ─── Add Address ──────────────────────────────────────────────────────────────
+// POST /api/customer/auth/add-address   (requires cookie)
+export const addAddress = (address: {
+  label?: string;
+  house?: string;
+  street?: string;
+  locality?: string;
+  city: string;
+  state: string;
+  pincode: string;
+}) => api.post("/customer/auth/add-address", address);

@@ -5,7 +5,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
-import { sendOtp, verifyOtp, completeProfile, addAddress as addAddressApi, logout } from "@/constants/auth.api";
+import { sendOtp, verifyOtp, completeProfile, addAddress as addAddressApi, logout } from "@/api/auth.api";
 import { api } from "@/constants/api";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -34,8 +34,8 @@ type AuthContextType = {
   customer: Customer | null;
   status: AuthStatus;
 
-  // Step 1 – request OTP
-  requestOtp: (phone: string) => Promise<void>;
+  // Step 1 – request OTP (returns { message, otp? } in dev)
+  requestOtp: (phone: string) => Promise<{ message: string; otp?: string }>;
 
   // Step 2 – verify OTP → sets cookie + customer state
   confirmOtp: (phone: string, otp: string) => Promise<Customer>;
@@ -91,8 +91,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * On mount – ping /customer/auth/me to restore session from the
    * httpOnly cookie. The cookie is sent automatically (withCredentials: true).
    *
-   * A 5-second hard deadline guarantees we never stay stuck in "loading"
-   * if the backend is unreachable (e.g. dev server not running, wrong host).
+   * A 10-second hard deadline guarantees we never stay stuck in "loading"
+   * if the backend is unreachable. Must be > the axios timeout (8 s).
    */
   useEffect(() => {
     let settled = false;
@@ -104,15 +104,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setStatus(nextStatus);
     };
 
-    // Safety net — resolve to unauthenticated after 5 s no matter what
+    // Safety net — must be longer than the axios request timeout (8 s in api.ts)
     const timer = setTimeout(() => {
       console.warn("[AuthProvider] /me timed out — falling back to unauthenticated");
       finish("unauthenticated");
-    }, 5000);
+    }, 10000);
 
     const restoreSession = async () => {
       try {
         const res = await api.get("/customer/auth/me");
+        console.log("[AuthProvider] /me response:", JSON.stringify(res.data.customer));
         finish("authenticated", res.data.customer);
       } catch (err: any) {
         // 401 = no valid session; any other error = treat as logged out
@@ -173,9 +174,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
     }) => {
       const res = await completeProfile(data);
-      setCustomer((prev) =>
-        prev ? { ...prev, ...res.data.customer } : prev
-      );
+      const updated = res.data.customer;
+      console.log("[finishProfile] backend returned:", JSON.stringify(updated));
+      setCustomer((prev) => {
+        const next = prev
+          ? {
+              ...prev,
+              name:        updated.name        ?? prev.name,
+              gender:      updated.gender      ?? prev.gender,
+              addresses:   updated.addresses   ?? prev.addresses,
+              isOnboarded: updated.isOnboarded ?? prev.isOnboarded,
+            }
+          : prev;
+        console.log("[finishProfile] customer state after update:", JSON.stringify(next));
+        return next;
+      });
     },
     []
   );
