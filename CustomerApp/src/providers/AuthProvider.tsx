@@ -5,7 +5,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
-import { sendOtp, verifyOtp, completeProfile, logout } from "@/constants/auth.api";
+import { sendOtp, verifyOtp, completeProfile, addAddress as addAddressApi, logout } from "@/constants/auth.api";
 import { api } from "@/constants/api";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -61,6 +61,17 @@ type AuthContextType = {
 
   // Patch customer fields in context (used by screens after API calls)
   patchCustomer: (fields: Partial<Customer>) => void;
+
+  // Add a new address
+  addAddress: (address: {
+    label?: string;
+    house?: string;
+    street?: string;
+    locality?: string;
+    city: string;
+    state: string;
+    pincode: string;
+  }) => Promise<void>;
 
   // Sign out
   signOut: () => Promise<void>;
@@ -181,6 +192,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCustomer((prev) => (prev ? { ...prev, ...fields } : prev));
   }, []);
 
+  // Add a new address — calls API and appends to local state
+  const addAddress = useCallback(
+    async (address: {
+      label?: string;
+      house?: string;
+      street?: string;
+      locality?: string;
+      city: string;
+      state: string;
+      pincode: string;
+    }) => {
+      const res = await addAddressApi(address);
+      setCustomer((prev) =>
+        prev ? { ...prev, addresses: res.data.addresses } : prev
+      );
+    },
+    []
+  );
+
   return (
     <AuthContext.Provider
       value={{
@@ -190,6 +220,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         confirmOtp,
         finishProfile,
         patchCustomer,
+        addAddress,
         signOut,
       }}
     >

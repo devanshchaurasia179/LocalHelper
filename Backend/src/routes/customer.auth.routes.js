@@ -3,6 +3,7 @@ import {
   sendOtp,
   verifyOtp,
   completeProfile,
+  addAddress,
   getMe,
   logout,
 } from "../controllers/customer.auth.controller.js";
@@ -17,6 +18,7 @@ router.post("/verify-otp", verifyOtp);
 // Protected routes (requires valid customer_token cookie)
 router.get("/me", protectCustomer, getMe);
 router.put("/complete-profile", protectCustomer, completeProfile);
+router.post("/add-address", protectCustomer, addAddress);
 router.post("/logout", protectCustomer, logout);
 
 export default router;

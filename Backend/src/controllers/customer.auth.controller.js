@@ -259,6 +259,57 @@ export const getMe = async (req, res) => {
   }
 };
 
+// ─── Add Address ────────────────────────────────────────────────────────────
+/**
+ * POST /api/customer/auth/add-address
+ * Headers: Cookie customer_token=<jwt>
+ * Body: { label, house, street, locality, city*, state*, pincode* }
+ *
+ * Appends a new address to the customer's addresses array.
+ * Returns the full updated addresses list.
+ */
+export const addAddress = async (req, res) => {
+  try {
+    const { label, house, street, locality, city, state, pincode } = req.body;
+
+    if (!city || !state || !pincode) {
+      return res.status(400).json({
+        message: "city, state, and pincode are required.",
+      });
+    }
+
+    if (!/^\d{6}$/.test(pincode)) {
+      return res.status(400).json({ message: "Pincode must be exactly 6 digits." });
+    }
+
+    const customer = await Customer.findById(req.customerId);
+    if (!customer) {
+      return res.status(404).json({ message: "Customer not found." });
+    }
+
+    const newAddress = {
+      label:    label?.trim()    || "Home",
+      house:    house?.trim()    || "",
+      street:   street?.trim()   || "",
+      locality: locality?.trim() || "",
+      city:     city.trim(),
+      state:    state.trim(),
+      pincode:  pincode.trim(),
+    };
+
+    customer.addresses.push(newAddress);
+    await customer.save();
+
+    return res.status(201).json({
+      message: "Address added successfully.",
+      addresses: customer.addresses,
+    });
+  } catch (error) {
+    console.error("addAddress error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
 // ─── Logout ─────────────────────────────────────────────────────────────────
 /**
  * POST /api/customer/auth/logout

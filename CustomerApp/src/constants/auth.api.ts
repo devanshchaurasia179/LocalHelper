@@ -27,6 +27,17 @@ export const completeProfile = (data: {
   };
 }) => api.put("/customer/auth/complete-profile", data);
 
+// POST /api/customer/auth/add-address
+export const addAddress = (address: {
+  label?: string;
+  house?: string;
+  street?: string;
+  locality?: string;
+  city: string;
+  state: string;
+  pincode: string;
+}) => api.post("/customer/auth/add-address", address);
+
 // GET /api/customer/auth/me  (session restore on boot)
 export const getMe = () => api.get("/customer/auth/me");
 
