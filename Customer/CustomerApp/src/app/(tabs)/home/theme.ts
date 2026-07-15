@@ -1,7 +1,7 @@
 // Central design tokens so every component pulls from the same palette/scale.
 export const colors = {
-  primary: '#16493cff',
-  primaryDark: '#5A4FE0',
+  primary: '#16493c',
+  primaryDark: '#0d2e26',
   background: '#FFFFFF',
   surface: '#F7F7FB',
   surfaceAlt: '#F5F5F5',

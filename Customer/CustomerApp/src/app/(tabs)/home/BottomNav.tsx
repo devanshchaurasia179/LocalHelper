@@ -1,23 +1,25 @@
-import { useRef, useEffect, useCallback } from 'react';
-import { View, TouchableOpacity, StyleSheet, Animated, Easing } from 'react-native';
+import { useEffect, useCallback } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname } from 'expo-router';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  interpolate,
+  Easing,
+} from 'react-native-reanimated';
 import { NavRoute } from './types';
 import { colors, spacing, radii } from './theme';
 
-// Cubic bezier approximation via Easing for a smooth expand/collapse
-const EASE_OUT_CUBIC = Easing.bezier(0.22, 1, 0.36, 1);
-const EXPAND_MS = 300;
-const COLLAPSE_MS = 220;
-
-interface BottomNavProps {
-  /** Called when the user taps a nav item. Handle navigation in the parent. */
-  onNavigate: (route: NavRoute) => void;
-}
+const EASE = Easing.bezier(0.25, 0.1, 0.25, 1);
+const PILL_MIN = 52;
+const PILL_MAX = 120;
 
 const NAV_ITEMS: {
   route: NavRoute;
-  matchKey: string; // leaf segment to match against the real pathname
+  matchKey: string;
   icon: keyof typeof Ionicons.glyphMap;
   activeIcon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -28,135 +30,120 @@ const NAV_ITEMS: {
   { route: 'profile',  matchKey: 'profile',  icon: 'person-outline',     activeIcon: 'person',     label: 'Profile'  },
 ];
 
+interface BottomNavProps {
+  onNavigate: (route: NavRoute) => void;
+}
+
+function NavItem({
+  item,
+  isActive,
+  onNavigate,
+}: {
+  item: (typeof NAV_ITEMS)[number];
+  isActive: boolean;
+  onNavigate: (route: NavRoute) => void;
+}) {
+  const progress = useSharedValue(isActive ? 1 : 0);
+  const pressScale = useSharedValue(1);
+
+  useEffect(() => {
+    progress.value = withTiming(isActive ? 1 : 0, {
+      duration: isActive ? 280 : 200,
+      easing: EASE,
+    });
+  }, [isActive]);
+
+  // Only width — no color, no transform — clean layout animation
+  const pillWidthStyle = useAnimatedStyle(() => ({
+    width: interpolate(progress.value, [0, 1], [PILL_MIN, PILL_MAX]),
+  }));
+
+  // Background opacity only — separate layer, never touches icon
+  const bgStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 1], [0, 1]),
+  }));
+
+  // Label fade + slide
+  const labelStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0, 0.55, 1], [0, 0, 1]),
+    transform: [{ translateX: interpolate(progress.value, [0, 1], [6, 0]) }],
+  }));
+
+  // Press scale
+  const pressStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pressScale.value }],
+  }));
+
+  const handlePressIn = useCallback(() => {
+    pressScale.value = withTiming(0.87, { duration: 80, easing: Easing.out(Easing.quad) });
+  }, []);
+
+  const handlePressOut = useCallback(() => {
+    pressScale.value = withSpring(1, { stiffness: 320, damping: 14 });
+  }, []);
+
+  const handlePress = useCallback(() => {
+    onNavigate(item.route);
+  }, [item.route, onNavigate]);
+
+  return (
+    <TouchableOpacity
+      onPress={handlePress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      activeOpacity={1}
+      hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: isActive }}
+      accessibilityLabel={item.label}
+    >
+      {/* Press scale wrapper */}
+      <Animated.View style={pressStyle}>
+        {/* Pill width container — only animates width */}
+        <Animated.View style={[styles.pill, pillWidthStyle]}>
+
+          {/* Background color layer — absolutely positioned, never affects icon layout */}
+          <Animated.View style={[StyleSheet.absoluteFill, styles.pillBg, bgStyle]} />
+
+          {/* Icon — plain View, no animated styles, no distortion possible */}
+          <View style={styles.iconWrapper}>
+            <Ionicons
+              name={isActive ? item.activeIcon : item.icon}
+              size={22}
+              color={isActive ? colors.white : colors.navInactive}
+            />
+          </View>
+
+          {/* Label — fades in beside icon */}
+          <Animated.Text
+            numberOfLines={1}
+            style={[styles.label, labelStyle]}
+          >
+            {item.label}
+          </Animated.Text>
+
+        </Animated.View>
+      </Animated.View>
+    </TouchableOpacity>
+  );
+}
+
 export default function BottomNav({ onNavigate }: BottomNavProps) {
   const pathname = usePathname();
 
-  // expo-router strips group segments like "(tabs)" from the real pathname,
-  // so we match on the leaf segment instead of the full declared route path.
   const activeRoute: NavRoute =
-    (NAV_ITEMS.find((item) => pathname.includes(`/${item.matchKey}`))?.route) ?? 'home';
-
-  // JS-driver: width + backgroundColor (can't use native driver for layout props)
-  const activeAnims = useRef(
-    NAV_ITEMS.reduce<Record<NavRoute, Animated.Value>>((acc, item) => {
-      acc[item.route] = new Animated.Value(item.route === activeRoute ? 1 : 0);
-      return acc;
-    }, {} as Record<NavRoute, Animated.Value>),
-  ).current;
-
-  // Native-driver: scale on press (transform only)
-  const pressAnims = useRef(
-    NAV_ITEMS.reduce<Record<NavRoute, Animated.Value>>((acc, item) => {
-      acc[item.route] = new Animated.Value(1);
-      return acc;
-    }, {} as Record<NavRoute, Animated.Value>),
-  ).current;
-
-  // Re-run whenever the active tab changes
-  useEffect(() => {
-    const animations = NAV_ITEMS.map(({ route }) => {
-      const isExpanding = route === activeRoute;
-      return Animated.timing(activeAnims[route], {
-        toValue: isExpanding ? 1 : 0,
-        duration: isExpanding ? EXPAND_MS : COLLAPSE_MS,
-        easing: EASE_OUT_CUBIC,
-        useNativeDriver: false,
-      });
-    });
-    // Run expand + all collapses in parallel for instant feedback
-    Animated.parallel(animations).start();
-  }, [activeRoute]);
-
-  const handlePressIn = useCallback((route: NavRoute) => {
-    Animated.timing(pressAnims[route], {
-      toValue: 0.88,
-      duration: 80,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  }, [pressAnims]);
-
-  const handlePressOut = useCallback((route: NavRoute) => {
-    Animated.spring(pressAnims[route], {
-      toValue: 1,
-      useNativeDriver: true,
-      speed: 20,
-      bounciness: 8,
-    }).start();
-  }, [pressAnims]);
+    NAV_ITEMS.find((item) => pathname.includes(`/${item.matchKey}`))?.route ?? 'home';
 
   return (
     <View style={styles.container}>
-      {NAV_ITEMS.map(({ route, icon, activeIcon, label }) => {
-        const isActive = route === activeRoute;
-        const anim = activeAnims[route];
-
-        const animatedWidth = anim.interpolate({
-          inputRange: [0, 1],
-          outputRange: [48, 120],
-        });
-        const animatedBg = anim.interpolate({
-          inputRange: [0, 1],
-          outputRange: ['rgba(0,0,0,0)', colors.primary],
-        });
-        const labelOpacity = anim.interpolate({
-          inputRange: [0, 0.6, 1],
-          outputRange: [0, 0, 1],
-        });
-        const labelTranslate = anim.interpolate({
-          inputRange: [0, 1],
-          outputRange: [10, 0],
-        });
-        const iconTranslate = anim.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, -2],
-        });
-
-        return (
-          <TouchableOpacity
-            key={route}
-            onPress={() => onNavigate(route)}
-            onPressIn={() => handlePressIn(route)}
-            onPressOut={() => handlePressOut(route)}
-            activeOpacity={1}
-            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: isActive }}
-            accessibilityLabel={label}
-          >
-            <Animated.View style={{ transform: [{ scale: pressAnims[route] }] }}>
-              <Animated.View
-                style={[
-                  styles.item,
-                  { width: animatedWidth, backgroundColor: animatedBg },
-                ]}
-              >
-                <Animated.View style={{ transform: [{ translateX: iconTranslate }] }}>
-                  <Ionicons
-                    name={isActive ? activeIcon : icon}
-                    size={20}
-                    color={isActive ? colors.white : colors.navInactive}
-                  />
-                </Animated.View>
-
-                <Animated.Text
-                  numberOfLines={1}
-                  style={[
-                    styles.activeLabel,
-                    {
-                      opacity: labelOpacity,
-                      transform: [{ translateX: labelTranslate }],
-                      maxWidth: isActive ? 80 : 0,
-                    },
-                  ]}
-                >
-                  {label}
-                </Animated.Text>
-              </Animated.View>
-            </Animated.View>
-          </TouchableOpacity>
-        );
-      })}
+      {NAV_ITEMS.map((item) => (
+        <NavItem
+          key={item.route}
+          item={item}
+          isActive={item.route === activeRoute}
+          onNavigate={onNavigate}
+        />
+      ))}
     </View>
   );
 }
@@ -165,7 +152,7 @@ const styles = StyleSheet.create({
   container: {
     position: 'absolute',
     bottom: spacing.lg,
-    width: '88%',
+    width: '90%',
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
@@ -176,25 +163,39 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     gap: spacing.sm,
     shadowColor: '#000',
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.10,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 6 },
     elevation: 8,
   },
-  item: {
+  pill: {
     height: 48,
-    minWidth: 48,
+    minWidth: PILL_MIN,
     borderRadius: radii.pill,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 13,
     gap: 6,
     overflow: 'hidden',
+    // No backgroundColor here — handled by pillBg layer below
   },
-  activeLabel: {
+  // Solid color background as its own layer — never interferes with icon rendering
+  pillBg: {
+    borderRadius: radii.pill,
+    backgroundColor: colors.primary,
+  },
+  // Plain View wrapper for icon — no animated styles, guarantees clean render
+  iconWrapper: {
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  label: {
     color: colors.white,
     fontSize: 13,
     fontWeight: '600',
-    overflow: 'hidden',
+    maxWidth: 72,
   },
 });

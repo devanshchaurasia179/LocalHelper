@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
-  FlatList,
   TouchableOpacity,
   StyleSheet,
   StatusBar,
@@ -19,6 +18,7 @@ import * as Location from 'expo-location';
 
 import { fetchNearbyServices } from '@/api/nearby.api';
 import type { NearbyPartner } from '@/api/nearby.api';
+import { nearbyCache } from '@/cache/nearbyCache';
 import PartnerCard from './PartnerCard';
 import PartnerDetailSheet from '../home/PartnerDetailSheet';
 import { colors, spacing, radii, typography } from '../home/theme';
@@ -152,8 +152,16 @@ export default function CategoryPartnersScreen() {
     categoryName: string;
   }>();
 
-  const [partners, setPartners] = useState<NearbyPartner[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Seed from cache immediately — no GPS call, no shimmer on first open
+  const cachedPartners = useMemo(
+    () => nearbyCache.getPartnersByCategory(categoryId ?? ''),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [categoryId]
+  );
+
+  const [partners, setPartners] = useState<NearbyPartner[]>(cachedPartners);
+  // If we already have cached data, skip the loading state entirely
+  const [loading, setLoading] = useState(cachedPartners.length === 0);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedPartner, setSelectedPartner] = useState<NearbyPartner | null>(null);
@@ -165,35 +173,54 @@ export default function CategoryPartnersScreen() {
 
   const scrollY = useRef(new Animated.Value(0)).current;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     try {
-      setError(null);
+      if (!silent) setError(null);
 
-      let coords: { lat: number; lng: number } | undefined;
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        setLocationDenied(false);
-        const pos = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      } else {
-        setLocationDenied(true);
+      // Re-use cached coords to avoid a redundant GPS round-trip
+      let coords = nearbyCache.getCoords() ?? undefined;
+
+      if (!coords) {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          setLocationDenied(false);
+          const pos = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          nearbyCache.setCoords(coords);
+        } else {
+          setLocationDenied(true);
+        }
       }
 
       const res = await fetchNearbyServices({ ...coords, categoryId });
-      setPartners(res.data.services);
+      nearbyCache.setPartners(res.data.services);
+      setPartners(res.data.services.filter((p) =>
+        p.categories.some((c) => c._id === categoryId)
+      ));
     } catch (err: any) {
-      setError(
-        err?.response?.data?.message ?? 'Could not load partners. Pull to refresh.'
-      );
+      if (!silent) {
+        setError(
+          err?.response?.data?.message ?? 'Could not load partners. Pull to refresh.'
+        );
+      }
     }
   }, [categoryId]);
 
   useEffect(() => {
-    setLoading(true);
-    load().finally(() => setLoading(false));
-  }, [load]);
+    if (cachedPartners.length === 0) {
+      // No cache — show skeleton and wait
+      setLoading(true);
+      load().finally(() => setLoading(false));
+    } else {
+      // Cache hit — show data instantly, refresh quietly in background
+      // only if the cache is stale (> 1 minute old)
+      if (nearbyCache.isStale()) {
+        load(true);
+      }
+    }
+  }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = useCallback(async () => {
     setRefreshing(true);

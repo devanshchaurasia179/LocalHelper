@@ -13,7 +13,7 @@ export interface PromoOffer {
   description: string;
   serviceName: string;
   servicePrice: number;
-  image: string;
+  image?: string;
 }
 
 export type NavRoute = 'home' | 'chat' | 'bookings' | 'profile';

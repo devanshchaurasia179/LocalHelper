@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { View, Text, TouchableOpacity, ImageBackground, StyleSheet } from 'react-native';
+import { View, Text, ImageBackground, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
@@ -7,6 +7,7 @@ import Animated, {
   useAnimatedStyle,
   withRepeat,
   withTiming,
+  withSpring,
   Easing,
   interpolate,
 } from 'react-native-reanimated';
@@ -69,16 +70,38 @@ function CategoryCard({
 }) {
   const image = getCategoryImage(category.name);
   const icon  = getCategoryIcon(category.name);
+  const scale = useSharedValue(1);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePressIn = () => {
+    scale.value = withSpring(0.95, { damping: 15, stiffness: 300 });
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1, { damping: 12, stiffness: 200 });
+  };
+
+  const handlePress = () => {
+    // Let the press-in animation render first, then navigate
+    // This eliminates the visual "freeze" between tap and transition
+    requestAnimationFrame(() => {
+      onPress();
+    });
+  };
 
   return (
-    <TouchableOpacity
+    <Pressable
+      onPress={handlePress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
       style={styles.cell}
-      onPress={onPress}
-      activeOpacity={0.88}
       accessibilityRole="button"
       accessibilityLabel={`Browse ${category.name} services`}
     >
-      <View style={styles.card}>
+      <Animated.View style={[styles.card, animStyle]}>
         {/* Photo background */}
         <ImageBackground
           source={image}
@@ -118,8 +141,8 @@ function CategoryCard({
             </View>
           </LinearGradient>
         </ImageBackground>
-      </View>
-    </TouchableOpacity>
+      </Animated.View>
+    </Pressable>
   );
 }
 

@@ -56,7 +56,7 @@ export default function PartnerCard({ partner, onPress }: PartnerCardProps) {
           {!imageLoaded && <View style={styles.avatarPlaceholder} />}
           <Image
             source={{ uri: avatarUri }}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             contentFit="cover"
             transition={200}
             onLoad={() => setImageLoaded(true)}
@@ -205,7 +205,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5E7EB',
   },
   avatarPlaceholder: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: '#E5E7EB',
   },
   onlineBadge: {
