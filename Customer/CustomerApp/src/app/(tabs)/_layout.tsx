@@ -6,6 +6,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="home" />
       <Tabs.Screen name="bookings" />
       <Tabs.Screen name="profile" />
+      <Tabs.Screen name="nearby" options={{ href: null }} />
     </Tabs>
   );
 }

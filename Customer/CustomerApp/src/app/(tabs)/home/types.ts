@@ -4,7 +4,7 @@ export interface Provider {
   category: string;   // first category name, or 'General'
   pricePerHour: number;
   rating: number;
-  image: string;      // require() result or remote URL
+  image: string | number;  // string = remote URI, number = local require() asset
   distanceKm?: number;
 }
 

@@ -3,25 +3,24 @@ import {
   ScrollView,
   Text,
   StyleSheet,
-  ActivityIndicator,
   RefreshControl,
   View,
+  StatusBar,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
 import Header from './Header';
 import SearchBar from './SearchBar';
 import PromoBanner from './PromoBanner';
-import ServiceGrid from './ServiceGrid';
 import BottomNav from './BottomNav';
-import PartnerDetailSheet from './PartnerDetailSheet';
+import CategoryGrid, { CategoryGridSkeleton } from './CategoryGrid';
 
 import { useNearbyServices } from '@/hooks/useNearbyServices';
-import type { NearbyPartner } from '@/api/nearby.api';
+import type { NearbyCategory } from '@/api/nearby.api';
 
-import { Provider, PromoOffer, NavRoute } from './types';
-import { colors, spacing } from './theme';
+import { PromoOffer, NavRoute } from './types';
+import { colors, spacing, radii, typography } from './theme';
 import { useAuth } from '@/providers/AuthProvider';
 import { ROUTES } from '@/constants/routes';
 import type { Address } from './Header';
@@ -36,86 +35,80 @@ const PROMO_OFFER: PromoOffer = {
   image: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=400',
 };
 
-// ─── Map backend NearbyPartner → UI Provider ──────────────────────────────────
-
-function toProvider(partner: NearbyPartner): Provider {
-  return {
-    id: partner._id,
-    name: partner.fullName,
-    category: partner.categories[0]?.name ?? 'General',
-    // visitingCredits acts as hourly rate; 0 means free / negotiable
-    pricePerHour: partner.visitingCredits ?? 0,
-    rating: partner.averageRating ?? 0,
-    image: partner.profilePhoto
-      ? partner.profilePhoto
-      : `https://ui-avatars.com/api/?name=${encodeURIComponent(partner.fullName)}&background=6C63FF&color=fff&size=300`,
-    distanceKm: partner.distanceKm,
-  };
-}
-
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const { customer } = useAuth();
+  const insets = useSafeAreaInsets();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAddressIndex, setSelectedAddressIndex] = useState(0);
-  const [selectedPartner, setSelectedPartner] = useState<NearbyPartner | null>(null);
 
   const { services, loading, refreshing, error, refresh } = useNearbyServices();
+
+  // Derive unique categories from nearby partners — only categories that
+  // actually have at least one available partner nearby are shown.
+  const nearbyCategories: NearbyCategory[] = (() => {
+    const seen = new Set<string>();
+    const result: NearbyCategory[] = [];
+    for (const partner of services) {
+      for (const cat of partner.categories) {
+        if (!seen.has(cat._id)) {
+          seen.add(cat._id);
+          result.push(cat);
+        }
+      }
+    }
+    return result;
+  })();
 
   const handleNavigate = useCallback((route: NavRoute) => {
     if (route === 'profile')  router.replace(ROUTES.APP.PROFILE as any);
     if (route === 'bookings') router.replace(ROUTES.APP.BOOKINGS as any);
   }, []);
 
-  // Map a NearbyPartner _id back to the full partner object for the sheet
-  const handleCardPress = useCallback(
-    (provider: Provider) => {
-      const partner = services.find((s) => s._id === provider.id) ?? null;
-      setSelectedPartner(partner);
-    },
-    [services]
-  );
+  const handleCategoryPress = useCallback((category: NearbyCategory) => {
+    router.push({
+      pathname: '/(tabs)/nearby/[categoryId]',
+      params: { categoryId: category._id, categoryName: category.name },
+    } as any);
+  }, []);
 
   const firstName = customer?.name?.split(' ')[0] ?? 'there';
-
   const addresses: Address[] = (customer?.addresses ?? []) as Address[];
 
-  // Filter by search query (name or category)
-  const filteredProviders = services
-    .map(toProvider)
-    .filter((p) => {
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
-      return (
-        p.name.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q)
-      );
-    });
+  // Filter categories by search query
+  const filteredCategories = nearbyCategories.filter((cat) => {
+    if (!searchQuery.trim()) return true;
+    return cat.name.toLowerCase().includes(searchQuery.toLowerCase());
+  });
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    // edges={['bottom']} — no top safe-area inset so hero touches the status bar
+    <SafeAreaView style={styles.safeArea} edges={['bottom']}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.primary} />
+
       <ScrollView
+        style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        bounces={false}
+        overScrollMode="never"
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={refresh} />
         }
       >
-        {/* ── Green hero card: location header + greeting + search ── */}
-        <View style={styles.heroCard}>
+        {/* ── Hero: scrolls with the page ── */}
+        <View style={[styles.heroCard, { paddingTop: insets.top }]}>
           <Header
             addresses={addresses}
             selectedIndex={selectedAddressIndex}
             onSelectAddress={setSelectedAddressIndex}
             onNotificationPress={() => console.log('Open notifications')}
           />
-
           <View style={styles.titleBlock}>
             <Text style={styles.titleGreeting}>Hello, {firstName} </Text>
-            <Text style={styles.titleTagline}>From hassles to{'\n'}solutions in one tap.</Text>
+            <Text style={styles.titleTagline}>From Hassles To{'\n'}Solutions In One Tap.</Text>
           </View>
-
           <SearchBar
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -123,53 +116,46 @@ export default function Dashboard() {
           />
         </View>
 
-        <PromoBanner
-          offer={PROMO_OFFER}
-          onBookPress={() => console.log('Book floor cleaning')}
-        />
+        {/* ── Content card: white sheet overlapping hero bottom ── */}
+        <View style={styles.contentCard}>
+          {/* drag handle */}
+          <View style={styles.handle} />
 
-        {/* ── Nearby Services ─────────────────────────────────────────────── */}
-        <Text style={styles.sectionTitle}>Nearby Services</Text>
+          <View style={styles.promoBannerWrapper}>
+            <PromoBanner
+              offer={PROMO_OFFER}
+              onBookPress={() => console.log('Book floor cleaning')}
+            />
+          </View>
 
-        {loading ? (
-          <ActivityIndicator
-            size="large"
-            color={colors.primary}
-            style={styles.loader}
-          />
-        ) : error ? (
-          <View style={styles.messageContainer}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        ) : filteredProviders.length === 0 ? (
-          <View style={styles.messageContainer}>
-            <Text style={styles.emptyText}>
-              {searchQuery.trim()
-                ? 'No services match your search.'
-                : 'No service providers available nearby right now.'}
-            </Text>
-          </View>
-        ) : (
-          <ServiceGrid
-            providers={filteredProviders}
-            onCardPress={handleCardPress}
-            onAddPress={handleCardPress}
-          />
-        )}
+          {/* ── Nearby Services ── */}
+          <Text style={styles.sectionTitle}>Nearby Services</Text>
+          <Text style={styles.sectionSubtitle}>Choose a service to find available partners</Text>
+
+          {loading ? (
+            <CategoryGridSkeleton />
+          ) : error ? (
+            <View style={styles.messageContainer}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : filteredCategories.length === 0 ? (
+            <View style={styles.messageContainer}>
+              <Text style={styles.emptyText}>
+                {searchQuery.trim()
+                  ? 'No services match your search.'
+                  : 'No service categories available right now.'}
+              </Text>
+            </View>
+          ) : (
+            <CategoryGrid
+              categories={filteredCategories}
+              onCategoryPress={handleCategoryPress}
+            />
+          )}
+        </View>
       </ScrollView>
 
       <BottomNav onNavigate={handleNavigate} />
-
-      {/* Partner detail + booking sheet */}
-      <PartnerDetailSheet
-        partner={selectedPartner}
-        visible={selectedPartner !== null}
-        onClose={() => setSelectedPartner(null)}
-        onBooked={() => {
-          setSelectedPartner(null);
-          refresh();
-        }}
-      />
     </SafeAreaView>
   );
 }
@@ -177,23 +163,21 @@ export default function Dashboard() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
+    backgroundColor: colors.background,  // white — matches content card, no gap at bottom
+  },
+  scroll: {
+    flex: 1,
     backgroundColor: colors.background,
   },
   scrollContent: {
-    paddingBottom: 120,
+    flexGrow: 1,          // lets contentCard's flex: 1 actually have room to grow into
+    backgroundColor: colors.background,
   },
-  // ── Green hero card ──────────────────────────────────────────────────────────
+
+  // ── Hero: sits flush at top, scrolls with page ───────────────────────────────
   heroCard: {
     backgroundColor: colors.primary,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
-    paddingBottom: spacing.lg,
-    // subtle shadow for depth
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 8,
+    paddingBottom: spacing.xl + 24,      // extra so content card overlap doesn't clip content
   },
   titleBlock: {
     paddingHorizontal: spacing.md,
@@ -201,41 +185,74 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   titleGreeting: {
-    fontFamily: 'Oswald_400Regular',
+    ...typography.greeting,
+    fontFamily: 'Oswald_600Regular',
     fontSize: 19,
-    color: 'rgba(255, 255, 255, 0.75)',
     letterSpacing: 0.4,
   },
   titleTagline: {
-    fontFamily: 'Oswald_700Bold',
-    fontSize: 28,
+    ...typography.heading,
+    fontSize: 32,
     color: colors.white,
-    lineHeight: 36,
+    lineHeight: 30,
     letterSpacing: 0.2,
   },
-  sectionTitle: {
-    paddingHorizontal: spacing.md,
-    marginTop: spacing.lg,
-    marginBottom: spacing.xs,
-    fontSize: 18,
-    fontWeight: '700' as const,
-    color: colors.textPrimary,
+
+  // ── White content card: overlaps hero with rounded top corners ───────────────
+  contentCard: {
+    flex: 1,              // ← stretches to fill remaining scroll space; fixes the bottom gap
+    backgroundColor: colors.background,
+    borderTopLeftRadius: radii.lg + 8,
+    borderTopRightRadius: radii.lg + 8,
+    marginTop: -28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 18,
+    paddingBottom: 85,
   },
-  loader: {
-    marginTop: spacing.xl,
+
+  // drag handle at top of content card
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.navInactive,
+    alignSelf: 'center',
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+
+  // ── Promo banner ─────────────────────────────────────────────────────────────
+  promoBannerWrapper: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+  },
+
+  sectionTitle: {
+    ...typography.heading,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.xs,
   },
   messageContainer: {
     paddingHorizontal: spacing.md,
     marginTop: spacing.lg,
   },
   errorText: {
+    ...typography.body,
     color: '#E53935',
-    fontSize: 14,
     textAlign: 'center',
   },
   emptyText: {
-    color: colors.textSecondary,
-    fontSize: 14,
+    ...typography.caption,
     textAlign: 'center',
   },
 });

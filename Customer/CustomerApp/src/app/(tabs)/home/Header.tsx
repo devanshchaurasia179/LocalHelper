@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { colors, spacing, radii } from './theme';
+import { colors, spacing, radii, typography } from './theme';
 import { useAuth } from '@/providers/AuthProvider';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -89,7 +89,6 @@ export default function Header({
   const primaryLine = selected
     ? selected.locality?.trim() || selected.city
     : 'Set your location';
-  const secondaryLine = selected ? `${selected.city}, ${selected.state}` : '';
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
@@ -179,14 +178,14 @@ export default function Header({
           onPress={() => setPickerVisible(true)}
           activeOpacity={0.7}
         >
-          <Ionicons name="location-sharp" size={16} color="rgba(255,255,255,0.8)" />
+          <Ionicons name="location-sharp" size={16} color={colors.white} />
           <View style={styles.locationText}>
             <Text style={styles.locationLabel}>Your Location</Text>
             <View style={styles.locationValueRow}>
               <Text style={styles.primaryLocation} numberOfLines={1}>
                 {primaryLine}
               </Text>
-              <Ionicons name="chevron-down" size={14} color="rgba(255,255,255,0.7)" />
+              <Ionicons name="chevron-down" size={14} color={colors.white} />
             </View>
           </View>
         </TouchableOpacity>
@@ -426,8 +425,7 @@ const styles = StyleSheet.create({
   },
   locationText: { flex: 1 },
   locationLabel: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.6)',
+    ...typography.greeting,
     letterSpacing: 0.3,
     marginBottom: 1,
   },
@@ -437,13 +435,12 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   primaryLocation: {
+    ...typography.name,
     fontSize: 15,
-    fontWeight: '700',
     color: colors.white,
   },
   secondaryLocation: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.65)',
+    ...typography.greeting,
     marginTop: 1,
   },
   bellButton: {
@@ -451,6 +448,8 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: radii.pill,
     backgroundColor: 'rgba(255,255,255,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -463,7 +462,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     backgroundColor: '#FF4D4D',
     borderWidth: 1.5,
-    borderColor: colors.primary,
+    borderColor: '#f5f5f5',
   },
 
   // shared modal pieces
@@ -488,27 +487,25 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#DDD',
+    backgroundColor: colors.navInactive,
     alignSelf: 'center',
     marginBottom: spacing.sm,
   },
   sheetTitle: {
+    ...typography.name,
     fontSize: 16,
-    fontWeight: '700',
-    color: colors.textPrimary,
     paddingHorizontal: spacing.md,
     marginBottom: spacing.sm,
   },
   separator: {
     height: 1,
-    backgroundColor: '#F0F0F0',
+    backgroundColor: colors.surface,
     marginHorizontal: spacing.md,
   },
   emptyText: {
     textAlign: 'center',
-    color: colors.textSecondary,
+    ...typography.caption,
     paddingVertical: spacing.lg,
-    fontSize: 14,
   },
 
   // address items
@@ -530,14 +527,12 @@ const styles = StyleSheet.create({
   addrIconActive: { backgroundColor: colors.primary },
   addrDetails: { flex: 1 },
   addrLabel: {
+    ...typography.name,
     fontSize: 14,
-    fontWeight: '600',
-    color: colors.textPrimary,
   },
   addrLabelActive: { color: colors.primary },
   addrFull: {
-    fontSize: 12,
-    color: colors.textSecondary,
+    ...typography.caption,
     marginTop: 2,
   },
 
@@ -550,10 +545,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     paddingVertical: spacing.sm + 2,
     borderTopWidth: 1,
-    borderColor: '#F0F0F0',
+    borderColor: colors.surface,
   },
   addBtnText: {
-    fontSize: 14,
+    ...typography.body,
     fontWeight: '600',
     color: colors.primary,
   },
@@ -578,7 +573,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs + 2,
     borderRadius: radii.pill,
     borderWidth: 1.5,
-    borderColor: '#DDD',
+    borderColor: colors.navInactive,
     backgroundColor: colors.surface,
   },
   labelChipActive: {
@@ -586,8 +581,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary + '18',
   },
   labelChipText: {
+    ...typography.caption,
     fontSize: 13,
-    color: colors.textSecondary,
     fontWeight: '500',
   },
   labelChipTextActive: {
@@ -598,21 +593,19 @@ const styles = StyleSheet.create({
   // form fields
   fieldWrap: { marginBottom: spacing.md },
   fieldLabel: {
-    fontSize: 12,
+    ...typography.caption,
     fontWeight: '600',
-    color: colors.textSecondary,
     marginBottom: 6,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   input: {
     borderWidth: 1.5,
-    borderColor: '#E5E5E5',
+    borderColor: colors.navInactive,
     borderRadius: radii.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
-    fontSize: 14,
-    color: colors.textPrimary,
+    ...typography.body,
     backgroundColor: colors.surface,
   },
 

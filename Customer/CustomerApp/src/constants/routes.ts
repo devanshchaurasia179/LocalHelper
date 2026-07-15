@@ -19,6 +19,7 @@ export const ROUTES = {
     BOOKINGS: "/(tabs)/bookings",
     ORDERS: "/(tabs)/orders",
     PROFILE: "/(tabs)/profile",
+    NEARBY_CATEGORY: "/(tabs)/nearby/[categoryId]",
   },
 
   // Root redirect

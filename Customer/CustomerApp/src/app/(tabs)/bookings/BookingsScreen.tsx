@@ -273,6 +273,7 @@ const styles = StyleSheet.create({
   },
   filtersList: {
     flexGrow: 0,
+    flexShrink: 0,
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F5',
   },
@@ -280,6 +281,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     gap: spacing.sm,
+    alignItems: 'center',
   },
   filterChip: {
     paddingHorizontal: spacing.md,

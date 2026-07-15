@@ -1,7 +1,6 @@
-import React from 'react';
 import { View, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, radii } from './theme';
+import { colors, spacing, radii, typography } from './theme';
 
 interface SearchBarProps {
   value: string;
@@ -52,7 +51,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.white,
+    backgroundColor: colors.surfaceAlt,
     borderRadius: radii.lg,
     paddingHorizontal: spacing.md,
     height: 50,
@@ -60,16 +59,13 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: 14,
-    color: colors.textPrimary,
+    ...typography.body,
   },
   filterButton: {
     width: 50,
     height: 50,
     borderRadius: radii.lg,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: colors.chipBackground,
     alignItems: 'center',
     justifyContent: 'center',
   },
