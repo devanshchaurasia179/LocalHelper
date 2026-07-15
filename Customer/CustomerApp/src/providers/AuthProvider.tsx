@@ -5,7 +5,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
-import { sendOtp, verifyOtp, completeProfile, addAddress as addAddressApi, logout } from "@/api/auth.api";
+import { sendOtp, verifyOtp, completeProfile, updateProfileApi, addAddress as addAddressApi, updateAddressApi, logout } from "@/api/auth.api";
 import { api } from "@/constants/api";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -62,6 +62,9 @@ type AuthContextType = {
   // Patch customer fields in context (used by screens after API calls)
   patchCustomer: (fields: Partial<Customer>) => void;
 
+  // Update name/gender via API and sync context
+  updateProfile: (data: { name?: string; gender?: string }) => Promise<void>;
+
   // Add a new address
   addAddress: (address: {
     label?: string;
@@ -72,6 +75,21 @@ type AuthContextType = {
     state: string;
     pincode: string;
   }) => Promise<void>;
+
+  // Update an existing address by its _id
+  updateAddress: (
+    addressId: string,
+    address: {
+      label?: string;
+      house?: string;
+      street?: string;
+      locality?: string;
+      city: string;
+      state: string;
+      pincode: string;
+    },
+    location?: { latitude: number; longitude: number }
+  ) => Promise<void>;
 
   // Sign out
   signOut: () => Promise<void>;
@@ -205,6 +223,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCustomer((prev) => (prev ? { ...prev, ...fields } : prev));
   }, []);
 
+  // Update name/gender — calls API then syncs context
+  const updateProfile = useCallback(
+    async (data: { name?: string; gender?: string }) => {
+      const res = await updateProfileApi(data);
+      const { name, gender } = res.data.customer;
+      setCustomer((prev) =>
+        prev ? { ...prev, name: name ?? prev.name, gender: gender ?? prev.gender } : prev
+      );
+    },
+    []
+  );
+
   // Add a new address — calls API and appends to local state
   const addAddress = useCallback(
     async (address: {
@@ -224,6 +254,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  // Update an existing address — calls API and syncs local state
+  const updateAddress = useCallback(
+    async (
+      addressId: string,
+      address: {
+        label?: string;
+        house?: string;
+        street?: string;
+        locality?: string;
+        city: string;
+        state: string;
+        pincode: string;
+      },
+      location?: { latitude: number; longitude: number }
+    ) => {
+      const res = await updateAddressApi(addressId, address, location);
+      setCustomer((prev) =>
+        prev ? { ...prev, addresses: res.data.addresses } : prev
+      );
+    },
+    []
+  );
+
   return (
     <AuthContext.Provider
       value={{
@@ -233,7 +286,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         confirmOtp,
         finishProfile,
         patchCustomer,
+        updateProfile,
         addAddress,
+        updateAddress,
         signOut,
       }}
     >

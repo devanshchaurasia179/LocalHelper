@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import * as Location from 'expo-location';
 
 import { colors, spacing, radii, typography } from './theme';
 import { useBookPartner } from '@/hooks/useBookPartner';
@@ -39,6 +40,29 @@ function formatDate(d: Date) {
     minute: '2-digit',
     hour12: true,
   });
+}
+
+/**
+ * Haversine formula — returns distance in km between two lat/lng points.
+ */
+function haversineKm(
+  lat1: number, lng1: number,
+  lat2: number, lng2: number,
+): number {
+  const R = 6371; // Earth radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDistance(km: number): string {
+  if (km < 0.1) return '< 0.1 km';
+  return `${km.toFixed(1)} km`;
 }
 
 // ─── Row component ────────────────────────────────────────────────────────────
@@ -78,6 +102,46 @@ export default function PartnerDetailSheet({
   onBooked,
 }: PartnerDetailSheetProps) {
   const { booking, error, book, reset } = useBookPartner();
+
+  // ── Distance (recalculated from live GPS when sheet opens) ─────────────────
+  const [displayDistanceKm, setDisplayDistanceKm] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!visible || !partner) {
+      setDisplayDistanceKm(null);
+      return;
+    }
+
+    // Start with the server-computed value immediately so there's no blank
+    setDisplayDistanceKm(partner.distanceKm);
+
+    // Then try to get a fresh reading from device GPS
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+
+        const partnerCoords = partner.serviceLocation?.coordinates;
+        if (!partnerCoords || partnerCoords.length < 2) return;
+
+        // GeoJSON order: [longitude, latitude]
+        const [partnerLng, partnerLat] = partnerCoords;
+        const km = haversineKm(
+          pos.coords.latitude,
+          pos.coords.longitude,
+          partnerLat,
+          partnerLng,
+        );
+        setDisplayDistanceKm(km);
+      } catch {
+        // Silently fall back to server value
+      }
+    })();
+  }, [visible, partner]);
 
   // ── Form state ─────────────────────────────────────────────────────────────
   const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -210,7 +274,11 @@ export default function PartnerDetailSheet({
                 <View style={styles.statDivider} />
                 <View style={styles.stat}>
                   <Ionicons name="location" size={14} color={colors.primary} />
-                  <Text style={styles.statValue}>{partner.distanceKm.toFixed(1)} km</Text>
+                  <Text style={styles.statValue}>
+                    {displayDistanceKm != null
+                      ? formatDistance(displayDistanceKm)
+                      : `${partner.distanceKm.toFixed(1)} km`}
+                  </Text>
                   <Text style={styles.statLabel}>Away</Text>
                 </View>
               </View>
@@ -265,8 +333,8 @@ export default function PartnerDetailSheet({
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Available Days</Text>
                 <View style={styles.chipRow}>
-                  {partner.workingDays.map((day) => (
-                    <InfoChip key={day} icon="calendar-outline" label={day} />
+                  {partner.workingDays.map((entry) => (
+                    <InfoChip key={entry.day} icon="calendar-outline" label={entry.day} />
                   ))}
                 </View>
               </View>

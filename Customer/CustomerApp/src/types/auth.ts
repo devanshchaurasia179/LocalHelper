@@ -51,6 +51,16 @@ export type CompleteProfileResponse = {
   customer: Customer;
 };
 
+export type UpdateProfilePayload = {
+  name?: string;
+  gender?: string;
+};
+
+export type UpdateProfileResponse = {
+  message: string;
+  customer: Pick<Customer, 'id' | 'name' | 'gender'>;
+};
+
 export type GetMeResponse = {
   customer: Customer;
 };

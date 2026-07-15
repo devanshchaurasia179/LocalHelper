@@ -120,6 +120,9 @@ export const verifyOtp = async (req, res) => {
       customer: {
         id: customer._id,
         phone: customer.phone,
+        name: customer.name ?? null,
+        gender: customer.gender ?? null,
+        addresses: customer.addresses ?? [],
         phoneVerified: customer.verification.phoneVerified,
         isOnboarded: customer.isOnboarded,
       },
@@ -259,6 +262,56 @@ export const getMe = async (req, res) => {
   }
 };
 
+// ─── Update Profile ─────────────────────────────────────────────────────────
+/**
+ * PATCH /api/customer/auth/update-profile
+ * Headers: Cookie customer_token=<jwt>
+ * Body: { name?, gender? }
+ *
+ * Updates the customer's name and/or gender.
+ * Returns the updated customer fields.
+ */
+export const updateProfile = async (req, res) => {
+  try {
+    const { name, gender } = req.body;
+
+    if (!name && !gender) {
+      return res.status(400).json({ message: "Provide at least name or gender to update." });
+    }
+
+    const customer = await Customer.findById(req.customerId);
+    if (!customer) {
+      return res.status(404).json({ message: "Customer not found." });
+    }
+
+    if (name !== undefined) {
+      const trimmed = name.trim();
+      if (trimmed.length < 2) {
+        return res.status(400).json({ message: "Name must be at least 2 characters." });
+      }
+      customer.name = trimmed;
+    }
+
+    if (gender !== undefined) {
+      customer.gender = gender;
+    }
+
+    await customer.save();
+
+    return res.status(200).json({
+      message: "Profile updated successfully.",
+      customer: {
+        id:     customer._id,
+        name:   customer.name,
+        gender: customer.gender,
+      },
+    });
+  } catch (error) {
+    console.error("updateProfile error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
 // ─── Add Address ────────────────────────────────────────────────────────────
 /**
  * POST /api/customer/auth/add-address
@@ -306,6 +359,68 @@ export const addAddress = async (req, res) => {
     });
   } catch (error) {
     console.error("addAddress error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+// ─── Update Address ─────────────────────────────────────────────────────────
+/**
+ * PATCH /api/customer/auth/update-address/:addressId
+ * Headers: Cookie customer_token=<jwt>
+ * Body: { label?, house?, street?, locality?, city*, state*, pincode*, location? }
+ *
+ * location: { latitude, longitude } — silently updates currentLocation if provided
+ * Updates an existing address in the customer's addresses array by its _id.
+ */
+export const updateAddress = async (req, res) => {
+  try {
+    const { addressId } = req.params;
+    const { label, house, street, locality, city, state, pincode, location } = req.body;
+
+    if (!city || !state || !pincode) {
+      return res.status(400).json({
+        message: "city, state, and pincode are required.",
+      });
+    }
+
+    if (!/^\d{6}$/.test(pincode)) {
+      return res.status(400).json({ message: "Pincode must be exactly 6 digits." });
+    }
+
+    const customer = await Customer.findById(req.customerId);
+    if (!customer) {
+      return res.status(404).json({ message: "Customer not found." });
+    }
+
+    const addr = customer.addresses.id(addressId);
+    if (!addr) {
+      return res.status(404).json({ message: "Address not found." });
+    }
+
+    addr.label    = label?.trim()    || addr.label    || "Home";
+    addr.house    = house?.trim()    ?? addr.house    ?? "";
+    addr.street   = street?.trim()   ?? addr.street   ?? "";
+    addr.locality = locality?.trim() ?? addr.locality ?? "";
+    addr.city     = city.trim();
+    addr.state    = state.trim();
+    addr.pincode  = pincode.trim();
+
+    // Silently store GPS coordinates if provided — no error if missing
+    if (location?.latitude && location?.longitude) {
+      customer.currentLocation = {
+        type: "Point",
+        coordinates: [location.longitude, location.latitude],
+      };
+    }
+
+    await customer.save();
+
+    return res.status(200).json({
+      message: "Address updated successfully.",
+      addresses: customer.addresses,
+    });
+  } catch (error) {
+    console.error("updateAddress error:", error);
     return res.status(500).json({ message: "Internal server error." });
   }
 };

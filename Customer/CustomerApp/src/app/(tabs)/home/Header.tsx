@@ -2,7 +2,6 @@ import { useState } from 'react';
 import {
   View,
   Text,
-  Image,
   TouchableOpacity,
   StyleSheet,
   Modal,
@@ -16,12 +15,14 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { colors, spacing, radii } from './theme';
 import { useAuth } from '@/providers/AuthProvider';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface Address {
+  _id?: string;
   label?: string;
   house?: string;
   street?: string;
@@ -32,7 +33,6 @@ export interface Address {
 }
 
 interface HeaderProps {
-  avatarUri: string;
   addresses: Address[];
   selectedIndex: number;
   onSelectAddress: (index: number) => void;
@@ -52,20 +52,36 @@ const EMPTY_FORM = {
   pincode: '',
 };
 
+type FormMode = 'add' | 'edit';
+
+// ─── Helper: silently get GPS coords ─────────────────────────────────────────
+
+async function getCoordsSilently(): Promise<{ latitude: number; longitude: number } | null> {
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') return null;
+    const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    return { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+  } catch {
+    return null;
+  }
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Header({
-  avatarUri,
   addresses,
   selectedIndex,
   onSelectAddress,
   hasNotification = true,
   onNotificationPress,
 }: HeaderProps) {
-  const { addAddress } = useAuth();
+  const { addAddress, updateAddress } = useAuth();
 
   const [pickerVisible, setPickerVisible] = useState(false);
   const [formVisible, setFormVisible] = useState(false);
+  const [formMode, setFormMode] = useState<FormMode>('add');
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
@@ -82,8 +98,26 @@ export default function Header({
     setPickerVisible(false);
   };
 
-  const openForm = () => {
+  const openAddForm = () => {
     setForm(EMPTY_FORM);
+    setFormMode('add');
+    setEditingAddressId(null);
+    setPickerVisible(false);
+    setFormVisible(true);
+  };
+
+  const openEditForm = (addr: Address) => {
+    setForm({
+      label:    addr.label    ?? '',
+      house:    addr.house    ?? '',
+      street:   addr.street   ?? '',
+      locality: addr.locality ?? '',
+      city:     addr.city,
+      state:    addr.state,
+      pincode:  addr.pincode,
+    });
+    setFormMode('edit');
+    setEditingAddressId(addr._id ?? null);
     setPickerVisible(false);
     setFormVisible(true);
   };
@@ -100,7 +134,11 @@ export default function Header({
 
     try {
       setSaving(true);
-      await addAddress({
+
+      // Silently grab GPS — no prompt shown to user, ignored if unavailable
+      const location = await getCoordsSilently();
+
+      const addressPayload = {
         label:    form.label.trim()    || 'Home',
         house:    form.house.trim(),
         street:   form.street.trim(),
@@ -108,10 +146,17 @@ export default function Header({
         city:     form.city.trim(),
         state:    form.state.trim(),
         pincode:  form.pincode.trim(),
-      });
+      };
+
+      if (formMode === 'edit' && editingAddressId) {
+        await updateAddress(editingAddressId, addressPayload, location ?? undefined);
+      } else {
+        await addAddress(addressPayload);
+        // Auto-select the newly added address
+        onSelectAddress(addresses.length);
+      }
+
       setFormVisible(false);
-      // Auto-select the newly added address (it will be the last one)
-      onSelectAddress(addresses.length); // length before state update = new last index
     } catch (err: any) {
       Alert.alert('Error', err?.response?.data?.message ?? 'Could not save address.');
     } finally {
@@ -126,27 +171,24 @@ export default function Header({
 
   return (
     <View style={styles.container}>
-      {/* ── Left: avatar + location tap ────────────────────────────────── */}
+      {/* ── Left: location tap ─────────────────────────────────────── */}
       <View style={styles.left}>
-        <Image source={{ uri: avatarUri }} style={styles.avatar} />
 
         <TouchableOpacity
           style={styles.locationRow}
           onPress={() => setPickerVisible(true)}
           activeOpacity={0.7}
         >
-          <Ionicons name="location-sharp" size={16} color={colors.primary} />
+          <Ionicons name="location-sharp" size={16} color="rgba(255,255,255,0.8)" />
           <View style={styles.locationText}>
-            <Text style={styles.primaryLocation} numberOfLines={1}>
-              {primaryLine}
-            </Text>
-            {secondaryLine ? (
-              <Text style={styles.secondaryLocation} numberOfLines={1}>
-                {secondaryLine}
+            <Text style={styles.locationLabel}>Your Location</Text>
+            <View style={styles.locationValueRow}>
+              <Text style={styles.primaryLocation} numberOfLines={1}>
+                {primaryLine}
               </Text>
-            ) : null}
+              <Ionicons name="chevron-down" size={14} color="rgba(255,255,255,0.7)" />
+            </View>
           </View>
-          <Ionicons name="chevron-down" size={14} color={colors.textSecondary} />
         </TouchableOpacity>
       </View>
 
@@ -156,7 +198,7 @@ export default function Header({
         onPress={onNotificationPress}
         activeOpacity={0.7}
       >
-        <Ionicons name="notifications-outline" size={20} color={colors.textPrimary} />
+        <Ionicons name="notifications-outline" size={20} color={colors.white} />
         {hasNotification && <View style={styles.dot} />}
       </TouchableOpacity>
 
@@ -214,13 +256,22 @@ export default function Header({
                     {isActive && (
                       <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
                     )}
+                    {/* Edit pencil */}
+                    <TouchableOpacity
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      onPress={() => openEditForm(item)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit ${item.label ?? 'address'}`}
+                    >
+                      <Ionicons name="pencil-outline" size={17} color={colors.textSecondary} />
+                    </TouchableOpacity>
                   </TouchableOpacity>
                 );
               }}
             />
 
             {/* Add location button */}
-            <TouchableOpacity style={styles.addBtn} onPress={openForm} activeOpacity={0.8}>
+            <TouchableOpacity style={styles.addBtn} onPress={openAddForm} activeOpacity={0.8}>
               <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
               <Text style={styles.addBtnText}>Add location</Text>
             </TouchableOpacity>
@@ -229,7 +280,7 @@ export default function Header({
       </Modal>
 
       {/* ════════════════════════════════════════════════════════════════════
-          ADD LOCATION FORM MODAL
+          ADD / EDIT LOCATION FORM MODAL
       ════════════════════════════════════════════════════════════════════ */}
       <Modal
         visible={formVisible}
@@ -248,7 +299,9 @@ export default function Header({
 
               {/* Header row */}
               <View style={styles.formHeaderRow}>
-                <Text style={styles.sheetTitle}>Add new location</Text>
+                <Text style={styles.sheetTitle}>
+                  {formMode === 'edit' ? 'Edit location' : 'Add new location'}
+                </Text>
                 <TouchableOpacity onPress={() => setFormVisible(false)}>
                   <Ionicons name="close" size={22} color={colors.textSecondary} />
                 </TouchableOpacity>
@@ -294,7 +347,9 @@ export default function Header({
                   {saving ? (
                     <ActivityIndicator color={colors.white} size="small" />
                   ) : (
-                    <Text style={styles.saveBtnText}>Save location</Text>
+                    <Text style={styles.saveBtnText}>
+                      {formMode === 'edit' ? 'Update location' : 'Save location'}
+                    </Text>
                   )}
                 </TouchableOpacity>
               </ScrollView>
@@ -366,38 +421,49 @@ const styles = StyleSheet.create({
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
     flex: 1,
   },
   locationText: { flex: 1 },
+  locationLabel: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.6)',
+    letterSpacing: 0.3,
+    marginBottom: 1,
+  },
+  locationValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   primaryLocation: {
     fontSize: 15,
     fontWeight: '700',
-    color: colors.textPrimary,
+    color: colors.white,
   },
   secondaryLocation: {
     fontSize: 12,
-    color: colors.textSecondary,
+    color: 'rgba(255,255,255,0.65)',
     marginTop: 1,
   },
   bellButton: {
     width: 44,
     height: 44,
     borderRadius: radii.pill,
-    backgroundColor: colors.surface,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   dot: {
     position: 'absolute',
-    top: 12,
-    right: 13,
-    width: 7,
-    height: 7,
+    top: 10,
+    right: 10,
+    width: 8,
+    height: 8,
     borderRadius: radii.pill,
-    backgroundColor: colors.primary,
+    backgroundColor: '#FF4D4D',
     borderWidth: 1.5,
-    borderColor: colors.white,
+    borderColor: colors.primary,
   },
 
   // shared modal pieces

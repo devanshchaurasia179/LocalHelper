@@ -21,7 +21,7 @@ import { useNearbyServices } from '@/hooks/useNearbyServices';
 import type { NearbyPartner } from '@/api/nearby.api';
 
 import { Provider, PromoOffer, NavRoute } from './types';
-import { colors, spacing, typography } from './theme';
+import { colors, spacing } from './theme';
 import { useAuth } from '@/providers/AuthProvider';
 import { ROUTES } from '@/constants/routes';
 import type { Address } from './Header';
@@ -79,8 +79,6 @@ export default function Dashboard() {
 
   const firstName = customer?.name?.split(' ')[0] ?? 'there';
 
-  const avatarUri = `https://ui-avatars.com/api/?name=${encodeURIComponent(customer?.name ?? 'U')}&background=6C63FF&color=fff&size=200`;
-
   const addresses: Address[] = (customer?.addresses ?? []) as Address[];
 
   // Filter by search query (name or category)
@@ -104,23 +102,26 @@ export default function Dashboard() {
           <RefreshControl refreshing={refreshing} onRefresh={refresh} />
         }
       >
-        <Header
-          avatarUri={avatarUri}
-          addresses={addresses}
-          selectedIndex={selectedAddressIndex}
-          onSelectAddress={setSelectedAddressIndex}
-          onNotificationPress={() => console.log('Open notifications')}
-        />
+        {/* ── Green hero card: location header + greeting + search ── */}
+        <View style={styles.heroCard}>
+          <Header
+            addresses={addresses}
+            selectedIndex={selectedAddressIndex}
+            onSelectAddress={setSelectedAddressIndex}
+            onNotificationPress={() => console.log('Open notifications')}
+          />
 
-        <Text style={[typography.heading, styles.title]}>
-          Hello {firstName},{'\n'}from hassles to solution in one tap
-        </Text>
+          <View style={styles.titleBlock}>
+            <Text style={styles.titleGreeting}>Hello, {firstName} </Text>
+            <Text style={styles.titleTagline}>From hassles to{'\n'}solutions in one tap.</Text>
+          </View>
 
-        <SearchBar
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          onFilterPress={() => console.log('Open filters')}
-        />
+          <SearchBar
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            onFilterPress={() => console.log('Open filters')}
+          />
+        </View>
 
         <PromoBanner
           offer={PROMO_OFFER}
@@ -181,9 +182,36 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 120,
   },
-  title: {
+  // ── Green hero card ──────────────────────────────────────────────────────────
+  heroCard: {
+    backgroundColor: colors.primary,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    paddingBottom: spacing.lg,
+    // subtle shadow for depth
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  titleBlock: {
     paddingHorizontal: spacing.md,
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
+    gap: 4,
+  },
+  titleGreeting: {
+    fontFamily: 'Oswald_400Regular',
+    fontSize: 19,
+    color: 'rgba(255, 255, 255, 0.75)',
+    letterSpacing: 0.4,
+  },
+  titleTagline: {
+    fontFamily: 'Oswald_700Bold',
+    fontSize: 28,
+    color: colors.white,
+    lineHeight: 36,
+    letterSpacing: 0.2,
   },
   sectionTitle: {
     paddingHorizontal: spacing.md,

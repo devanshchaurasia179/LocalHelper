@@ -4,6 +4,8 @@ import type {
   VerifyOtpResponse,
   CompleteProfilePayload,
   CompleteProfileResponse,
+  UpdateProfilePayload,
+  UpdateProfileResponse,
   GetMeResponse,
 } from "@/types/auth";
 
@@ -31,8 +33,12 @@ export const getMe = () => api.get<GetMeResponse>("/customer/auth/me");
 // POST /api/customer/auth/logout   (requires cookie – clears it server-side)
 export const logout = () => api.post("/customer/auth/logout");
 
+// ─── Update Profile ───────────────────────────────────────────────────────────
+// PATCH /api/customer/auth/update-profile   (requires cookie)
+export const updateProfileApi = (data: UpdateProfilePayload) =>
+  api.patch<UpdateProfileResponse>("/customer/auth/update-profile", data);
+
 // ─── Add Address ──────────────────────────────────────────────────────────────
-// POST /api/customer/auth/add-address   (requires cookie)
 export const addAddress = (address: {
   label?: string;
   house?: string;
@@ -42,3 +48,23 @@ export const addAddress = (address: {
   state: string;
   pincode: string;
 }) => api.post("/customer/auth/add-address", address);
+
+// ─── Update Address ───────────────────────────────────────────────────────────
+// PATCH /api/customer/auth/update-address/:addressId  (requires cookie)
+export const updateAddressApi = (
+  addressId: string,
+  address: {
+    label?: string;
+    house?: string;
+    street?: string;
+    locality?: string;
+    city: string;
+    state: string;
+    pincode: string;
+  },
+  location?: { latitude: number; longitude: number }
+) =>
+  api.patch(`/customer/auth/update-address/${addressId}`, {
+    ...address,
+    ...(location ? { location } : {}),
+  });

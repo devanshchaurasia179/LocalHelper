@@ -5,7 +5,7 @@ export const colors = {
   background: '#FFFFFF',
   surface: '#F7F7FB',
   textPrimary: '#1C1C28',
-  textSecondary: '#8E8EA0',
+  textSecondary: '#626262ff',
   white: '#FFFFFF',
   star: '#FFB800',
   navInactive: '#B7B7C9',

@@ -1,8 +1,10 @@
-import React from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Provider } from './types';
 import { colors, spacing, radii, typography } from './theme';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const CATEGORY_PLACEHOLDER = require('../../../../../assets/images/Carpenter.png') as number;
 
 interface ServiceCardProps {
   provider: Provider;
@@ -14,7 +16,17 @@ export default function ServiceCard({ provider, onPress, onAddPress }: ServiceCa
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.85}>
       <View style={styles.imageWrapper}>
-        <Image source={{ uri: provider.image }} style={styles.image} />
+        <Image
+          source={
+            provider.image
+              ? typeof provider.image === 'string'
+                ? { uri: provider.image }
+                : provider.image
+              : CATEGORY_PLACEHOLDER
+          }
+          defaultSource={CATEGORY_PLACEHOLDER}
+          style={styles.image}
+        />
 
         <View style={styles.ratingBadge}>
           <Ionicons name="star" size={11} color={colors.star} />
@@ -30,7 +42,7 @@ export default function ServiceCard({ provider, onPress, onAddPress }: ServiceCa
       <Text style={typography.caption}>{provider.category}</Text>
 
       <View style={styles.priceRow}>
-        <Text style={styles.price}>${provider.pricePerHour.toFixed(2)}/hr</Text>
+        <Text style={styles.price}>₹{provider.pricePerHour.toFixed(2)}/hr</Text>
         <TouchableOpacity
           style={styles.addButton}
           onPress={onAddPress}

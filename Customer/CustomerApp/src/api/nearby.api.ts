@@ -7,6 +7,12 @@ export interface NearbyCategory {
   name: string;
 }
 
+export interface WorkingDay {
+  day: string;
+  startTime: string;
+  endTime: string;
+}
+
 export interface NearbyPartner {
   _id: string;
   fullName: string;
@@ -20,8 +26,13 @@ export interface NearbyPartner {
   emergencyAvailable: boolean;
   isOnline: boolean;
   isAvailable: boolean;
-  workingDays: string[];
+  workingDays: WorkingDay[];
   serviceRadius: number;
+  /** GeoJSON Point — [longitude, latitude] */
+  serviceLocation?: {
+    type: 'Point';
+    coordinates: [number, number];
+  };
   distanceKm: number;
   averageRating: number;
   totalReviews: number;
