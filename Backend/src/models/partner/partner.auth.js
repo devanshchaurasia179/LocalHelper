@@ -1,3 +1,5 @@
+import mongoose from "mongoose";
+
 // Authentication & Verification fields
 const authFields = {
   phone: {
@@ -45,10 +47,44 @@ const authFields = {
     default: "Pending",
   },
   rejectionReason: String,
+
+  // Audit trail — who acted and when
+  // Set by admin during approve/reject actions
+  verifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Admin",
+    default: null,
+  },
+  verifiedAt: {
+    type: Date,
+    default: null,
+  },
+
   accountStatus: {
     type: String,
     enum: ["Active", "Blocked", "Suspended"],
     default: "Active",
+  },
+
+  // ── Soft delete ────────────────────────────────────────────────────────
+  // isDeleted: true means the account is "deleted" from the partner's POV
+  // but the document stays in MongoDB so booking history remains intact.
+  // All admin list queries must filter { isDeleted: { $ne: true } }.
+  isDeleted: {
+    type: Boolean,
+    default: false,
+    index: true,   // indexed because every list query filters on this
+  },
+  deletedAt: {
+    type: Date,
+    default: null,
+  },
+
+  // Reason recorded when admin blocks or suspends
+  // Gives context for future admins reviewing the account
+  statusReason: {
+    type: String,
+    default: null,
   },
 };
 

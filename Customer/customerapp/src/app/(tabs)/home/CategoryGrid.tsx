@@ -275,8 +275,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#4ADE80',
   },
   availText: {
+    fontFamily: 'Jost_500Medium',
     fontSize: 10,
-    fontWeight: '600',
     color: colors.white,
   },
 
@@ -287,13 +287,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   catName: {
-    ...typography.body,
-    fontSize: 16,
-    fontWeight: '800',
+    fontFamily: 'Jost_600SemiBold',
+    fontSize: 15,
     color: colors.white,
     flex: 1,
-    letterSpacing: 0.2,
-    textShadowColor: 'rgba(0,0,0,0.5)',
+    letterSpacing: 0.3,
+    textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },

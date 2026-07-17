@@ -13,7 +13,9 @@ import categoryRoutes from "./routes/category.routes.js";
 import customerAuthRoutes from "./routes/customer.auth.routes.js";
 import customerNearbyRoutes from "./routes/customer.nearby.routes.js";
 import bookingRoutes from "./routes/booking.routes.js";
-
+import adminAuthRoutes from "./routes/admin/admin.auth.routes.js";
+import adminPartnerRoutes from "./routes/admin/admin.partner.routes.js";
+import cloudinary from "./config/cloudinary.js";
 dotenv.config();
 
 // Change DNS
@@ -21,8 +23,8 @@ dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 const app = express();
 const PORT = process.env.PORT;
-const __dirname = path.resolve();
 
+console.log(cloudinary.config());
 app.use(cors({
     origin: (origin, callback) => {
         // Allow requests with no origin (mobile apps, Expo Go, curl, etc.)
@@ -50,6 +52,8 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/customer/auth", customerAuthRoutes);
 app.use("/api/customer/services", customerNearbyRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/admin", adminAuthRoutes);
+app.use("/api/admin/partners", adminPartnerRoutes);
 
 connectDB();
 app.listen(PORT, () => {

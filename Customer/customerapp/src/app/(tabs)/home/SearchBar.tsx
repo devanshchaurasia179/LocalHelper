@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    ...typography.body,
+    ...typography.searchInput,
   },
   filterButton: {
     width: 50,

@@ -193,9 +193,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   label: {
+    fontFamily: 'Jost_600SemiBold',
     color: colors.white,
     fontSize: 13,
-    fontWeight: '600',
     maxWidth: 72,
   },
 });

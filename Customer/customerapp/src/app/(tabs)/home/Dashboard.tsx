@@ -20,7 +20,7 @@ import { useNearbyServices } from '@/hooks/useNearbyServices';
 import type { NearbyCategory } from '@/api/nearby.api';
 
 import { NavRoute } from './types';
-import { colors, spacing, radii, typography } from './theme';
+import { colors, spacing, radii, typography, fonts } from './theme';
 import { useAuth } from '@/providers/AuthProvider';
 import { ROUTES } from '@/constants/routes';
 import type { Address } from './Header';
@@ -378,11 +378,7 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   titleTagline: {
-    ...typography.heading,
-    fontSize: 30,
-    color: colors.white,
-    lineHeight: 38,
-    letterSpacing: 0.1,
+    ...typography.heroTagline,
   },
 
   // ── White content card: overlaps hero with rounded top corners ───────────────
@@ -426,8 +422,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   sectionSubtitle: {
-    fontSize: 13,
-    color: colors.textSecondary,
+    ...typography.caption,
     paddingHorizontal: spacing.md,
     marginBottom: spacing.xs,
   },

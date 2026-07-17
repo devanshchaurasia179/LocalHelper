@@ -22,7 +22,8 @@ import { colors, fonts, radii, spacing } from "@/constants/theme";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ImageSlot = "aadhaarFront" | "aadhaarBack" | "panImage";
+type GallerySlot = "aadhaarFront" | "aadhaarBack" | "panImage";
+type CameraSlot  = "selfie";
 
 // ─── Field Label ──────────────────────────────────────────────────────────────
 
@@ -52,10 +53,12 @@ const fieldStyles = StyleSheet.create({
 function ImageSlotButton({
   uri,
   placeholder,
+  icon,
   onPress,
 }: {
   uri: string | null;
   placeholder: string;
+  icon?: string;
   onPress: () => void;
 }) {
   return (
@@ -74,7 +77,7 @@ function ImageSlotButton({
         </>
       ) : (
         <View style={imgStyles.empty}>
-          <Text style={imgStyles.emptyIcon}>📷</Text>
+          <Text style={imgStyles.emptyIcon}>{icon ?? "📷"}</Text>
           <Text style={imgStyles.emptyLabel}>{placeholder}</Text>
         </View>
       )}
@@ -104,9 +107,77 @@ const imgStyles = StyleSheet.create({
   preview: { width: "100%", height: "100%" },
   editBadge: {
     position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
+    bottom: 0, left: 0, right: 0,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    paddingVertical: spacing.xs,
+    alignItems: "center",
+  },
+  editBadgeText: { fontFamily: fonts.jostSemiBold, fontSize: 12, color: "#fff" },
+});
+
+// ─── Selfie Slot ──────────────────────────────────────────────────────────────
+// Larger, square, with a camera-specific empty state
+
+function SelfieSlotButton({
+  uri,
+  onPress,
+}: {
+  uri: string | null;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={({ pressed }) => [selfieStyles.slot, pressed && { opacity: 0.75 }]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Take a selfie"
+    >
+      {uri ? (
+        <>
+          <Image source={{ uri }} style={selfieStyles.preview} resizeMode="cover" />
+          <View style={selfieStyles.editBadge}>
+            <Text style={selfieStyles.editBadgeText}>📸 Retake selfie</Text>
+          </View>
+        </>
+      ) : (
+        <View style={selfieStyles.empty}>
+          <Text style={selfieStyles.icon}>🤳</Text>
+          <Text style={selfieStyles.title}>Take a selfie</Text>
+          <Text style={selfieStyles.hint}>
+            Look straight at the camera in good lighting.{"\n"}
+            This is used to verify your identity.
+          </Text>
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+const selfieStyles = StyleSheet.create({
+  slot: {
+    height: 200,
+    borderRadius: radii.md,
+    borderWidth: 2,
+    borderStyle: "dashed",
+    borderColor: colors.primary + "66",
+    backgroundColor: colors.primary + "06",
+    overflow: "hidden",
+  },
+  empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.xs, padding: spacing.md },
+  icon: { fontSize: 40 },
+  title: { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.primary },
+  hint: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  preview: { width: "100%", height: "100%" },
+  editBadge: {
+    position: "absolute",
+    bottom: 0, left: 0, right: 0,
     backgroundColor: "rgba(0,0,0,0.45)",
     paddingVertical: spacing.xs,
     alignItems: "center",
@@ -124,62 +195,83 @@ export default function UploadDocumentsScreen() {
   const [aadhaarFront, setAadhaarFront] = useState<string | null>(null);
   const [aadhaarBack, setAadhaarBack] = useState<string | null>(null);
 
+  // Selfie (required)
+  const [selfie, setSelfie] = useState<string | null>(null);
+
   // PAN (optional)
   const [panNumber, setPanNumber] = useState("");
   const [panImage, setPanImage] = useState<string | null>(null);
 
-  // ── Image picker ────────────────────────────────────────────────────────────
-  const pickImage = useCallback(async (slot: ImageSlot) => {
+  // ── Gallery picker (Aadhaar / PAN) ─────────────────────────────────────────
+  const pickFromGallery = useCallback(async (slot: GallerySlot) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert(
-        "Permission required",
-        "Allow access to your photo library to upload documents."
-      );
+      Alert.alert("Permission required", "Allow access to your photo library to upload documents.");
       return;
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
-      quality: 0.7,
-      base64: true,
+      quality: 0.8,
+      // No base64 — we use the file URI directly
     });
 
     if (result.canceled || !result.assets?.[0]) return;
+    const uri = result.assets[0].uri;
 
-    const asset = result.assets[0];
-    // Build a data URI from base64 so it can be sent directly to the backend
-    const dataUri = `data:image/jpeg;base64,${asset.base64}`;
+    if (slot === "aadhaarFront")     setAadhaarFront(uri);
+    else if (slot === "aadhaarBack") setAadhaarBack(uri);
+    else if (slot === "panImage")    setPanImage(uri);
+  }, []);
 
-    if (slot === "aadhaarFront") setAadhaarFront(dataUri);
-    else if (slot === "aadhaarBack") setAadhaarBack(dataUri);
-    else if (slot === "panImage") setPanImage(dataUri);
+  // ── Camera (selfie only) ────────────────────────────────────────────────────
+  const takeSelfie = useCallback(async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Camera permission required", "Allow camera access to take your selfie.");
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      cameraType: ImagePicker.CameraType.front,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (result.canceled || !result.assets?.[0]) return;
+    setSelfie(result.assets[0].uri);
   }, []);
 
   // ── Validation ──────────────────────────────────────────────────────────────
   const aadhaarValid = /^\d{12}$/.test(aadhaarNumber);
-  const panValid = panNumber === "" || /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(panNumber.toUpperCase());
+  const panValid     = panNumber === "" || /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(panNumber.toUpperCase());
+
   const canSubmit =
-    aadhaarValid &&
+    aadhaarValid       &&
     aadhaarFront !== null &&
-    aadhaarBack !== null &&
+    aadhaarBack  !== null &&
+    selfie       !== null &&
     panValid;
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   const handleSubmit = useCallback(async () => {
-    if (!aadhaarFront || !aadhaarBack) return;
+    if (!aadhaarFront || !aadhaarBack || !selfie) return;
+
     const success = await submit({
       aadhaarNumber: aadhaarNumber.trim(),
       aadhaarFront,
       aadhaarBack,
+      selfie,
       panNumber: panNumber.trim() ? panNumber.trim().toUpperCase() : undefined,
-      panImage: panImage ?? undefined,
+      panImage:  panImage ?? undefined,
     });
+
     if (success) {
       router.replace(ROUTES.APP.HOME as any);
     }
-  }, [submit, aadhaarNumber, aadhaarFront, aadhaarBack, panNumber, panImage]);
+  }, [submit, aadhaarNumber, aadhaarFront, aadhaarBack, selfie, panNumber, panImage]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -217,7 +309,19 @@ export default function UploadDocumentsScreen() {
               </Text>
             </View>
 
-            {/* ── Aadhaar section ──────────────────────────────────── */}
+            {/* ════════════════════════════════════════════════════════════
+                SELFIE  (required, camera-only)
+            ════════════════════════════════════════════════════════════ */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>🤳 Live Selfie</Text>
+              <Text style={styles.sectionSub}>Required — used to match your face with your Aadhaar</Text>
+            </View>
+
+            <SelfieSlotButton uri={selfie} onPress={takeSelfie} />
+
+            {/* ════════════════════════════════════════════════════════════
+                AADHAAR
+            ════════════════════════════════════════════════════════════ */}
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>🪪 Aadhaar Card</Text>
               <Text style={styles.sectionSub}>Required for identity verification</Text>
@@ -234,10 +338,7 @@ export default function UploadDocumentsScreen() {
               keyboardType="number-pad"
               maxLength={12}
               value={aadhaarNumber}
-              onChangeText={(t) => {
-                clearError();
-                setAadhaarNumber(t.replace(/\D/g, ""));
-              }}
+              onChangeText={(t) => { clearError(); setAadhaarNumber(t.replace(/\D/g, "")); }}
               accessibilityLabel="Aadhaar number"
             />
             {aadhaarNumber.length > 0 && !aadhaarValid && (
@@ -250,7 +351,7 @@ export default function UploadDocumentsScreen() {
                 <ImageSlotButton
                   uri={aadhaarFront}
                   placeholder={"Upload front\nof Aadhaar"}
-                  onPress={() => pickImage("aadhaarFront")}
+                  onPress={() => pickFromGallery("aadhaarFront")}
                 />
               </View>
               <View style={styles.imageCol}>
@@ -258,12 +359,14 @@ export default function UploadDocumentsScreen() {
                 <ImageSlotButton
                   uri={aadhaarBack}
                   placeholder={"Upload back\nof Aadhaar"}
-                  onPress={() => pickImage("aadhaarBack")}
+                  onPress={() => pickFromGallery("aadhaarBack")}
                 />
               </View>
             </View>
 
-            {/* ── PAN section ──────────────────────────────────────── */}
+            {/* ════════════════════════════════════════════════════════════
+                PAN  (optional)
+            ════════════════════════════════════════════════════════════ */}
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>📋 PAN Card</Text>
               <Text style={styles.sectionSub}>Optional — add now or later from your profile</Text>
@@ -280,16 +383,11 @@ export default function UploadDocumentsScreen() {
               autoCapitalize="characters"
               maxLength={10}
               value={panNumber}
-              onChangeText={(t) => {
-                clearError();
-                setPanNumber(t.toUpperCase());
-              }}
+              onChangeText={(t) => { clearError(); setPanNumber(t.toUpperCase()); }}
               accessibilityLabel="PAN number"
             />
             {panNumber.length > 0 && !panValid && (
-              <Text style={styles.fieldError}>
-                Invalid format — expected ABCDE1234F
-              </Text>
+              <Text style={styles.fieldError}>Invalid format — expected ABCDE1234F</Text>
             )}
 
             <View style={styles.panImageRow}>
@@ -297,7 +395,7 @@ export default function UploadDocumentsScreen() {
               <ImageSlotButton
                 uri={panImage}
                 placeholder="Upload PAN card"
-                onPress={() => pickImage("panImage")}
+                onPress={() => pickFromGallery("panImage")}
               />
             </View>
 
@@ -310,25 +408,20 @@ export default function UploadDocumentsScreen() {
 
             {/* ── Submit ───────────────────────────────────────────── */}
             <Pressable
-              style={[
-                styles.submitBtn,
-                (!canSubmit || loading) && styles.submitBtnDisabled,
-              ]}
+              style={[styles.submitBtn, (!canSubmit || loading) && styles.submitBtnDisabled]}
               onPress={handleSubmit}
               disabled={!canSubmit || loading}
               accessibilityRole="button"
               accessibilityLabel="Submit documents"
             >
-              {loading ? (
-                <ActivityIndicator color={colors.white} />
-              ) : (
-                <Text style={styles.submitBtnText}>Submit Documents →</Text>
-              )}
+              {loading
+                ? <ActivityIndicator color={colors.white} />
+                : <Text style={styles.submitBtnText}>Submit Documents →</Text>}
             </Pressable>
 
             {!canSubmit && (
               <Text style={styles.validationNote}>
-                Add your Aadhaar number and both Aadhaar photos to continue.
+                Add your Aadhaar number, both Aadhaar photos, and a selfie to continue.
               </Text>
             )}
           </ScrollView>
@@ -355,26 +448,16 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   appName: {
-    fontFamily: fonts.jostSemiBold,
-    fontSize: 13,
-    color: "rgba(255,255,255,0.7)",
-    letterSpacing: 2,
-    textTransform: "uppercase",
-    marginBottom: spacing.sm,
+    fontFamily: fonts.jostSemiBold, fontSize: 13, color: "rgba(255,255,255,0.7)",
+    letterSpacing: 2, textTransform: "uppercase", marginBottom: spacing.sm,
   },
   heroTitle: {
-    fontFamily: fonts.oswaldBold,
-    fontSize: 30,
-    color: colors.white,
-    lineHeight: 38,
-    letterSpacing: 0.3,
+    fontFamily: fonts.oswaldBold, fontSize: 30, color: colors.white,
+    lineHeight: 38, letterSpacing: 0.3,
   },
   heroSub: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 14,
-    color: "rgba(255,255,255,0.65)",
-    marginTop: spacing.xs,
-    lineHeight: 20,
+    fontFamily: fonts.jostRegular, fontSize: 14,
+    color: "rgba(255,255,255,0.65)", marginTop: spacing.xs, lineHeight: 20,
   },
 
   // ── Geometric decorations ─────────────────────────────────────────────────
@@ -428,12 +511,8 @@ const styles = StyleSheet.create({
     elevation: 24,
   },
   handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#D1D5DB",
-    alignSelf: "center",
-    marginBottom: spacing.md,
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: "#D1D5DB", alignSelf: "center", marginBottom: spacing.md,
   },
   scroll: { paddingBottom: spacing.xl + 16 },
 
@@ -447,69 +526,42 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   infoBannerText: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 13,
-    color: colors.primary,
-    lineHeight: 20,
+    fontFamily: fonts.jostRegular, fontSize: 13, color: colors.primary, lineHeight: 20,
   },
 
   // ── Section headers ───────────────────────────────────────────────────────
   sectionHeader: { marginTop: spacing.md, marginBottom: spacing.sm },
-  sectionTitle: {
-    fontFamily: fonts.jakartaSemiBold,
-    fontSize: 15,
-    color: colors.textPrimary,
-  },
+  sectionTitle: { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.textPrimary },
   sectionSub: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: 2,
+    fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: 2,
   },
 
   // ── Form ──────────────────────────────────────────────────────────────────
   input: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 15,
-    color: colors.textPrimary,
-    backgroundColor: colors.surface,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md - 2,
-    borderWidth: 1.5,
-    borderColor: colors.navInactive + "66",
-    marginBottom: spacing.xs,
+    fontFamily: fonts.jostRegular, fontSize: 15, color: colors.textPrimary,
+    backgroundColor: colors.surface, borderRadius: radii.sm,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.md - 2,
+    borderWidth: 1.5, borderColor: colors.navInactive + "66", marginBottom: spacing.xs,
   },
   inputError: { borderColor: "#EF4444" },
   fieldError: {
-    fontFamily: fonts.jostRegular,
-    color: "#EF4444",
-    fontSize: 12,
-    marginBottom: spacing.xs,
+    fontFamily: fonts.jostRegular, color: "#EF4444", fontSize: 12, marginBottom: spacing.xs,
   },
 
   // ── Image upload slots ────────────────────────────────────────────────────
   imageRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-    marginBottom: spacing.sm,
+    flexDirection: "row", gap: spacing.sm,
+    marginTop: spacing.sm, marginBottom: spacing.sm,
   },
   imageCol: { flex: 1 },
   panImageRow: { marginTop: spacing.sm, marginBottom: spacing.sm },
 
   // ── Error banner ──────────────────────────────────────────────────────────
   errorBanner: {
-    backgroundColor: "#FEE2E2",
-    borderRadius: radii.sm,
-    padding: spacing.md,
-    marginTop: spacing.sm,
+    backgroundColor: "#FEE2E2", borderRadius: radii.sm,
+    padding: spacing.md, marginTop: spacing.sm,
   },
-  errorBannerText: {
-    fontFamily: fonts.jostMedium,
-    color: "#991B1B",
-    fontSize: 13,
-  },
+  errorBannerText: { fontFamily: fonts.jostMedium, color: "#991B1B", fontSize: 13 },
 
   // ── Submit ────────────────────────────────────────────────────────────────
   submitBtn: {
@@ -526,17 +578,11 @@ const styles = StyleSheet.create({
   },
   submitBtnDisabled: { opacity: 0.4 },
   submitBtnText: {
-    fontFamily: fonts.jakartaBold,
-    color: colors.white,
-    fontSize: 15,
-    letterSpacing: 0.3,
+    fontFamily: fonts.jakartaBold, color: colors.white, fontSize: 15, letterSpacing: 0.3,
   },
   validationNote: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 12,
-    color: colors.textSecondary,
-    textAlign: "center",
-    marginTop: spacing.xs,
-    lineHeight: 18,
+    fontFamily: fonts.jostRegular, fontSize: 12,
+    color: colors.textSecondary, textAlign: "center",
+    marginTop: spacing.xs, lineHeight: 18,
   },
 });

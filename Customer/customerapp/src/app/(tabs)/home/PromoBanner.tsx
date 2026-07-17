@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { PromoOffer } from './types';
-import { colors, spacing, radii } from './theme';
+import { colors, spacing, radii, typography } from './theme';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -109,10 +109,7 @@ function SlideCard({
       end={{ x: 1, y: 1 }}
       style={cardStyles.container}
     >
-      {/* ── Decorative circles ── */}
-      <View style={[cardStyles.circle, cardStyles.circleLg]} pointerEvents="none" />
-      <View style={[cardStyles.circle, cardStyles.circleSm]} pointerEvents="none" />
-      <View style={[cardStyles.circle, cardStyles.circleXs]} pointerEvents="none" />
+
 
       {/* ── Left text block ── */}
       <View style={cardStyles.textBlock}>
@@ -171,15 +168,7 @@ const cardStyles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.md,
   },
-  /* decorative circles */
-  circle: {
-    position: 'absolute',
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  circleLg: { width: 220, height: 220, right: -55, top: -60 },
-  circleSm: { width: 120, height: 120, right: 60, bottom: -50 },
-  circleXs: { width: 70, height: 70, right: 140, top: -20 },
+
 
   textBlock: { maxWidth: '90%', flex: 1, justifyContent: 'space-between' },
 
@@ -191,23 +180,14 @@ const cardStyles = StyleSheet.create({
     marginBottom: 4,
   },
   badgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    color: colors.white,
-    textTransform: 'uppercase',
+    ...typography.promoBadge,
   },
 
   discount: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: colors.white,
-    letterSpacing: -0.5,
+    ...typography.promoDiscount,
   },
   description: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.82)',
-    lineHeight: 17,
+    ...typography.promoDesc,
     marginTop: 2,
   },
 
@@ -226,11 +206,9 @@ const cardStyles = StyleSheet.create({
     maxWidth: '100%',
   },
   chipTextWrap: { flexShrink: 1 },
-  chipService: { fontSize: 11, fontWeight: '600', color: colors.white },
+  chipService: { ...typography.promoServiceName },
   chipPrice: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.75)',
-    marginTop: 1,
+    ...typography.promoPrice,
   },
 
   bookBtn: {
@@ -242,7 +220,7 @@ const cardStyles = StyleSheet.create({
     alignItems: 'center',
   },
   bookBtnPressed: { opacity: 0.75, transform: [{ scale: 0.96 }] },
-  bookBtnText: { fontSize: 11, fontWeight: '800', color: colors.primary },
+  bookBtnText: { ...typography.promoBookBtn },
 
 
 });

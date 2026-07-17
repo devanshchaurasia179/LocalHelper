@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { colors, spacing, radii, typography } from './theme';
+import { colors, spacing, radii, typography, fonts } from './theme';
 import { useAuth } from '@/providers/AuthProvider';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -425,8 +425,7 @@ const styles = StyleSheet.create({
   },
   locationText: { flex: 1 },
   locationLabel: {
-    ...typography.greeting,
-    letterSpacing: 0.3,
+    ...typography.locationLabel,
     marginBottom: 1,
   },
   locationValueRow: {
@@ -435,9 +434,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   primaryLocation: {
-    ...typography.name,
-    fontSize: 15,
-    color: colors.white,
+    ...typography.locationValue,
+    maxWidth: '90%',
   },
   secondaryLocation: {
     ...typography.greeting,
@@ -492,7 +490,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   sheetTitle: {
-    ...typography.name,
+    ...typography.subheading,
     fontSize: 16,
     paddingHorizontal: spacing.md,
     marginBottom: spacing.sm,
@@ -548,8 +546,8 @@ const styles = StyleSheet.create({
     borderColor: colors.surface,
   },
   addBtnText: {
-    ...typography.body,
-    fontWeight: '600',
+    ...typography.bodyMedium,
+    fontFamily: fonts.jakartaSemiBold,
     color: colors.primary,
   },
 
@@ -583,18 +581,18 @@ const styles = StyleSheet.create({
   labelChipText: {
     ...typography.caption,
     fontSize: 13,
-    fontWeight: '500',
   },
   labelChipTextActive: {
     color: colors.primary,
-    fontWeight: '700',
+    fontFamily: fonts.jostSemiBold,
   },
 
   // form fields
   fieldWrap: { marginBottom: spacing.md },
   fieldLabel: {
-    ...typography.caption,
-    fontWeight: '600',
+    ...typography.label,
+    fontFamily: fonts.jostMedium,
+    fontWeight: undefined,
     marginBottom: 6,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -620,8 +618,8 @@ const styles = StyleSheet.create({
   },
   saveBtnDisabled: { opacity: 0.6 },
   saveBtnText: {
+    fontFamily: fonts.jakartaBold,
     color: colors.white,
     fontSize: 15,
-    fontWeight: '700',
   },
 });

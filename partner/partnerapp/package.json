@@ -2,7 +2,7 @@
   "name": "partnerapp",
   "main": "expo-router/entry",
   "version": "1.0.0",
- "dependencies": {
+  "dependencies": {
     "@expo-google-fonts/archivo-black": "^0.4.1",
     "@expo-google-fonts/cinzel": "^0.4.2",
     "@expo-google-fonts/jost": "^0.4.2",
@@ -19,6 +19,7 @@
     "expo-font": "~57.0.0",
     "expo-glass-effect": "~57.0.0",
     "expo-image": "~57.0.0",
+    "expo-image-picker": "~57.0.5",
     "expo-linear-gradient": "~57.0.0",
     "expo-linking": "~57.0.1",
     "expo-location": "^57.0.2",
