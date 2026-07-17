@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Base resets ─────────────────────────────────────────────────── */
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-800 font-sans;
+    margin: 0;
+  }
+
+  /* Custom scrollbar — subtle, matches the slate palette */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-slate-100;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-300 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-400;
+  }
+
+  /* Focus ring — visible, styled, consistent */
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary-500 ring-offset-2;
+  }
+}
+
+/* ── Utility layer — reusable patterns ──────────────────────────── */
+@layer utilities {
+  /* Card base: white, rounded, soft shadow */
+  .card {
+    @apply bg-white rounded-2xl shadow-card border border-slate-100;
+  }
+
+  /* For skeleton loading shimmer */
+  .skeleton {
+    @apply animate-pulse bg-slate-200 rounded-lg;
+  }
+
+  /* Truncate to exactly N lines */
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}

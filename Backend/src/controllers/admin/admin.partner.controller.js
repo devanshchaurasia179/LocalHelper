@@ -42,6 +42,11 @@ export const getAllPartners = async (req, res) => {
     // This avoids `{ verificationStatus: undefined }` which would match nothing.
     const filter = {};
 
+    // ALWAYS exclude soft-deleted partners from list views.
+    // $ne: true also matches documents where isDeleted field doesn't exist yet
+    // (older documents created before we added the field).
+    filter.isDeleted = { $ne: true };
+
     if (verificationStatus) {
       filter.verificationStatus = verificationStatus;
     }
@@ -117,7 +122,7 @@ export const getPendingPartners = async (req, res) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
     const skip  = (page - 1) * limit;
 
-    const filter = { verificationStatus: "Under Review" };
+    const filter = { verificationStatus: "Under Review", isDeleted: { $ne: true } };
 
     const [partners, total] = await Promise.all([
       Partner.find(filter)

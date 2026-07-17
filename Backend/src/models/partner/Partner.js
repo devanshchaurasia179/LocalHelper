@@ -21,7 +21,6 @@ partnerSchema.index({ serviceLocation: "2dsphere" }, { sparse: true });
 
 // Admin queries filter by verificationStatus constantly — index it
 partnerSchema.index({ verificationStatus: 1 });
-// Admin search by phone
-partnerSchema.index({ phone: 1 });
+// Note: phone index is already created by unique:true in authFields
 
 export default mongoose.model("Partner", partnerSchema);
