@@ -20,6 +20,9 @@ dotenv.config();
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
 const SEED_DATA = [
   // ── Aadhaar Front ──────────────────────────────────────────────────────────
+  // isMultiPage: false — this IS the front side. It is its own single-slot record.
+  // The backend appends no side suffix when isMultiPage is false.
+  // "aadhaar_back" is a separate single-slot record for the back.
   {
     key: "aadhaar_front",
     label: "Aadhaar Card (Front)",
@@ -39,13 +42,14 @@ const SEED_DATA = [
     numberFieldValidationMessage: "Aadhaar number must be exactly 12 digits.",
     acceptedFileTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp"],
     maxFileSizeMB: 5,
-    isMultiPage: true,
+    isMultiPage: false,
     isRequired: true,
     icon: "id-card",
     displayOrder: 10,
   },
 
   // ── Aadhaar Back ───────────────────────────────────────────────────────────
+  // isMultiPage: false — same reason as aadhaar_front above.
   {
     key: "aadhaar_back",
     label: "Aadhaar Card (Back)",
@@ -60,7 +64,7 @@ const SEED_DATA = [
     hasNumberField: false,
     acceptedFileTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp"],
     maxFileSizeMB: 5,
-    isMultiPage: true,
+    isMultiPage: false,
     isRequired: true,
     icon: "id-card",
     displayOrder: 20,

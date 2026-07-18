@@ -1,462 +1,558 @@
-import { useCallback, useState } from "react";
+/**
+ * upload-documents.tsx  (onboarding Step 3)
+ *
+ * Fully configuration-driven. The screen:
+ *   1. Calls GET /partner/verification to receive the document list
+ *   2. Renders documents.map(doc => <UploadCard ... />)
+ *   3. Never checks doc.key, never hardcodes any document name
+ *
+ * Upload flow:
+ *   - User taps the CTA on any UploadCard
+ *   - An ActionSheet appears: "Camera" or "Choose from gallery"
+ *   - Image picker resolves a local file URI
+ *   - useDocumentUpload calls POST /partner/verification/documents
+ *   - React Query cache is patched in place — no extra GET needed
+ *   - When sessionStatus hits "Under Review", partner status is invalidated
+ *     and VerificationGate re-routes automatically
+ *
+ * Number field validation:
+ *   - State is keyed by documentTypeId — independent per card
+ *   - Validation runs only at upload time (no live regex per-keystroke
+ *     because the regex lives on the backend and we don't re-fetch it)
+ *
+ * Navigation after submission:
+ *   - When all required docs are uploaded, sessionStatus → "Under Review"
+ *   - useDocumentUpload invalidates PARTNER_STATUS_QUERY_KEY
+ *   - VerificationGate (watched by the root index) redirects to under-review
+ *   - We also imperatively navigate as a safety net
+ */
+
+import React, { useCallback, useRef, useState } from "react";
 import {
+  ActionSheetIOS,
   ActivityIndicator,
   Alert,
-  Image,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import Animated, { FadeIn } from "react-native-reanimated";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
-import { useQueryClient } from "@tanstack/react-query";
+import Toast from "react-native-toast-message";
 
-import { useUploadDocuments } from "@/hooks/useUploadDocuments";
-import { PARTNER_STATUS_QUERY_KEY } from "@/hooks/usePartnerStatus";
-import { VERIFICATION_STATUS } from "@/constants/verificationStatus";
-import type { PartnerProfile } from "@/types/partner";
+import { useVerification } from "@/hooks/useVerification";
+import { useDocumentUpload } from "@/hooks/useDocumentUpload";
+import { UploadCard } from "@/components/verification/UploadCard";
 import { ROUTES } from "@/constants/routes";
 import { colors, fonts, radii, spacing } from "@/constants/theme";
+import type { VerificationDocument } from "@/types/verification";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type GallerySlot = "aadhaarFront" | "aadhaarBack" | "panImage";
-type CameraSlot  = "selfie";
-
-// ─── Field Label ──────────────────────────────────────────────────────────────
-
-function FieldLabel({ label, required }: { label: string; required?: boolean }) {
-  return (
-    <Text style={fieldStyles.label}>
-      {label}
-      {required && <Text style={fieldStyles.required}> *</Text>}
-    </Text>
-  );
-}
-
-const fieldStyles = StyleSheet.create({
-  label: {
-    fontFamily: fonts.jostMedium,
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: 4,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  required: { color: "#EF4444" },
-});
-
-// ─── Image Upload Slot ────────────────────────────────────────────────────────
-
-function ImageSlotButton({
-  uri,
-  placeholder,
-  icon,
-  onPress,
-}: {
-  uri: string | null;
-  placeholder: string;
-  icon?: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      style={({ pressed }) => [imgStyles.slot, pressed && { opacity: 0.75 }]}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={placeholder}
-    >
-      {uri ? (
-        <>
-          <Image source={{ uri }} style={imgStyles.preview} resizeMode="cover" />
-          <View style={imgStyles.editBadge}>
-            <Text style={imgStyles.editBadgeText}>✎ Change</Text>
-          </View>
-        </>
-      ) : (
-        <View style={imgStyles.empty}>
-          <Text style={imgStyles.emptyIcon}>{icon ?? "📷"}</Text>
-          <Text style={imgStyles.emptyLabel}>{placeholder}</Text>
-        </View>
-      )}
-    </Pressable>
-  );
-}
-
-const imgStyles = StyleSheet.create({
-  slot: {
-    height: 130,
-    borderRadius: radii.md,
-    borderWidth: 1.5,
-    borderStyle: "dashed",
-    borderColor: colors.navInactive,
-    backgroundColor: colors.surface,
-    overflow: "hidden",
-  },
-  empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.xs },
-  emptyIcon: { fontSize: 28 },
-  emptyLabel: {
-    fontFamily: fonts.jostMedium,
-    fontSize: 13,
-    color: colors.textSecondary,
-    textAlign: "center",
-    paddingHorizontal: spacing.sm,
-  },
-  preview: { width: "100%", height: "100%" },
-  editBadge: {
-    position: "absolute",
-    bottom: 0, left: 0, right: 0,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    paddingVertical: spacing.xs,
-    alignItems: "center",
-  },
-  editBadgeText: { fontFamily: fonts.jostSemiBold, fontSize: 12, color: "#fff" },
-});
-
-// ─── Selfie Slot ──────────────────────────────────────────────────────────────
-// Larger, square, with a camera-specific empty state
-
-function SelfieSlotButton({
-  uri,
-  onPress,
-}: {
-  uri: string | null;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      style={({ pressed }) => [selfieStyles.slot, pressed && { opacity: 0.75 }]}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel="Take a selfie"
-    >
-      {uri ? (
-        <>
-          <Image source={{ uri }} style={selfieStyles.preview} resizeMode="cover" />
-          <View style={selfieStyles.editBadge}>
-            <Text style={selfieStyles.editBadgeText}>📸 Retake selfie</Text>
-          </View>
-        </>
-      ) : (
-        <View style={selfieStyles.empty}>
-          <Text style={selfieStyles.icon}>🤳</Text>
-          <Text style={selfieStyles.title}>Take a selfie</Text>
-          <Text style={selfieStyles.hint}>
-            Look straight at the camera in good lighting.{"\n"}
-            This is used to verify your identity.
-          </Text>
-        </View>
-      )}
-    </Pressable>
-  );
-}
-
-const selfieStyles = StyleSheet.create({
-  slot: {
-    height: 200,
-    borderRadius: radii.md,
-    borderWidth: 2,
-    borderStyle: "dashed",
-    borderColor: colors.primary + "66",
-    backgroundColor: colors.primary + "06",
-    overflow: "hidden",
-  },
-  empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.xs, padding: spacing.md },
-  icon: { fontSize: 40 },
-  title: { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.primary },
-  hint: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 12,
-    color: colors.textSecondary,
-    textAlign: "center",
-    lineHeight: 18,
-    marginTop: 2,
-  },
-  preview: { width: "100%", height: "100%" },
-  editBadge: {
-    position: "absolute",
-    bottom: 0, left: 0, right: 0,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    paddingVertical: spacing.xs,
-    alignItems: "center",
-  },
-  editBadgeText: { fontFamily: fonts.jostSemiBold, fontSize: 12, color: "#fff" },
-});
-
-// ─── Main Screen ──────────────────────────────────────────────────────────────
+// ─── Main Screen ─────────────────────────────────────────────────────────────
 
 export default function UploadDocumentsScreen() {
-  const queryClient = useQueryClient();
-  const { submit, loading, error, clearError } = useUploadDocuments();
+  const { data, isLoading, isError, error, refetch, isRefetching } =
+    useVerification();
+  const { upload, isUploading } = useDocumentUpload();
 
-  // Aadhaar
-  const [aadhaarNumber, setAadhaarNumber] = useState("");
-  const [aadhaarFront, setAadhaarFront] = useState<string | null>(null);
-  const [aadhaarBack, setAadhaarBack] = useState<string | null>(null);
+  /**
+   * numberValues: keyed by documentTypeId — one entry per card that has
+   * hasNumberField === true. Independent state per card.
+   * Format: { [documentTypeId]: string }
+   */
+  const [numberValues, setNumberValues] = useState<Record<string, string>>({});
+  const [numberErrors, setNumberErrors] = useState<Record<string, string | null>>({});
 
-  // Selfie (required)
-  const [selfie, setSelfie] = useState<string | null>(null);
+  // Ref to the ScrollView so we can scroll to a card on error
+  const scrollRef = useRef<ScrollView>(null);
 
-  // PAN (optional)
-  const [panNumber, setPanNumber] = useState("");
-  const [panImage, setPanImage] = useState<string | null>(null);
+  // ── Number field helpers ────────────────────────────────────────────────
+  const getNumberValue = (doc: VerificationDocument) =>
+    numberValues[doc.documentTypeId] ??
+    doc.numberValue ??   // pre-fill from previous upload
+    "";
 
-  // ── Gallery picker (Aadhaar / PAN) ─────────────────────────────────────────
-  const pickFromGallery = useCallback(async (slot: GallerySlot) => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permission required", "Allow access to your photo library to upload documents.");
-      return;
-    }
+  const setNumberValue = (docTypeId: string, value: string) => {
+    setNumberValues((prev) => ({ ...prev, [docTypeId]: value }));
+    // Clear error on every keystroke
+    setNumberErrors((prev) => ({ ...prev, [docTypeId]: null }));
+  };
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.8,
-      // No base64 — we use the file URI directly
-    });
+  // ── Image picker ────────────────────────────────────────────────────────
+  /**
+   * Opens the platform action sheet (iOS) or Alert (Android) to let the user
+   * choose between camera and gallery. Returns a { uri, mimeType } tuple or
+   * null if the user cancelled.
+   *
+   * We never hardcode "this document uses camera only". All documents offer
+   * both options. The backend can add a captureMode field in future if needed.
+   */
+  const pickFile = useCallback(
+    async (
+      doc: VerificationDocument
+    ): Promise<{ uri: string; mimeType: string } | null> => {
+      // ── Check whether PDF is accepted for this document ─────────────────
+      // acceptedTypes comes from the backend — e.g. ["image/jpeg", "application/pdf"]
+      const acceptsPdf = doc.acceptedTypes.includes("application/pdf");
 
-    if (result.canceled || !result.assets?.[0]) return;
-    const uri = result.assets[0].uri;
+      // ── Show picker type choice ──────────────────────────────────────────
+      const choice = await showPickerChoice(acceptsPdf);
+      if (!choice) return null;
 
-    if (slot === "aadhaarFront")     setAadhaarFront(uri);
-    else if (slot === "aadhaarBack") setAadhaarBack(uri);
-    else if (slot === "panImage")    setPanImage(uri);
-  }, []);
+      if (choice === "camera") {
+        const { status } =
+          await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== "granted") {
+          Alert.alert(
+            "Camera Permission",
+            "Allow camera access in Settings to take photos."
+          );
+          return null;
+        }
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          quality: 0.85,
+        });
+        if (result.canceled || !result.assets?.[0]) return null;
+        return {
+          uri: result.assets[0].uri,
+          mimeType: result.assets[0].mimeType ?? "image/jpeg",
+        };
+      }
 
-  // ── Camera (selfie only) ────────────────────────────────────────────────────
-  const takeSelfie = useCallback(async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Camera permission required", "Allow camera access to take your selfie.");
-      return;
-    }
+      // gallery
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Photo Library",
+          "Allow photo library access in Settings to upload documents."
+        );
+        return null;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: acceptsPdf
+          ? ImagePicker.MediaTypeOptions.All
+          : ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: !acceptsPdf, // PDFs cannot be cropped
+        quality: 0.85,
+      });
+      if (result.canceled || !result.assets?.[0]) return null;
+      return {
+        uri: result.assets[0].uri,
+        mimeType: result.assets[0].mimeType ?? "image/jpeg",
+      };
+    },
+    []
+  );
 
-    const result = await ImagePicker.launchCameraAsync({
-      cameraType: ImagePicker.CameraType.front,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
+  // ── Handle upload for any document card ────────────────────────────────
+  /**
+   * Called by UploadCard's onUpload prop.
+   * This function is the ONLY upload handler — it handles every document type
+   * through the same generic pipeline.
+   */
+  const handleUpload = useCallback(
+    async (doc: VerificationDocument) => {
+      // ── 1. Validate number field if required ─────────────────────────────
+      if (doc.hasNumberField) {
+        const value = getNumberValue(doc).trim();
+        if (!value) {
+          setNumberErrors((prev) => ({
+            ...prev,
+            [doc.documentTypeId]: `${doc.numberFieldLabel ?? "Number"} is required`,
+          }));
+          return;
+        }
+        // Note: we don't run the regex client-side — the backend validates it
+        // and returns a clear error message. Avoids duplicating regex logic.
+      }
 
-    if (result.canceled || !result.assets?.[0]) return;
-    setSelfie(result.assets[0].uri);
-  }, []);
+      // ── 2. Pick file ──────────────────────────────────────────────────────
+      const file = await pickFile(doc);
+      if (!file) return; // user cancelled
 
-  // ── Validation ──────────────────────────────────────────────────────────────
-  const aadhaarValid = /^\d{12}$/.test(aadhaarNumber);
-  const panValid     = panNumber === "" || /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(panNumber.toUpperCase());
+      // ── 3. Upload ─────────────────────────────────────────────────────────
+      const result = await upload({
+        fileUri:        file.uri,
+        mimeType:       file.mimeType,
+        documentTypeId: doc.documentTypeId,
+        side:           doc.side,
+        numberValue:    doc.hasNumberField
+          ? getNumberValue(doc).trim()
+          : undefined,
+      });
 
-  const canSubmit =
-    aadhaarValid       &&
-    aadhaarFront !== null &&
-    aadhaarBack  !== null &&
-    selfie       !== null &&
-    panValid;
+      if (result.ok) {
+        Toast.show({
+          type: "success",
+          text1: "Uploaded successfully",
+          text2: doc.title,
+          visibilityTime: 2500,
+        });
 
-  // ── Submit ──────────────────────────────────────────────────────────────────
-  const handleSubmit = useCallback(async () => {
-    if (!aadhaarFront || !aadhaarBack || !selfie) return;
+        // If session transitioned to Under Review, navigate there
+        if (
+          result.sessionStatus === "Under Review" ||
+          result.sessionStatus === "Re-submitted"
+        ) {
+          router.replace(ROUTES.VERIFICATION.UNDER_REVIEW as any);
+        }
+      } else {
+        Toast.show({
+          type: "error",
+          text1: "Upload failed",
+          text2: result.message,
+          visibilityTime: 3500,
+        });
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [upload, pickFile, numberValues]
+  );
 
-    const result = await submit({
-      aadhaarNumber: aadhaarNumber.trim(),
-      aadhaarFront,
-      aadhaarBack,
-      selfie,
-      panNumber: panNumber.trim() ? panNumber.trim().toUpperCase() : undefined,
-      panImage:  panImage ?? undefined,
-    });
+  // ── Loading state ────────────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <DocumentsSkeleton />
+      </SafeAreaView>
+    );
+  }
 
-    if (result.ok) {
-      // Update cache immediately so Under Review screen doesn't bounce back to Rejected
-      queryClient.setQueryData<PartnerProfile>(PARTNER_STATUS_QUERY_KEY, (prev) => ({
-        name: prev?.name ?? "Partner",
-        verification: {
-          status: result.verificationStatus,
-          rejectionReason: null,
-        },
-      }));
-      router.replace(ROUTES.VERIFICATION.UNDER_REVIEW as any);
-    }
-  }, [submit, aadhaarNumber, aadhaarFront, aadhaarBack, selfie, panNumber, panImage, queryClient]);
+  // ── Error state ──────────────────────────────────────────────────────────
+  if (isError || !data) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.errorContainer}>
+          <View style={styles.errorIconWrap}>
+            <Ionicons
+              name="cloud-offline-outline"
+              size={48}
+              color={colors.error}
+            />
+          </View>
+          <Text style={styles.errorTitle}>Unable to Load Documents</Text>
+          <Text style={styles.errorMessage}>
+            {(error as any)?.message ??
+              "Check your connection and try again."}
+          </Text>
+          <Pressable
+            style={[styles.retryBtn, isRefetching && { opacity: 0.7 }]}
+            onPress={() => refetch()}
+            disabled={isRefetching}
+          >
+            {isRefetching ? (
+              <ActivityIndicator color={colors.white} />
+            ) : (
+              <Text style={styles.retryBtnText}>Try Again</Text>
+            )}
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  const { documents, banner, progress } = data;
+  const missingRequired = documents.filter(
+    (d) => d.isRequired && d.uploadStatus === "missing"
+  ).length;
+
+  // ── Main render ──────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.safe} edges={["bottom"]}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
-        {/* ── Hero band ─────────────────────────────────────────────────── */}
-        <View style={styles.hero}>
-          <View style={styles.triTopRight} pointerEvents="none" />
-          <View style={styles.triTopRightInner} pointerEvents="none" />
-          <View style={styles.triBottomLeft} pointerEvents="none" />
-          <View style={styles.triMidRight} pointerEvents="none" />
-          <View style={styles.triMidLeft} pointerEvents="none" />
-          <View style={styles.triBottomRight} pointerEvents="none" />
-          <Text style={styles.appName}>LocalHelpers Partner</Text>
-          <Text style={styles.heroTitle}>Verify your{"\n"}identity</Text>
-          <Text style={styles.heroSub}>Step 3 of 3 — Upload KYC documents</Text>
-        </View>
 
-        {/* ── White card ────────────────────────────────────────────────── */}
-        <View style={styles.card}>
-          <View style={styles.handle} />
+      {/* ── Hero band ───────────────────────────────────────────────────── */}
+      <View style={styles.hero}>
+        <View style={styles.triTopRight} pointerEvents="none" />
+        <View style={styles.triTopRightInner} pointerEvents="none" />
+        <View style={styles.triBottomLeft} pointerEvents="none" />
+        <View style={styles.triMidRight} pointerEvents="none" />
+        <View style={styles.triMidLeft} pointerEvents="none" />
+        <View style={styles.triBottomRight} pointerEvents="none" />
+        <Text style={styles.appName}>LocalHelpers Partner</Text>
+        <Text style={styles.heroTitle}>Verify your{"\n"}identity</Text>
+        <Text style={styles.heroSub}>Step 3 of 3 — Upload KYC documents</Text>
+      </View>
 
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scroll}
-          >
-            {/* ── Info banner ──────────────────────────────────────────── */}
-            <View style={styles.infoBanner}>
-              <Text style={styles.infoBannerText}>
-                🔒 Your documents are encrypted and reviewed only by the LocalHelpers team for identity verification.
-              </Text>
-            </View>
+      {/* ── White card ──────────────────────────────────────────────────── */}
+      <View style={styles.card}>
+        <View style={styles.handle} />
 
-            {/* ════════════════════════════════════════════════════════════
-                SELFIE  (required, camera-only)
-            ════════════════════════════════════════════════════════════ */}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>🤳 Live Selfie</Text>
-              <Text style={styles.sectionSub}>Required — used to match your face with your Aadhaar</Text>
-            </View>
+        <ScrollView
+          ref={scrollRef}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* ── Security notice ─────────────────────────────────────── */}
+          <View style={styles.securityBanner}>
+            <Ionicons name="lock-closed-outline" size={14} color={colors.primary} />
+            <Text style={styles.securityText}>
+              Encrypted & reviewed only by the LocalHelpers team
+            </Text>
+          </View>
 
-            <SelfieSlotButton uri={selfie} onPress={takeSelfie} />
+          {/* ── Status banner from backend ──────────────────────────── */}
+          <BannerCard type={banner.type} title={banner.title} message={banner.message} />
 
-            {/* ════════════════════════════════════════════════════════════
-                AADHAAR
-            ════════════════════════════════════════════════════════════ */}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>🪪 Aadhaar Card</Text>
-              <Text style={styles.sectionSub}>Required for identity verification</Text>
-            </View>
+          {/* ── Progress bar ─────────────────────────────────────────── */}
+          <ProgressBar
+            uploaded={progress.uploaded}
+            total={progress.total}
+            percentage={progress.percentage}
+          />
 
-            <FieldLabel label="Aadhaar Number" required />
-            <TextInput
-              style={[
-                styles.input,
-                aadhaarNumber.length > 0 && !aadhaarValid && styles.inputError,
-              ]}
-              placeholder="12-digit Aadhaar number"
-              placeholderTextColor={colors.textSecondary}
-              keyboardType="number-pad"
-              maxLength={12}
-              value={aadhaarNumber}
-              onChangeText={(t) => { clearError(); setAadhaarNumber(t.replace(/\D/g, "")); }}
-              accessibilityLabel="Aadhaar number"
+          {/* ── Document cards — the only loop. No document names here. ─ */}
+          {documents.map((doc) => (
+            <UploadCard
+              key={doc.key}
+              doc={doc}
+              onUpload={handleUpload}
+              isUploading={isUploading(doc.documentTypeId, doc.side)}
+              numberValue={getNumberValue(doc)}
+              onNumberChange={(v) => setNumberValue(doc.documentTypeId, v)}
+              numberError={numberErrors[doc.documentTypeId]}
             />
-            {aadhaarNumber.length > 0 && !aadhaarValid && (
-              <Text style={styles.fieldError}>Must be exactly 12 digits</Text>
-            )}
+          ))}
 
-            <View style={styles.imageRow}>
-              <View style={styles.imageCol}>
-                <FieldLabel label="Front side" required />
-                <ImageSlotButton
-                  uri={aadhaarFront}
-                  placeholder={"Upload front\nof Aadhaar"}
-                  onPress={() => pickFromGallery("aadhaarFront")}
-                />
-              </View>
-              <View style={styles.imageCol}>
-                <FieldLabel label="Back side" required />
-                <ImageSlotButton
-                  uri={aadhaarBack}
-                  placeholder={"Upload back\nof Aadhaar"}
-                  onPress={() => pickFromGallery("aadhaarBack")}
-                />
-              </View>
-            </View>
-
-            {/* ════════════════════════════════════════════════════════════
-                PAN  (optional)
-            ════════════════════════════════════════════════════════════ */}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>📋 PAN Card</Text>
-              <Text style={styles.sectionSub}>Optional — add now or later from your profile</Text>
-            </View>
-
-            <FieldLabel label="PAN Number" />
-            <TextInput
-              style={[
-                styles.input,
-                panNumber.length > 0 && !panValid && styles.inputError,
-              ]}
-              placeholder="e.g. ABCDE1234F"
-              placeholderTextColor={colors.textSecondary}
-              autoCapitalize="characters"
-              maxLength={10}
-              value={panNumber}
-              onChangeText={(t) => { clearError(); setPanNumber(t.toUpperCase()); }}
-              accessibilityLabel="PAN number"
-            />
-            {panNumber.length > 0 && !panValid && (
-              <Text style={styles.fieldError}>Invalid format — expected ABCDE1234F</Text>
-            )}
-
-            <View style={styles.panImageRow}>
-              <FieldLabel label="PAN Card image" />
-              <ImageSlotButton
-                uri={panImage}
-                placeholder="Upload PAN card"
-                onPress={() => pickFromGallery("panImage")}
+          {/* ── Remaining hint ────────────────────────────────────────── */}
+          {missingRequired > 0 && (
+            <Animated.View entering={FadeIn} style={styles.remainingHint}>
+              <Ionicons
+                name="information-circle-outline"
+                size={16}
+                color={colors.textSecondary}
               />
-            </View>
-
-            {/* ── Error banner ─────────────────────────────────────── */}
-            {error ? (
-              <View style={styles.errorBanner}>
-                <Text style={styles.errorBannerText}>{error}</Text>
-              </View>
-            ) : null}
-
-            {/* ── Submit ───────────────────────────────────────────── */}
-            <Pressable
-              style={[styles.submitBtn, (!canSubmit || loading) && styles.submitBtnDisabled]}
-              onPress={handleSubmit}
-              disabled={!canSubmit || loading}
-              accessibilityRole="button"
-              accessibilityLabel="Submit documents"
-            >
-              {loading
-                ? <ActivityIndicator color={colors.white} />
-                : <Text style={styles.submitBtnText}>Submit Documents →</Text>}
-            </Pressable>
-
-            {!canSubmit && (
-              <Text style={styles.validationNote}>
-                Add your Aadhaar number, both Aadhaar photos, and a selfie to continue.
+              <Text style={styles.remainingHintText}>
+                {missingRequired} required document
+                {missingRequired > 1 ? "s" : ""} remaining
               </Text>
-            )}
-          </ScrollView>
-        </View>
-      </KeyboardAvoidingView>
+            </Animated.View>
+          )}
+        </ScrollView>
+      </View>
+
+      <Toast />
     </SafeAreaView>
   );
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+/** Banner driven entirely by backend banner.type — no status string checks */
+function BannerCard({
+  type,
+  title,
+  message,
+}: {
+  type: string;
+  title: string;
+  message: string;
+}) {
+  const config = {
+    info:    { bg: colors.primary + "0D", border: colors.primary + "33", icon: "information-circle-outline" as const, titleColor: colors.primary, msgColor: colors.primary },
+    warning: { bg: "#FFFBEB",             border: "#FDE68A",              icon: "time-outline" as const,               titleColor: "#92400E",      msgColor: "#78350F"  },
+    success: { bg: colors.successLight,   border: colors.successBorder,   icon: "checkmark-circle-outline" as const,   titleColor: colors.successDark, msgColor: colors.successDark },
+    error:   { bg: colors.errorLight,     border: colors.errorBorder,     icon: "alert-circle-outline" as const,       titleColor: colors.errorDark,   msgColor: colors.errorDark },
+  } as const;
+
+  const c = config[type as keyof typeof config] ?? config.info;
+
+  return (
+    <View style={[bannerStyles.wrap, { backgroundColor: c.bg, borderColor: c.border }]}>
+      <Ionicons name={c.icon} size={20} color={c.titleColor} style={{ marginTop: 1 }} />
+      <View style={bannerStyles.content}>
+        <Text style={[bannerStyles.title, { color: c.titleColor }]}>{title}</Text>
+        <Text style={[bannerStyles.message, { color: c.msgColor }]}>{message}</Text>
+      </View>
+    </View>
+  );
+}
+
+const bannerStyles = StyleSheet.create({
+  wrap: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  content: { flex: 1, gap: 3 },
+  title: { fontFamily: fonts.jakartaSemiBold, fontSize: 14 },
+  message: { fontFamily: fonts.jostRegular, fontSize: 13, lineHeight: 19 },
+});
+
+/** Progress bar: "X of Y required documents uploaded" */
+function ProgressBar({
+  uploaded,
+  total,
+  percentage,
+}: {
+  uploaded: number;
+  total: number;
+  percentage: number;
+}) {
+  return (
+    <View style={progressStyles.wrap}>
+      <View style={progressStyles.labelRow}>
+        <Text style={progressStyles.label}>Required documents</Text>
+        <Text style={progressStyles.count}>
+          {uploaded}/{total}
+        </Text>
+      </View>
+      <View style={progressStyles.track}>
+        <View
+          style={[
+            progressStyles.fill,
+            { width: `${percentage}%` as any },
+            percentage === 100 && progressStyles.fillComplete,
+          ]}
+        />
+      </View>
+    </View>
+  );
+}
+
+const progressStyles = StyleSheet.create({
+  wrap: { marginBottom: spacing.md, gap: spacing.xs },
+  labelRow: { flexDirection: "row", justifyContent: "space-between" },
+  label: { fontFamily: fonts.jostMedium, fontSize: 12, color: colors.textSecondary },
+  count:  { fontFamily: fonts.jakartaSemiBold, fontSize: 12, color: colors.primary },
+  track: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.surfaceAlt,
+    overflow: "hidden",
+  },
+  fill: {
+    height: "100%",
+    borderRadius: 3,
+    backgroundColor: colors.primary,
+  },
+  fillComplete: {
+    backgroundColor: colors.success,
+  },
+});
+
+/** Skeleton loader — shown while GET /partner/verification is in flight */
+function DocumentsSkeleton() {
+  return (
+    <View style={skeletonStyles.wrap}>
+      <View style={skeletonStyles.heroPatch} />
+      <View style={skeletonStyles.body}>
+        <View style={[skeletonStyles.line, { width: "60%", height: 18 }]} />
+        <View style={[skeletonStyles.line, { width: "90%", height: 10 }]} />
+        <View style={[skeletonStyles.line, { width: "75%", height: 10 }]} />
+        {[1, 2, 3].map((i) => (
+          <View key={i} style={skeletonStyles.card}>
+            <View style={skeletonStyles.cardHeader}>
+              <View style={skeletonStyles.iconPatch} />
+              <View style={{ flex: 1, gap: 6 }}>
+                <View style={[skeletonStyles.line, { width: "70%" }]} />
+                <View style={[skeletonStyles.line, { width: "40%", height: 10 }]} />
+              </View>
+            </View>
+            <View style={[skeletonStyles.line, { width: "100%", height: 44, borderRadius: radii.md }]} />
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const skeletonStyles = StyleSheet.create({
+  wrap: { flex: 1, backgroundColor: colors.background },
+  heroPatch: {
+    height: 180,
+    backgroundColor: colors.primary + "22",
+  },
+  body: {
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  line: {
+    height: 14,
+    borderRadius: radii.sm,
+    backgroundColor: colors.surfaceAlt,
+  },
+  card: {
+    borderRadius: radii.lg,
+    borderWidth: 1.5,
+    borderColor: colors.navInactive + "33",
+    padding: spacing.md,
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    alignItems: "center",
+  },
+  iconPatch: {
+    width: 44,
+    height: 44,
+    borderRadius: radii.md,
+    backgroundColor: colors.surfaceAlt,
+  },
+});
+
+// ─── Picker choice helper ─────────────────────────────────────────────────────
+
+/**
+ * Shows a native action sheet (iOS) or Alert (Android) for Camera vs Gallery.
+ * Returns "camera" | "gallery" | null (if cancelled).
+ * Extracted so it stays clean and reusable.
+ */
+function showPickerChoice(
+  acceptsPdf: boolean
+): Promise<"camera" | "gallery" | null> {
+  return new Promise((resolve) => {
+    const options = ["Camera", acceptsPdf ? "Files / Gallery" : "Photo Library", "Cancel"];
+
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex: 2,
+          title: "Upload Document",
+          message: "Choose how to add your file",
+        },
+        (index) => {
+          if (index === 0) resolve("camera");
+          else if (index === 1) resolve("gallery");
+          else resolve(null);
+        }
+      );
+    } else {
+      Alert.alert("Upload Document", "Choose how to add your file", [
+        { text: "Camera",          onPress: () => resolve("camera")  },
+        { text: options[1],        onPress: () => resolve("gallery") },
+        { text: "Cancel", style: "cancel", onPress: () => resolve(null) },
+      ]);
+    }
+  });
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.primary },
-  flex: { flex: 1 },
 
-  // ── Hero ──────────────────────────────────────────────────────────────────
+  // ── Hero band ──────────────────────────────────────────────────────────────
   hero: {
-    flex: 1,
     backgroundColor: colors.primary,
-    paddingTop: 64,
+    paddingTop: 52,
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xl + 16,
+    paddingBottom: spacing.xl,
     overflow: "hidden",
     justifyContent: "flex-end",
   },
@@ -473,7 +569,7 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.65)", marginTop: spacing.xs, lineHeight: 20,
   },
 
-  // ── Geometric decorations ─────────────────────────────────────────────────
+  // Geometric decorations
   triTopRight: {
     position: "absolute", top: -30, right: -30, width: 0, height: 0,
     borderStyle: "solid", borderLeftWidth: 140, borderBottomWidth: 140,
@@ -508,94 +604,84 @@ const styles = StyleSheet.create({
     transform: [{ rotate: "-5deg" }],
   },
 
-  // ── White card ────────────────────────────────────────────────────────────
+  // ── White content card ─────────────────────────────────────────────────────
   card: {
-    backgroundColor: colors.white,
+    flex: 1,
+    backgroundColor: colors.background,
     borderTopLeftRadius: radii.lg + 8,
     borderTopRightRadius: radii.lg + 8,
+    marginTop: -24,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
-    marginTop: -28,
-    flex: 2,
     shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: -10 },
-    shadowOpacity: 0.45,
-    shadowRadius: 18,
-    elevation: 24,
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 20,
   },
   handle: {
     width: 40, height: 4, borderRadius: 2,
     backgroundColor: "#D1D5DB", alignSelf: "center", marginBottom: spacing.md,
   },
-  scroll: { paddingBottom: spacing.xl + 16 },
+  scroll: { paddingBottom: spacing.xl + 24 },
 
-  // ── Info banner ───────────────────────────────────────────────────────────
-  infoBanner: {
-    backgroundColor: colors.primary + "10",
+  // ── Security notice ────────────────────────────────────────────────────────
+  securityBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    backgroundColor: colors.primary + "08",
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: colors.primary + "30",
-    padding: spacing.md,
-    marginBottom: spacing.md,
+    borderColor: colors.primary + "22",
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.xs + 2,
+    marginBottom: spacing.sm,
   },
-  infoBannerText: {
-    fontFamily: fonts.jostRegular, fontSize: 13, color: colors.primary, lineHeight: 20,
-  },
-
-  // ── Section headers ───────────────────────────────────────────────────────
-  sectionHeader: { marginTop: spacing.md, marginBottom: spacing.sm },
-  sectionTitle: { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.textPrimary },
-  sectionSub: {
-    fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: 2,
-  },
-
-  // ── Form ──────────────────────────────────────────────────────────────────
-  input: {
-    fontFamily: fonts.jostRegular, fontSize: 15, color: colors.textPrimary,
-    backgroundColor: colors.surface, borderRadius: radii.sm,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.md - 2,
-    borderWidth: 1.5, borderColor: colors.navInactive + "66", marginBottom: spacing.xs,
-  },
-  inputError: { borderColor: "#EF4444" },
-  fieldError: {
-    fontFamily: fonts.jostRegular, color: "#EF4444", fontSize: 12, marginBottom: spacing.xs,
-  },
-
-  // ── Image upload slots ────────────────────────────────────────────────────
-  imageRow: {
-    flexDirection: "row", gap: spacing.sm,
-    marginTop: spacing.sm, marginBottom: spacing.sm,
-  },
-  imageCol: { flex: 1 },
-  panImageRow: { marginTop: spacing.sm, marginBottom: spacing.sm },
-
-  // ── Error banner ──────────────────────────────────────────────────────────
-  errorBanner: {
-    backgroundColor: "#FEE2E2", borderRadius: radii.sm,
-    padding: spacing.md, marginTop: spacing.sm,
-  },
-  errorBannerText: { fontFamily: fonts.jostMedium, color: "#991B1B", fontSize: 13 },
-
-  // ── Submit ────────────────────────────────────────────────────────────────
-  submitBtn: {
-    marginTop: spacing.lg,
-    backgroundColor: colors.primary,
-    borderRadius: radii.md,
-    paddingVertical: spacing.md + 2,
-    alignItems: "center",
-    shadowColor: colors.primaryDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  submitBtnDisabled: { opacity: 0.4 },
-  submitBtnText: {
-    fontFamily: fonts.jakartaBold, color: colors.white, fontSize: 15, letterSpacing: 0.3,
-  },
-  validationNote: {
+  securityText: {
     fontFamily: fonts.jostRegular, fontSize: 12,
+    color: colors.primary, flex: 1,
+  },
+
+  // ── Remaining hint ─────────────────────────────────────────────────────────
+  remainingHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    justifyContent: "center",
+    marginTop: spacing.sm,
+  },
+  remainingHintText: {
+    fontFamily: fonts.jostRegular, fontSize: 13,
+    color: colors.textSecondary,
+  },
+
+  // ── Error state ────────────────────────────────────────────────────────────
+  errorContainer: {
+    flex: 1, justifyContent: "center", alignItems: "center",
+    paddingHorizontal: spacing.lg, backgroundColor: colors.background,
+  },
+  errorIconWrap: {
+    width: 88, height: 88, borderRadius: 44,
+    backgroundColor: colors.errorLight,
+    alignItems: "center", justifyContent: "center",
+    marginBottom: spacing.lg,
+  },
+  errorTitle: {
+    fontFamily: fonts.jakartaSemiBold, fontSize: 18,
+    color: colors.textPrimary, marginBottom: spacing.sm, textAlign: "center",
+  },
+  errorMessage: {
+    fontFamily: fonts.jostRegular, fontSize: 14,
     color: colors.textSecondary, textAlign: "center",
-    marginTop: spacing.xs, lineHeight: 18,
+    lineHeight: 22, marginBottom: spacing.lg, maxWidth: 300,
+  },
+  retryBtn: {
+    backgroundColor: colors.primary, borderRadius: radii.md,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    minWidth: 140, alignItems: "center",
+  },
+  retryBtnText: {
+    fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.white,
   },
 });

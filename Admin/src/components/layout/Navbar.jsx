@@ -14,6 +14,7 @@ const ROUTE_MAP = {
   '/dashboard':   ['Dashboard'],
   '/partners':    ['Partners'],
   '/verification': ['Verification'],
+  '/documents':   ['Document Management'],
   '/customers':   ['Customers'],
   '/bookings':    ['Bookings'],
   '/services':    ['Services'],
@@ -24,6 +25,7 @@ const ROUTE_MAP = {
 
 const getBreadcrumbs = (pathname) => {
   // /partners/abc123 → ['Partners', 'Partner Details']
+  // /verification/abc123 → ['Verification', 'Review']
   const segments = pathname.split('/').filter(Boolean)
   if (segments.length === 0) return ['Dashboard']
 
@@ -31,7 +33,11 @@ const getBreadcrumbs = (pathname) => {
   const crumbs = ROUTE_MAP[base] || [segments[0].charAt(0).toUpperCase() + segments[0].slice(1)]
 
   if (segments.length > 1) {
-    crumbs.push('Partner Details')
+    if (segments[0] === 'partners') {
+      crumbs.push('Partner Details')
+    } else if (segments[0] === 'verification') {
+      crumbs.push('Review')
+    }
   }
 
   return crumbs

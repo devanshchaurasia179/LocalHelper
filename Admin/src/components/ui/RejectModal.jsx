@@ -22,9 +22,19 @@ const schema = z.object({
  *   onClose()
  *   onConfirm(reason)  — called with the trimmed reason string
  *   partnerName        — shown in the modal heading
+ *   title              — modal title (default: "Reject Verification")
+ *   description        — banner description override
  *   isLoading          — disables the confirm button while the API call runs
  */
-const RejectModal = ({ isOpen, onClose, onConfirm, partnerName, isLoading = false }) => {
+const RejectModal = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  partnerName,
+  title = 'Reject Verification',
+  description,
+  isLoading = false,
+}) => {
   const {
     register,
     handleSubmit,
@@ -42,14 +52,16 @@ const RejectModal = ({ isOpen, onClose, onConfirm, partnerName, isLoading = fals
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Reject Verification" size="md">
+    <Modal isOpen={isOpen} onClose={handleClose} title={title} size="md">
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
         <div className="px-6 py-5 space-y-4">
           {/* Warning banner */}
           <div className="flex items-start gap-3 p-3.5 bg-red-50 rounded-xl border border-red-100">
             <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" aria-hidden="true" />
             <div>
-              <p className="text-sm font-medium text-red-700">Reject {partnerName}?</p>
+              <p className="text-sm font-medium text-red-700">
+                {description || (partnerName ? `Reject ${partnerName}?` : 'Confirm Rejection')}
+              </p>
               <p className="text-xs text-red-500 mt-0.5">
                 The partner will be notified with the reason you provide below.
               </p>
