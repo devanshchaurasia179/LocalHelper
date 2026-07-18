@@ -2,6 +2,7 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Redirect } from "expo-router";
 
 import { useAuth } from "@/providers/AuthProvider";
+import { VerificationGate } from "@/navigation/VerificationGate";
 import { ROUTES } from "@/constants/routes";
 
 /**
@@ -12,7 +13,7 @@ import { ROUTES } from "@/constants/routes";
  * authenticated, !isProfile              → /(onboarding)/complete-profile
  * authenticated, isProfile, !isService   → /(onboarding)/add-service
  * authenticated, isProfile, isService, !isDocument → /(onboarding)/upload-documents
- * authenticated, all steps done          → /(tabs)/home
+ * authenticated, all steps done          → VerificationGate → status-based route
  */
 export default function Index() {
   const { status, partner } = useAuth();
@@ -40,8 +41,8 @@ export default function Index() {
     return <Redirect href={ROUTES.ONBOARDING.DOCUMENTS as any} />;
   }
 
-  // Fully onboarded
-  return <Redirect href={ROUTES.APP.HOME as any} />;
+  // Onboarding complete → central verification router decides next screen
+  return <VerificationGate />;
 }
 
 const styles = StyleSheet.create({

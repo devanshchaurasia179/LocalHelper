@@ -21,6 +21,14 @@ export const colors = {
   star: "#FFB800",
   navInactive: "#B7B7C9",
   chipBackground: "rgba(255,255,255,0.18)",
+  success: "#10B981",
+  successLight: "#ECFDF5",
+  successBorder: "#A7F3D0",
+  successDark: "#065F46",
+  error: "#EF4444",
+  errorLight: "#FEF2F2",
+  errorBorder: "#FECACA",
+  errorDark: "#991B1B",
 };
 
 export const spacing = {

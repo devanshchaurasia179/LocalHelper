@@ -2,11 +2,12 @@ import React from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Redirect } from "expo-router";
 import { useAuth } from "./AuthProvider";
+import { VerificationGate } from "@/navigation/VerificationGate";
 import { ROUTES } from "@/constants/routes";
 
 type Props = {
-  /** Screen shown to fully onboarded partners */
-  children: React.ReactNode;
+  /** Reserved for wrapping verified-only content in future tab layouts */
+  children?: React.ReactNode;
 };
 
 /**
@@ -17,9 +18,9 @@ type Props = {
  *  2. Phone verified, !isProfile  → /(onboarding)/complete-profile
  *  3. isProfile, !isService       → /(onboarding)/add-service
  *  4. isService, !isDocument      → /(onboarding)/upload-documents
- *  5. All steps done              → renders children (home)
+ *  5. All steps done              → VerificationGate → status-based route
  */
-export function AuthGate({ children }: Props) {
+export function AuthGate({ children: _children }: Props) {
   const { status, partner } = useAuth();
 
   if (status === "loading") {
@@ -45,8 +46,8 @@ export function AuthGate({ children }: Props) {
     return <Redirect href={ROUTES.ONBOARDING.DOCUMENTS as any} />;
   }
 
-  // All steps complete → show the protected screen
-  return <>{children}</>;
+  // All steps complete → verification gate decides access to protected screens
+  return <VerificationGate />;
 }
 
 const styles = StyleSheet.create({

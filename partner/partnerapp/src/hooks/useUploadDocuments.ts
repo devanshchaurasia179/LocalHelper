@@ -1,6 +1,28 @@
 import { useState, useCallback } from "react";
 import { BASE_URL } from "@/constants/api";
 import { useAuth } from "@/providers/AuthProvider";
+import {
+  VERIFICATION_STATUS,
+  type VerificationStatus,
+} from "@/constants/verificationStatus";
+
+export type KycUploadResult =
+  | { ok: true; verificationStatus: VerificationStatus }
+  | { ok: false };
+
+/** Maps legacy backend KYC response status to canonical enum */
+function mapKycVerificationStatus(raw?: string): VerificationStatus {
+  switch (raw) {
+    case "Under Review":
+      return VERIFICATION_STATUS.UNDER_REVIEW;
+    case "Approved":
+      return VERIFICATION_STATUS.VERIFIED;
+    case "Rejected":
+      return VERIFICATION_STATUS.REJECTED;
+    default:
+      return VERIFICATION_STATUS.UNDER_REVIEW;
+  }
+}
 
 export type KycPayload = {
   aadhaarNumber: string;
@@ -28,7 +50,7 @@ export function useUploadDocuments() {
   const [error,   setError]     = useState<string | null>(null);
 
   const submit = useCallback(
-    async (payload: KycPayload): Promise<boolean> => {
+    async (payload: KycPayload): Promise<KycUploadResult> => {
       setError(null);
       setLoading(true);
 
@@ -57,14 +79,19 @@ export function useUploadDocuments() {
 
         if (!result.ok) {
           setError(result.body?.message ?? "Failed to submit documents. Please try again.");
-          return false;
+          return { ok: false };
         }
 
         patchPartner({ isDocument: true });
-        return true;
+
+        const verificationStatus = mapKycVerificationStatus(
+          result.body?.kyc?.verificationStatus
+        );
+
+        return { ok: true, verificationStatus };
       } catch (e: any) {
         setError(e?.message ?? "Network error. Please check your connection.");
-        return false;
+        return { ok: false };
       } finally {
         setLoading(false);
       }

@@ -89,9 +89,13 @@ export const submitKyc = async (req, res) => {
     // Mark document step as complete
     partner.isDocument = true;
 
-    // Mark for admin review
-    if (partner.verificationStatus === "Pending") {
+    // Re-queue for admin review (first upload, or re-upload after rejection)
+    if (
+      partner.verificationStatus === "Pending" ||
+      partner.verificationStatus === "Rejected"
+    ) {
       partner.verificationStatus = "Under Review";
+      partner.rejectionReason = undefined;
     }
 
     await partner.save();

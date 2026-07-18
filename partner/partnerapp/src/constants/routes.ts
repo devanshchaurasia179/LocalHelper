@@ -15,6 +15,12 @@ export const ROUTES = {
     DOCUMENTS: "/(onboarding)/upload-documents", // Step 3: ID + certifications
   },
 
+  // Verification group — shown after KYC upload while admin reviews
+  VERIFICATION: {
+    UNDER_REVIEW: "/(verification)/under-review",
+    REJECTED: "/(verification)/rejected",
+  },
+
   // Main app tabs
   APP: {
     HOME: "/(tabs)/home",
@@ -22,6 +28,6 @@ export const ROUTES = {
     PROFILE: "/(tabs)/profile",
   },
 
-  // Root redirect
+  // Root redirect (runs VerificationGate after onboarding)
   ROOT: "/",
 } as const;

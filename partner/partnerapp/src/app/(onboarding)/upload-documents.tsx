@@ -15,8 +15,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useUploadDocuments } from "@/hooks/useUploadDocuments";
+import { PARTNER_STATUS_QUERY_KEY } from "@/hooks/usePartnerStatus";
+import { VERIFICATION_STATUS } from "@/constants/verificationStatus";
+import type { PartnerProfile } from "@/types/partner";
 import { ROUTES } from "@/constants/routes";
 import { colors, fonts, radii, spacing } from "@/constants/theme";
 
@@ -188,6 +192,7 @@ const selfieStyles = StyleSheet.create({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function UploadDocumentsScreen() {
+  const queryClient = useQueryClient();
   const { submit, loading, error, clearError } = useUploadDocuments();
 
   // Aadhaar
@@ -259,7 +264,7 @@ export default function UploadDocumentsScreen() {
   const handleSubmit = useCallback(async () => {
     if (!aadhaarFront || !aadhaarBack || !selfie) return;
 
-    const success = await submit({
+    const result = await submit({
       aadhaarNumber: aadhaarNumber.trim(),
       aadhaarFront,
       aadhaarBack,
@@ -268,10 +273,18 @@ export default function UploadDocumentsScreen() {
       panImage:  panImage ?? undefined,
     });
 
-    if (success) {
-      router.replace(ROUTES.APP.HOME as any);
+    if (result.ok) {
+      // Update cache immediately so Under Review screen doesn't bounce back to Rejected
+      queryClient.setQueryData<PartnerProfile>(PARTNER_STATUS_QUERY_KEY, (prev) => ({
+        name: prev?.name ?? "Partner",
+        verification: {
+          status: result.verificationStatus,
+          rejectionReason: null,
+        },
+      }));
+      router.replace(ROUTES.VERIFICATION.UNDER_REVIEW as any);
     }
-  }, [submit, aadhaarNumber, aadhaarFront, aadhaarBack, selfie, panNumber, panImage]);
+  }, [submit, aadhaarNumber, aadhaarFront, aadhaarBack, selfie, panNumber, panImage, queryClient]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (

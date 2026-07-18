@@ -242,7 +242,7 @@ export const completeProfile = async (req, res) => {
 export const getMe = async (req, res) => {
   try {
     const partner = await Partner.findById(req.partnerId).select(
-      "_id phone fullName verification.phoneVerified verificationStatus isProfile isService isDocument"
+      "_id phone fullName verification.phoneVerified verificationStatus rejectionReason isProfile isService isDocument"
     );
 
     if (!partner) {
@@ -256,6 +256,7 @@ export const getMe = async (req, res) => {
         fullName: partner.fullName !== "Pending" ? partner.fullName : null,
         phoneVerified: partner.verification.phoneVerified,
         verificationStatus: partner.verificationStatus,
+        rejectionReason: partner.rejectionReason ?? null,
         isProfile: partner.isProfile,
         isService: partner.isService,
         isDocument: partner.isDocument,
