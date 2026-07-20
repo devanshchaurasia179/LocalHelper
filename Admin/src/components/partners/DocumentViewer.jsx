@@ -1,27 +1,32 @@
 import { useState } from 'react'
-import { Eye, ImageOff } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Eye, ImageOff, Loader2 } from 'lucide-react'
 import { cn } from '@/utils/cn'
+import { getVerificationDetail } from '@/api/verification.api'
 import ImageModal from '@/components/ui/ImageModal'
 import Card from '@/components/ui/Card'
+import StatusBadge from '@/components/ui/StatusBadge'
 
 /**
- * DocumentViewer — displays KYC documents as lazy-loading thumbnail cards.
+ * DocumentViewer — displays KYC documents uploaded via the dynamic verification system.
+ * Fetches documents from the PartnerDocument collection via the verification API.
  * Clicking any card opens the full ImageModal viewer with prev/next navigation.
  *
  * Props:
- *   partner — full partner object from the API
+ *   partner — full partner object from the API (needs partner._id)
  */
 const DocumentViewer = ({ partner }) => {
-  const [modalOpen,  setModalOpen]  = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
   const [startIndex, setStartIndex] = useState(0)
 
-  // Build document list — only include docs that have a URL
-  const documents = [
-    { key: 'selfie',      label: 'Selfie',        image: partner.selfie },
-    { key: 'aadhaarFront', label: 'Aadhaar Front', image: partner.aadhaarFront },
-    { key: 'aadhaarBack',  label: 'Aadhaar Back',  image: partner.aadhaarBack },
-    { key: 'panImage',     label: 'PAN Card',       image: partner.panImage },
-  ].filter((d) => d.image?.url)
+  // Fetch verification documents from the dedicated verification endpoint
+  const { data, isLoading } = useQuery({
+    queryKey: ['verification-detail', partner._id],
+    queryFn: () => getVerificationDetail(partner._id),
+    enabled: !!partner._id,
+  })
+
+  const documents = data?.documents?.filter((d) => d.previewUrl) || []
 
   const openAt = (index) => {
     setStartIndex(index)
@@ -36,7 +41,12 @@ const DocumentViewer = ({ partner }) => {
           <p className="text-xs text-slate-400 mt-0.5">Click any image to view full-screen</p>
         </Card.Header>
         <Card.Body>
-          {documents.length === 0 ? (
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <Loader2 className="w-6 h-6 text-slate-300 animate-spin mb-2" aria-hidden="true" />
+              <p className="text-sm text-slate-400">Loading documents…</p>
+            </div>
+          ) : documents.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <ImageOff className="w-8 h-8 text-slate-300 mb-2" aria-hidden="true" />
               <p className="text-sm text-slate-400">No documents uploaded yet</p>
@@ -45,9 +55,10 @@ const DocumentViewer = ({ partner }) => {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {documents.map((doc, i) => (
                 <DocumentCard
-                  key={doc.key}
-                  label={doc.label}
-                  url={doc.image.url}
+                  key={doc.documentId || doc.key}
+                  label={doc.title}
+                  url={doc.previewUrl}
+                  status={doc.status}
                   onClick={() => openAt(i)}
                 />
               ))}
@@ -60,7 +71,7 @@ const DocumentViewer = ({ partner }) => {
       <ImageModal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
-        images={documents.map((d) => ({ url: d.image.url, label: d.label }))}
+        images={documents.map((d) => ({ url: d.previewUrl, label: d.title }))}
         initialIndex={startIndex}
       />
     </>
@@ -70,10 +81,16 @@ const DocumentViewer = ({ partner }) => {
 /**
  * DocumentCard — individual document thumbnail.
  * Uses loading="lazy" for performance.
+ * Shows a status badge overlay (Approved / Rejected / Under Review).
  */
-const DocumentCard = ({ label, url, onClick }) => {
-  const [loaded,  setLoaded]  = useState(false)
+const DocumentCard = ({ label, url, status, onClick }) => {
+  const [loaded, setLoaded] = useState(false)
   const [errored, setErrored] = useState(false)
+
+  const statusVariant =
+    status === 'Approved'     ? 'success' :
+    status === 'Rejected'     ? 'danger'  :
+    status === 'Under Review' ? 'warning' : 'default'
 
   return (
     <button
@@ -112,9 +129,12 @@ const DocumentCard = ({ label, url, onClick }) => {
         />
       </div>
 
-      {/* Label */}
-      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/50 to-transparent px-2 py-1.5">
-        <span className="text-xs font-medium text-white">{label}</span>
+      {/* Label + status */}
+      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent px-2 py-1.5">
+        <span className="text-xs font-medium text-white block">{label}</span>
+        {status && (
+          <StatusBadge label={status} variant={statusVariant} size="sm" showDot={false} className="mt-0.5" />
+        )}
       </div>
     </button>
   )

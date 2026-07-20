@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 import { router } from "expo-router";
 
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { api } from "@/constants/api";
 import { useAuth } from "@/providers/AuthProvider";
 import { ROUTES } from "@/constants/routes";
@@ -22,7 +23,7 @@ import { colors, spacing, radii, fonts } from "@/constants/theme";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Category = { _id: string; name: string; description?: string };
+type Category = { _id: string; name: string; description?: string; icon?: string };
 type WorkingDay = { day: string; startTime: string; endTime: string };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -30,11 +31,6 @@ type WorkingDay = { day: string; startTime: string; endTime: string };
 const ALL_DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"] as const;
 
 const LANGUAGES = ["Hindi","English","Tamil","Telugu","Kannada","Bengali","Marathi","Gujarati"] as const;
-
-const CATEGORY_ICONS: Record<string, string> = {
-  Plumber: "🔧", Electrician: "⚡", Carpenter: "🪚", Painter: "🖌️",
-  Cleaner: "🧹", "AC Technician": "❄️", Mason: "🧱", "Pest Control": "🐛",
-};
 
 // ─── Field Label ──────────────────────────────────────────────────────────────
 
@@ -266,7 +262,15 @@ export default function AddServiceScreen() {
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: active }}
                     >
-                      <Text style={styles.catIcon}>{CATEGORY_ICONS[cat.name] ?? "🛠️"}</Text>
+                      {cat.icon ? (
+                        <MaterialCommunityIcons
+                          name={cat.icon as any}
+                          size={16}
+                          color={active ? colors.white : colors.textSecondary}
+                        />
+                      ) : (
+                        <Text style={styles.catIcon}>🛠️</Text>
+                      )}
                       <Text style={[styles.catName, active && styles.catNameActive]}>{cat.name}</Text>
                     </Pressable>
                   );

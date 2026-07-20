@@ -11,6 +11,7 @@ import PartnerDetailPage        from '@/pages/PartnerDetailPage'
 import VerificationPage         from '@/pages/VerificationPage'
 import VerificationDetailPage   from '@/pages/VerificationDetailPage'
 import DocumentManagementPage   from '@/pages/DocumentManagementPage'
+import ServicesPage             from '@/pages/ServicesPage'
 import PlaceholderPage          from '@/pages/PlaceholderPage'
 import NotFoundPage             from '@/pages/NotFoundPage'
 
@@ -54,7 +55,7 @@ const App = () => (
             <Route path="/documents"                element={<DocumentManagementPage />} />
             <Route path="/customers"    element={<PlaceholderPage title="Customers" />} />
             <Route path="/bookings"     element={<PlaceholderPage title="Bookings" />} />
-            <Route path="/services"     element={<PlaceholderPage title="Services" />} />
+            <Route path="/services"     element={<ServicesPage />} />
             <Route path="/payments"     element={<PlaceholderPage title="Payments" />} />
             <Route path="/analytics"    element={<PlaceholderPage title="Analytics" />} />
             <Route path="/settings"     element={<PlaceholderPage title="Settings" />} />

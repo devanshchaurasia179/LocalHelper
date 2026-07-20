@@ -18,6 +18,7 @@ import adminAuthRoutes from "./routes/admin/admin.auth.routes.js";
 import adminPartnerRoutes from "./routes/admin/admin.partner.routes.js";
 import adminDocumentTypeRoutes from "./routes/admin/admin.documentType.routes.js";
 import adminVerificationRoutes from "./routes/admin/admin.verification.routes.js";
+import adminCategoryRoutes from "./routes/admin/admin.category.routes.js";
 import cloudinary from "./config/cloudinary.js";
 dotenv.config();
 
@@ -60,6 +61,7 @@ app.use("/api/admin", adminAuthRoutes);
 app.use("/api/admin/partners", adminPartnerRoutes);
 app.use("/api/admin/document-types", adminDocumentTypeRoutes);
 app.use("/api/admin/verification", adminVerificationRoutes);
+app.use("/api/admin/categories", adminCategoryRoutes);
 
 connectDB();
 app.listen(PORT, () => {

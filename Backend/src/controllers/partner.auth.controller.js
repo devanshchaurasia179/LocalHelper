@@ -1,6 +1,8 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import Partner from "../models/partner/Partner.js";
+import DocumentType from "../models/verification/DocumentType.js";
+import PartnerDocument from "../models/verification/PartnerDocument.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -242,11 +244,68 @@ export const completeProfile = async (req, res) => {
 export const getMe = async (req, res) => {
   try {
     const partner = await Partner.findById(req.partnerId).select(
-      "_id phone fullName verification.phoneVerified verificationStatus rejectionReason isProfile isService isDocument"
+      "_id phone fullName verification.phoneVerified verificationStatus rejectionReason isProfile isService isDocument categories"
     );
 
     if (!partner) {
       return res.status(404).json({ message: "Partner not found." });
+    }
+
+    // ── Dynamic document completeness check ─────────────────────────────────
+    // Even if isDocument was previously set to true, a newly added required
+    // DocumentType might mean the partner has missing uploads. We check live.
+    let effectiveIsDocument = partner.isDocument;
+    let effectiveVerificationStatus = partner.verificationStatus;
+
+    if (partner.isDocument) {
+      // Check live whether any required document is missing — applies to ALL
+      // partners including Approved ones. If admin adds a new required document,
+      // every partner must upload it before they can proceed.
+      const hasMissingDocs = await checkForMissingRequiredDocuments(
+        partner._id,
+        partner.categories
+      );
+      if (hasMissingDocs) {
+        // Reset the flag so the partner is sent back to upload-documents
+        effectiveIsDocument = false;
+        effectiveVerificationStatus = "Pending";
+        // Persist the reset so subsequent requests are consistent
+        await Partner.findByIdAndUpdate(partner._id, {
+          $set: { isDocument: false, verificationStatus: "Pending" },
+        });
+      } else {
+        // All required docs are uploaded — but recompute status based on
+        // active documents only (ignores rejected docs for disabled types)
+        const computedStatus = await computeEffectiveVerificationStatus(
+          partner._id,
+          partner.categories
+        );
+        if (computedStatus !== partner.verificationStatus) {
+          effectiveVerificationStatus = computedStatus;
+          await Partner.findByIdAndUpdate(partner._id, {
+            $set: { verificationStatus: computedStatus },
+          });
+        }
+      }
+    } else if (partner.isProfile && partner.isService) {
+      // Partner's isDocument is false — but maybe it was reset by a previous
+      // check and the admin has since deleted/deactivated that document type.
+      // Re-check: if all required docs are now satisfied, restore the flag.
+      const hasMissingDocs = await checkForMissingRequiredDocuments(
+        partner._id,
+        partner.categories
+      );
+      if (!hasMissingDocs) {
+        effectiveIsDocument = true;
+        // Compute status based only on active document types
+        effectiveVerificationStatus = await computeEffectiveVerificationStatus(
+          partner._id,
+          partner.categories
+        );
+        await Partner.findByIdAndUpdate(partner._id, {
+          $set: { isDocument: true, verificationStatus: effectiveVerificationStatus },
+        });
+      }
     }
 
     return res.status(200).json({
@@ -255,17 +314,140 @@ export const getMe = async (req, res) => {
         phone: partner.phone,
         fullName: partner.fullName !== "Pending" ? partner.fullName : null,
         phoneVerified: partner.verification.phoneVerified,
-        verificationStatus: partner.verificationStatus,
+        verificationStatus: effectiveVerificationStatus,
         rejectionReason: partner.rejectionReason ?? null,
         isProfile: partner.isProfile,
         isService: partner.isService,
-        isDocument: partner.isDocument,
+        isDocument: effectiveIsDocument,
       },
     });
   } catch (error) {
     console.error("getMe error:", error);
     return res.status(500).json({ message: "Internal server error." });
   }
+};
+
+/**
+ * checkForMissingRequiredDocuments(partnerId, partnerCategories)
+ *
+ * Returns true if the partner is missing at least one required document upload
+ * for currently ACTIVE document types only.
+ */
+const checkForMissingRequiredDocuments = async (partnerId, partnerCategories) => {
+  const requiredTypes = await getActiveRequiredDocTypes(partnerCategories);
+  if (requiredTypes.length === 0) return false;
+
+  const uploads = await PartnerDocument.find({
+    partnerId,
+    status: { $ne: "Superseded" },
+  })
+    .select("documentTypeId side")
+    .lean();
+
+  const uploadKeys = new Set(
+    uploads.map((u) => `${u.documentTypeId.toString()}_${u.side}`)
+  );
+
+  for (const docType of requiredTypes) {
+    if (docType.isMultiPage) {
+      const frontKey = `${docType._id.toString()}_front`;
+      const backKey = `${docType._id.toString()}_back`;
+      if (!uploadKeys.has(frontKey) || !uploadKeys.has(backKey)) {
+        return true;
+      }
+    } else {
+      const singleKey = `${docType._id.toString()}_single`;
+      if (!uploadKeys.has(singleKey)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+};
+
+/**
+ * computeEffectiveVerificationStatus(partnerId, partnerCategories)
+ *
+ * Computes the correct verificationStatus based ONLY on active document types.
+ * Ignores uploads for disabled/deleted document types entirely.
+ *
+ * Logic:
+ *   - No active required docs at all → "Approved"
+ *   - All active required docs have status "Approved" → "Approved"
+ *   - Any active required doc has status "Rejected" → "Rejected"
+ *   - All active required docs are uploaded (none missing) → "Under Review"
+ *   - Some active required docs are missing → "Pending"
+ */
+const computeEffectiveVerificationStatus = async (partnerId, partnerCategories) => {
+  const requiredTypes = await getActiveRequiredDocTypes(partnerCategories);
+
+  // No required documents → partner is good to go
+  if (requiredTypes.length === 0) return "Approved";
+
+  // Get all non-superseded uploads
+  const uploads = await PartnerDocument.find({
+    partnerId,
+    status: { $ne: "Superseded" },
+  })
+    .select("documentTypeId side status")
+    .lean();
+
+  // Build a map: "docTypeId_side" → upload status
+  const uploadStatusMap = new Map();
+  for (const u of uploads) {
+    uploadStatusMap.set(`${u.documentTypeId.toString()}_${u.side}`, u.status);
+  }
+
+  // Only consider slots for active required document types
+  let allApproved = true;
+  let anyRejected = false;
+  let anyMissing = false;
+
+  for (const docType of requiredTypes) {
+    const slots = docType.isMultiPage
+      ? [`${docType._id.toString()}_front`, `${docType._id.toString()}_back`]
+      : [`${docType._id.toString()}_single`];
+
+    for (const key of slots) {
+      const status = uploadStatusMap.get(key);
+      if (!status) {
+        anyMissing = true;
+        allApproved = false;
+      } else if (status === "Rejected") {
+        anyRejected = true;
+        allApproved = false;
+      } else if (status !== "Approved") {
+        allApproved = false;
+      }
+    }
+  }
+
+  if (allApproved) return "Approved";
+  if (anyMissing) return "Pending";
+  if (anyRejected) return "Rejected";
+  return "Under Review";
+};
+
+/**
+ * getActiveRequiredDocTypes(partnerCategories)
+ *
+ * Returns the list of active, required DocumentTypes relevant to this partner.
+ */
+const getActiveRequiredDocTypes = async (partnerCategories) => {
+  const allActive = await DocumentType.find({ isActive: true }).lean();
+  const partnerCatStrings = (partnerCategories || []).map((c) => c.toString());
+
+  const relevant = allActive.filter((docType) => {
+    if (!docType.requiredForCategories || docType.requiredForCategories.length === 0) {
+      return true;
+    }
+    return docType.requiredForCategories.some((catId) =>
+      partnerCatStrings.includes(catId.toString())
+    );
+  });
+
+  return relevant.filter((dt) => dt.isRequired);
 };
 
 // ─── Logout ─────────────────────────────────────────────────────────────────

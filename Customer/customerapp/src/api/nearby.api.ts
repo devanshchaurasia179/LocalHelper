@@ -5,6 +5,7 @@ import { api } from "@/constants/api";
 export interface NearbyCategory {
   _id: string;
   name: string;
+  icon?: string;
 }
 
 export interface WorkingDay {

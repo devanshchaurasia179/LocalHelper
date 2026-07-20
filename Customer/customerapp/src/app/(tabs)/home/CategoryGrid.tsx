@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { View, Text, ImageBackground, StyleSheet, Pressable } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   useSharedValue,
@@ -35,7 +35,8 @@ function getCategoryImage(name: string): number {
 
 // ─── Category → icon map ──────────────────────────────────────────────────────
 
-const CATEGORY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
+/** Fallback icon map used when API doesn't return an icon for a category */
+const CATEGORY_ICONS_FALLBACK: Record<string, keyof typeof Ionicons.glyphMap> = {
   plumber:     'water-outline',
   carpenter:   'hammer-outline',
   driver:      'car-outline',
@@ -48,8 +49,11 @@ const CATEGORY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   mover:       'cube-outline',
 };
 
-function getCategoryIcon(name: string): keyof typeof Ionicons.glyphMap {
-  return CATEGORY_ICONS[name.trim().toLowerCase()] ?? 'briefcase-outline';
+/**
+ * Get the fallback Ionicons name for a category (used when API icon is missing).
+ */
+function getFallbackIcon(name: string): keyof typeof Ionicons.glyphMap {
+  return CATEGORY_ICONS_FALLBACK[name.trim().toLowerCase()] ?? 'briefcase-outline';
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -69,7 +73,7 @@ function CategoryCard({
   onPress: () => void;
 }) {
   const image = getCategoryImage(category.name);
-  const icon  = getCategoryIcon(category.name);
+  const fallbackIcon = getFallbackIcon(category.name);
   const scale = useSharedValue(1);
 
   const animStyle = useAnimatedStyle(() => ({
@@ -121,7 +125,11 @@ function CategoryCard({
           >
             {/* Icon pill — top-left */}
             <View style={styles.iconPill}>
-              <Ionicons name={icon} size={15} color={colors.white} />
+              {category.icon ? (
+                <MaterialCommunityIcons name={category.icon as any} size={15} color={colors.white} />
+              ) : (
+                <Ionicons name={fallbackIcon} size={15} color={colors.white} />
+              )}
             </View>
 
             {/* "Available" badge — top-right */}
