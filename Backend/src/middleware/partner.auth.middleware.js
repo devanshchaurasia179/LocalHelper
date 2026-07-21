@@ -19,7 +19,7 @@ const protectPartner = async (req, res, next) => {
 
     // Fetch minimal partner fields needed for the auth check
     const partner = await Partner.findById(decoded.id).select(
-      "accountStatus isDeleted"
+      "accountStatus statusReason isDeleted"
     );
 
     if (!partner) {
@@ -33,12 +33,16 @@ const protectPartner = async (req, res, next) => {
     if (partner.accountStatus === "Blocked") {
       return res.status(403).json({
         message: "Your account has been blocked. Contact support.",
+        accountStatus: "Blocked",
+        statusReason: partner.statusReason ?? null,
       });
     }
 
     if (partner.accountStatus === "Suspended") {
       return res.status(403).json({
         message: "Your account is under review. Contact support.",
+        accountStatus: "Suspended",
+        statusReason: partner.statusReason ?? null,
       });
     }
 

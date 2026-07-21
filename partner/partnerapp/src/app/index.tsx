@@ -10,6 +10,7 @@ import { ROUTES } from "@/constants/routes";
  *
  * loading                                → spinner (session restore in progress)
  * unauthenticated                        → /(auth)/send-otp
+ * authenticated, blocked/suspended       → /(account-status)/blocked or suspended
  * authenticated, !isProfile              → /(onboarding)/complete-profile
  * authenticated, isProfile, !isService   → /(onboarding)/add-service
  * authenticated, isProfile, isService, !isDocument → /(onboarding)/upload-documents
@@ -28,6 +29,14 @@ export default function Index() {
 
   if (status === "unauthenticated" || !partner) {
     return <Redirect href={ROUTES.AUTH.SEND_OTP as any} />;
+  }
+
+  // ── Account status takes precedence over onboarding ───────────────────────
+  if (partner.accountStatus === "Blocked") {
+    return <Redirect href={ROUTES.ACCOUNT_STATUS.BLOCKED as any} />;
+  }
+  if (partner.accountStatus === "Suspended") {
+    return <Redirect href={ROUTES.ACCOUNT_STATUS.SUSPENDED as any} />;
   }
 
   // ── Partner onboarding funnel ─────────────────────────────────────────────

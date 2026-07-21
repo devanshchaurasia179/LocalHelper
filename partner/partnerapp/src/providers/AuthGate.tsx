@@ -15,10 +15,11 @@ type Props = {
  *
  * Partner onboarding funnel enforced here:
  *  1. No session                  → /(auth)/send-otp
- *  2. Phone verified, !isProfile  → /(onboarding)/complete-profile
- *  3. isProfile, !isService       → /(onboarding)/add-service
- *  4. isService, !isDocument      → /(onboarding)/upload-documents
- *  5. All steps done              → VerificationGate → status-based route
+ *  2. Account blocked/suspended   → account status screens
+ *  3. Phone verified, !isProfile  → /(onboarding)/complete-profile
+ *  4. isProfile, !isService       → /(onboarding)/add-service
+ *  5. isService, !isDocument      → /(onboarding)/upload-documents
+ *  6. All steps done              → VerificationGate → status-based route
  */
 export function AuthGate({ children: _children }: Props) {
   const { status, partner } = useAuth();
@@ -33,6 +34,14 @@ export function AuthGate({ children: _children }: Props) {
 
   if (status === "unauthenticated" || !partner) {
     return <Redirect href={ROUTES.AUTH.SEND_OTP as any} />;
+  }
+
+  // ── Account status takes precedence over onboarding ───────────────────────
+  if (partner.accountStatus === "Blocked") {
+    return <Redirect href={ROUTES.ACCOUNT_STATUS.BLOCKED as any} />;
+  }
+  if (partner.accountStatus === "Suspended") {
+    return <Redirect href={ROUTES.ACCOUNT_STATUS.SUSPENDED as any} />;
   }
 
   // ── Partner onboarding step redirects ─────────────────────────────────────

@@ -21,6 +21,12 @@ export const ROUTES = {
     REJECTED: "/(verification)/rejected",
   },
 
+  // Account status group — shown when admin blocks or suspends the partner
+  ACCOUNT_STATUS: {
+    SUSPENDED: "/(account-status)/suspended",
+    BLOCKED: "/(account-status)/blocked",
+  },
+
   // Main app tabs
   APP: {
     HOME: "/(tabs)/home",

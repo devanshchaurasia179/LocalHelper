@@ -19,6 +19,8 @@ export type Partner = {
   isProfile: boolean;   // personal info + address
   isService: boolean;   // service category + pricing
   isDocument: boolean;  // ID / certification uploads
+  accountStatus?: "Active" | "Blocked" | "Suspended";
+  statusReason?: string | null;
 };
 
 // ─── Auth State ───────────────────────────────────────────────────────────────

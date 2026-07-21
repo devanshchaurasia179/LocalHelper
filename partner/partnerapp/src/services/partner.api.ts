@@ -4,6 +4,7 @@ import {
   isVerificationStatus,
   type VerificationStatus,
 } from "@/constants/verificationStatus";
+import { ACCOUNT_STATUS, isAccountStatus } from "@/constants/accountStatus";
 import type { PartnerProfile } from "@/types/partner";
 
 /** Maps legacy backend verificationStatus strings to the canonical enum */
@@ -40,6 +41,13 @@ export function normalizePartnerProfile(raw: unknown): PartnerProfile {
     | { status?: unknown; rejectionReason?: string | null }
     | undefined;
 
+  const rawAccountStatus = body?.accountStatus as string | undefined;
+  const accountStatus =
+    rawAccountStatus && isAccountStatus(rawAccountStatus)
+      ? rawAccountStatus
+      : ACCOUNT_STATUS.ACTIVE;
+  const statusReason = (body?.statusReason as string | null) ?? null;
+
   if (verification?.status && isVerificationStatus(verification.status)) {
     return {
       name: String(body.name ?? body.fullName ?? "Partner"),
@@ -47,6 +55,8 @@ export function normalizePartnerProfile(raw: unknown): PartnerProfile {
         status: verification.status,
         rejectionReason: verification.rejectionReason ?? null,
       },
+      accountStatus,
+      statusReason,
     };
   }
 
@@ -58,6 +68,8 @@ export function normalizePartnerProfile(raw: unknown): PartnerProfile {
         status: mapLegacyStatus(legacyStatus, Boolean(body.isDocument)),
         rejectionReason: (body.rejectionReason as string | null) ?? null,
       },
+      accountStatus,
+      statusReason,
     };
   }
 

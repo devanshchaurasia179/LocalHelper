@@ -12,6 +12,7 @@ import axios from "axios";
 import { usePartnerStatus } from "@/hooks/usePartnerStatus";
 import { useAuth } from "@/providers/AuthProvider";
 import { VERIFICATION_STATUS } from "@/constants/verificationStatus";
+import { ACCOUNT_STATUS } from "@/constants/accountStatus";
 import { ROUTES } from "@/constants/routes";
 import { colors, fonts, radii, spacing } from "@/constants/theme";
 
@@ -26,12 +27,21 @@ import { colors, fonts, radii, spacing } from "@/constants/theme";
  *   VERIFIED      → partner home
  */
 export function VerificationGate() {
-  const { signOut } = useAuth();
+  const { signOut, partner } = useAuth();
   const { data, isLoading, isError, error, refetch, isRefetching } =
     usePartnerStatus();
 
   const isUnauthorized =
     isError && axios.isAxiosError(error) && error.response?.status === 401;
+
+  // Check if the error is a 403 with accountStatus (blocked/suspended)
+  const accountStatusFromError =
+    isError &&
+    axios.isAxiosError(error) &&
+    error.response?.status === 403 &&
+    error.response?.data?.accountStatus
+      ? (error.response.data.accountStatus as string)
+      : null;
 
   useEffect(() => {
     if (isUnauthorized) {
@@ -49,6 +59,22 @@ export function VerificationGate() {
 
   if (isUnauthorized) {
     return <Redirect href={ROUTES.AUTH.SEND_OTP as any} />;
+  }
+
+  // ── Handle 403 account status from middleware ─────────────────────────────
+  if (accountStatusFromError === ACCOUNT_STATUS.BLOCKED) {
+    return <Redirect href={ROUTES.ACCOUNT_STATUS.BLOCKED as any} />;
+  }
+  if (accountStatusFromError === ACCOUNT_STATUS.SUSPENDED) {
+    return <Redirect href={ROUTES.ACCOUNT_STATUS.SUSPENDED as any} />;
+  }
+
+  // ── Check partner object from AuthContext (set during login/session restore)
+  if (partner?.accountStatus === "Blocked") {
+    return <Redirect href={ROUTES.ACCOUNT_STATUS.BLOCKED as any} />;
+  }
+  if (partner?.accountStatus === "Suspended") {
+    return <Redirect href={ROUTES.ACCOUNT_STATUS.SUSPENDED as any} />;
   }
 
   if (isError || !data) {
@@ -79,6 +105,14 @@ export function VerificationGate() {
         </Pressable>
       </View>
     );
+  }
+
+  // ── Account status check — blocked/suspended takes precedence ────────────
+  if (data.accountStatus === ACCOUNT_STATUS.SUSPENDED) {
+    return <Redirect href={ROUTES.ACCOUNT_STATUS.SUSPENDED as any} />;
+  }
+  if (data.accountStatus === ACCOUNT_STATUS.BLOCKED) {
+    return <Redirect href={ROUTES.ACCOUNT_STATUS.BLOCKED as any} />;
   }
 
   switch (data.verification.status) {

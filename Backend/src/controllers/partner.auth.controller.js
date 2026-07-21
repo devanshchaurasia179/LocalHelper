@@ -138,6 +138,8 @@ export const verifyOtp = async (req, res) => {
         isProfile: partner.isProfile,
         isService: partner.isService,
         isDocument: partner.isDocument,
+        accountStatus: partner.accountStatus ?? "Active",
+        statusReason: partner.statusReason ?? null,
       },
     });
   } catch (error) {

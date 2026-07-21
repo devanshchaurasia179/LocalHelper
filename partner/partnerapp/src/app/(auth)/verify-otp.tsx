@@ -70,7 +70,7 @@ export default function VerifyOtpScreen() {
   }, []);
 
   // ── Guards ────────────────────────────────────────────────────────────────
-  if (status === "authenticated") return <Redirect href={ROUTES.APP.HOME as any} />;
+  if (status === "authenticated") return <Redirect href={ROUTES.ROOT as any} />;
   if (!phone) return <Redirect href={ROUTES.AUTH.SEND_OTP as any} />;
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -97,6 +97,15 @@ export default function VerifyOtpScreen() {
     try {
       const partner = await confirmOtp(phone, otp);
 
+      // Account blocked/suspended — route through the root gate
+      if (
+        partner.accountStatus === "Blocked" ||
+        partner.accountStatus === "Suspended"
+      ) {
+        router.replace(ROUTES.ROOT as any);
+        return;
+      }
+
       // Route to the first incomplete onboarding step
       if (!partner.isProfile) {
         router.replace(ROUTES.ONBOARDING.PROFILE as any);
@@ -105,7 +114,7 @@ export default function VerifyOtpScreen() {
       } else if (!partner.isDocument) {
         router.replace(ROUTES.ONBOARDING.DOCUMENTS as any);
       } else {
-        router.replace(ROUTES.APP.HOME as any);
+        router.replace(ROUTES.ROOT as any);
       }
     } catch (e: any) {
       setError(e?.response?.data?.message ?? "Invalid OTP. Please try again.");

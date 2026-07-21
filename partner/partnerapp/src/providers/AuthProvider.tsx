@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
+import axios from "axios";
 import { api } from "@/constants/api";
 import { sendOtp, verifyOtp, completeProfile, logout } from "@/api/auth.api";
 import type { Partner, CompleteProfilePayload } from "@/types/auth";
@@ -81,6 +82,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         );
         finish("authenticated", res.data.partner);
       } catch (err: any) {
+        // 403 with accountStatus means blocked/suspended — still "authenticated"
+        // so the VerificationGate can route to the correct screen
+        if (
+          axios.isAxiosError(err) &&
+          err.response?.status === 403 &&
+          err.response?.data?.accountStatus
+        ) {
+          const { accountStatus, statusReason } = err.response.data;
+          console.log(
+            "[AuthProvider] account restricted:",
+            accountStatus,
+            statusReason
+          );
+          // Create a minimal partner object with account status info
+          // so VerificationGate can redirect to blocked/suspended screen
+          const restrictedPartner: Partner = {
+            id: "",
+            phone: "",
+            fullName: null,
+            phoneVerified: true,
+            verificationStatus: "Approved",
+            isProfile: true,
+            isService: true,
+            isDocument: true,
+            accountStatus,
+            statusReason: statusReason ?? null,
+          };
+          finish("authenticated", restrictedPartner);
+          return;
+        }
         // 401 = no valid session; any other error = treat as logged out
         console.log(
           "[AuthProvider] session restore failed:",
@@ -138,7 +169,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Sign out ── clears partner_token cookie on server, resets local state
   const signOut = useCallback(async () => {
-    await logout();
+    try {
+      await logout();
+    } catch {
+      // Even if the server call fails (403, network error), clear local state
+    }
     setPartner(null);
     setStatus("unauthenticated");
   }, []);

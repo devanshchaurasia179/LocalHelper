@@ -260,7 +260,14 @@ export default function UploadDocumentsScreen() {
   }
 
   const { documents, banner, progress } = data;
-  const missingRequired = documents.filter(
+
+  // Only show documents that still need action — exclude already-approved ones.
+  // Partners should only see missing, pending, under_review, or rejected docs.
+  const actionableDocuments = documents.filter(
+    (d) => d.uploadStatus !== "approved"
+  );
+
+  const missingRequired = actionableDocuments.filter(
     (d) => d.isRequired && d.uploadStatus === "missing"
   ).length;
 
@@ -309,8 +316,8 @@ export default function UploadDocumentsScreen() {
             percentage={progress.percentage}
           />
 
-          {/* ── Document cards — the only loop. No document names here. ─ */}
-          {documents.map((doc) => (
+          {/* ── Document cards — only non-approved documents shown. ──────── */}
+          {actionableDocuments.map((doc) => (
             <UploadCard
               key={doc.key}
               doc={doc}
@@ -333,6 +340,20 @@ export default function UploadDocumentsScreen() {
               <Text style={styles.remainingHintText}>
                 {missingRequired} required document
                 {missingRequired > 1 ? "s" : ""} remaining
+              </Text>
+            </Animated.View>
+          )}
+
+          {/* ── All approved message ──────────────────────────────────────── */}
+          {actionableDocuments.length === 0 && (
+            <Animated.View entering={FadeIn} style={styles.remainingHint}>
+              <Ionicons
+                name="checkmark-circle-outline"
+                size={16}
+                color={colors.success ?? "#16A34A"}
+              />
+              <Text style={styles.remainingHintText}>
+                All documents have been approved
               </Text>
             </Animated.View>
           )}
