@@ -18,8 +18,8 @@ import protectCustomer from "../middleware/customer.auth.middleware.js";
 const router = express.Router();
 
 // ─── Dual-auth middleware ─────────────────────────────────────────────────────
-// Accepts either partner_token or customer_token.
-// Attaches req.partnerId OR req.customerId — controller checks which is set.
+// Accepts either partner_token or customer_token (or both).
+// Attaches req.partnerId AND/OR req.customerId — controller decides which applies.
 const protectEither = (req, res, next) => {
   const partnerToken  = req.cookies?.partner_token;
   const customerToken = req.cookies?.customer_token;
@@ -28,14 +28,13 @@ const protectEither = (req, res, next) => {
     return res.status(401).json({ message: "Unauthorized. Please log in." });
   }
 
-  // Try partner token first
+  // Try partner token
   if (partnerToken) {
     try {
       const decoded = jwt.verify(partnerToken, process.env.JWT_SECRET);
       req.partnerId = decoded.id;
-      return next();
     } catch {
-      // invalid/expired — fall through to customer token
+      // invalid/expired — ignore
     }
   }
 
@@ -44,13 +43,17 @@ const protectEither = (req, res, next) => {
     try {
       const decoded = jwt.verify(customerToken, process.env.JWT_SECRET);
       req.customerId = decoded.id;
-      return next();
     } catch {
-      return res.status(401).json({ message: "Invalid or expired token." });
+      // invalid/expired — ignore
     }
   }
 
-  return res.status(401).json({ message: "Unauthorized. Please log in." });
+  // At least one must have resolved
+  if (!req.partnerId && !req.customerId) {
+    return res.status(401).json({ message: "Invalid or expired token." });
+  }
+
+  return next();
 };
 
 // ─── Public ───────────────────────────────────────────────────────────────────

@@ -120,10 +120,12 @@ export default function BookingsScreen() {
   }, []);
 
   const handleReviewSubmitted = useCallback(
-    (bookingId: string, rating: number, comment: string) => {
-      submitBookingReview(bookingId, rating, comment || undefined).catch((err: any) => {
+    async (bookingId: string, rating: number, comment: string) => {
+      try {
+        await submitBookingReview(bookingId, rating, comment || undefined);
+      } catch (err: any) {
         Alert.alert('Error', err?.message ?? 'Failed to submit review. Try again.');
-      });
+      }
     },
     [submitBookingReview],
   );

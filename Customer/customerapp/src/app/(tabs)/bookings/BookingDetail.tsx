@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,13 +6,11 @@ import {
   StyleSheet,
   Modal,
   ScrollView,
-  ActivityIndicator,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { colors, spacing, radii, typography } from '../home/theme';
-import { cancelBooking } from '@/constants/booking.api';
 import type { Booking, BookingStatus } from './bookings.types';
 
 // ─── Status config (same as BookingCard) ─────────────────────────────────────
@@ -84,7 +82,6 @@ export default function BookingDetail({
   onCancelled,
   onReviewPress,
 }: BookingDetailProps) {
-  const [cancelling, setCancelling] = useState(false);
 
   const handleCancel = useCallback(async () => {
     if (!booking) return;
@@ -97,20 +94,10 @@ export default function BookingDetail({
         {
           text: 'Yes, Cancel',
           style: 'destructive',
-          onPress: async () => {
-            setCancelling(true);
-            try {
-              await cancelBooking(booking._id);
-              onCancelled(booking._id);
-              onClose();
-            } catch (err: any) {
-              Alert.alert(
-                'Error',
-                err?.response?.data?.message ?? 'Could not cancel booking. Try again.',
-              );
-            } finally {
-              setCancelling(false);
-            }
+          onPress: () => {
+            // Delegate the actual API call to the parent via onCancelled
+            onCancelled(booking._id);
+            onClose();
           },
         },
       ],
@@ -124,9 +111,9 @@ export default function BookingDetail({
   const canCancel = booking.status === 'pending' || booking.status === 'accepted';
   const canReview = booking.status === 'completed' && !review?.rating;
 
-  const avatarUri = partner?.profilePhoto
-    ? partner.profilePhoto
-    : `https://ui-avatars.com/api/?name=${encodeURIComponent(partner?.fullName ?? 'P')}&background=12493B&color=fff&size=200`;
+  const avatarUri = partner?.selfieUrl
+    ?? partner?.profilePhoto
+    ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(partner?.fullName ?? 'P')}&background=12493B&color=fff&size=200`;
 
   return (
     <Modal
@@ -222,8 +209,8 @@ export default function BookingDetail({
               </View>
             )}
 
-            {/* Cancellation section */}
-            {cancellation && (
+            {/* Cancellation section — only show when booking is actually cancelled */}
+            {booking.status === 'cancelled' && cancellation && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Cancellation</Text>
                 <View style={styles.cancelBox}>
@@ -283,19 +270,12 @@ export default function BookingDetail({
 
             {canCancel && (
               <TouchableOpacity
-                style={[styles.cancelBtn, cancelling && styles.btnDisabled]}
+                style={styles.cancelBtn}
                 onPress={handleCancel}
-                disabled={cancelling}
                 activeOpacity={0.8}
               >
-                {cancelling ? (
-                  <ActivityIndicator color="#EF4444" size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="close-circle-outline" size={16} color="#EF4444" />
-                    <Text style={styles.cancelBtnText}>Cancel Booking</Text>
-                  </>
-                )}
+                <Ionicons name="close-circle-outline" size={16} color="#EF4444" />
+                <Text style={styles.cancelBtnText}>Cancel Booking</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -489,8 +469,5 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     fontWeight: '600',
     fontSize: 14,
-  },
-  btnDisabled: {
-    opacity: 0.5,
   },
 });

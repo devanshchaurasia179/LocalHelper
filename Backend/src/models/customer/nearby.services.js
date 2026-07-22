@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Partner from "../partner/Partner.js";
+import DocumentType from "../verification/DocumentType.js";
 
 /**
  * Find partners whose serviceLocation is within their declared serviceRadius
@@ -21,6 +22,10 @@ import Partner from "../partner/Partner.js";
 export async function findNearbyServices(longitude, latitude, filters = {}) {
   const { categoryId, maxRadius = 50 } = filters;
 
+  // Fetch the selfie DocumentType _id once (cached by Mongoose after first call)
+  const selfieType = await DocumentType.findOne({ key: "selfie" }).select("_id").lean();
+  const selfieTypeId = selfieType?._id;
+
   const pipeline = [
     // ── Stage 1: geo filter ──────────────────────────────────────────────────
     {
@@ -34,8 +39,6 @@ export async function findNearbyServices(longitude, latitude, filters = {}) {
           // Check index 0 exists — more reliable than $ne:[]
           "serviceLocation.coordinates.0": { $exists: true },
           verificationStatus: "Approved",
-          isOnline: true,
-          isAvailable: true,
         },
       },
     },
@@ -62,11 +65,43 @@ export async function findNearbyServices(longitude, latitude, filters = {}) {
       },
     },
 
+    // ── Stage 4b: lookup selfie from partnerdocuments ─────────────────────────
+    ...(selfieTypeId
+      ? [
+          {
+            $lookup: {
+              from: "partnerdocuments",
+              let: { pid: "$_id" },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $eq: ["$partnerId", "$$pid"] },
+                    documentTypeId: selfieTypeId,
+                    status: "Approved",
+                  },
+                },
+                { $sort: { version: -1 } },
+                { $limit: 1 },
+                { $project: { _id: 0, url: "$cloudinary.url" } },
+              ],
+              as: "_selfie",
+            },
+          },
+          {
+            $addFields: {
+              selfieUrl: { $arrayElemAt: ["$_selfie.url", 0] },
+            },
+          },
+          { $project: { _selfie: 0 } },
+        ]
+      : []),
+
     // ── Stage 5: shape response ───────────────────────────────────────────────
     {
       $project: {
         fullName: 1,
         profilePhoto: 1,
+        selfieUrl: 1,
         bio: 1,
         skills: 1,
         categories: 1,

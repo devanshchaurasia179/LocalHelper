@@ -19,6 +19,8 @@ import * as Location from 'expo-location';
 import { fetchNearbyServices } from '@/api/nearby.api';
 import type { NearbyPartner } from '@/api/nearby.api';
 import { nearbyCache } from '@/cache/nearbyCache';
+import { fetchActiveBookingsByPartner } from '@/constants/booking.api';
+import type { ActiveBookingStatus } from './PartnerCard';
 import PartnerCard from './PartnerCard';
 import PartnerDetailSheet from '../home/PartnerDetailSheet';
 import { colors, spacing, radii, typography } from '../home/theme';
@@ -171,6 +173,9 @@ export default function CategoryPartnersScreen() {
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('recommended');
 
+  // Active bookings map: partnerId → status (to prevent re-booking)
+  const [activeBookings, setActiveBookings] = useState<Map<string, ActiveBookingStatus>>(new Map());
+
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const load = useCallback(async (silent = false) => {
@@ -194,11 +199,16 @@ export default function CategoryPartnersScreen() {
         }
       }
 
-      const res = await fetchNearbyServices({ ...coords, categoryId });
+      const [res, bookingsMap] = await Promise.all([
+        fetchNearbyServices({ ...coords, categoryId }),
+        fetchActiveBookingsByPartner().catch(() => new Map<string, ActiveBookingStatus>()),
+      ]);
+
       nearbyCache.setPartners(res.data.services);
       setPartners(res.data.services.filter((p) =>
         p.categories.some((c) => c._id === categoryId)
       ));
+      setActiveBookings(bookingsMap as Map<string, ActiveBookingStatus>);
     } catch (err: any) {
       if (!silent) {
         setError(
@@ -424,7 +434,11 @@ export default function CategoryPartnersScreen() {
           }
           renderItem={({ item, index }) => (
             <AnimatedRow index={index}>
-              <PartnerCard partner={item} onPress={() => setSelectedPartner(item)} />
+              <PartnerCard
+                partner={item}
+                onPress={() => setSelectedPartner(item)}
+                activeBookingStatus={activeBookings.get(item._id) ?? null}
+              />
             </AnimatedRow>
           )}
         />

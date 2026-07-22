@@ -23,6 +23,7 @@ export type NearbyPartner = {
   _id: string;
   fullName: string;
   profilePhoto?: string;
+  selfieUrl?: string;
   bio?: string;
   skills?: string[];
   categories: Category[];
@@ -94,3 +95,60 @@ export const submitReview = (id: string, rating: number, comment?: string) =>
   api
     .post(`/bookings/${id}/review`, { rating, comment })
     .then((res) => res.data);
+
+// ─── Active Bookings (for blocking re-booking) ───────────────────────────────
+
+export type ActiveBookingInfo = {
+  partnerId: string;
+  status: "pending" | "accepted" | "in_progress";
+};
+
+/**
+ * Fetches all non-terminal bookings (pending, accepted, in_progress)
+ * and returns a map of partnerId → booking status.
+ * Used by the nearby partners screen to prevent re-booking.
+ */
+export const fetchActiveBookingsByPartner = async (): Promise<
+  Map<string, ActiveBookingInfo["status"]>
+> => {
+  const statuses: ActiveBookingInfo["status"][] = [
+    "pending",
+    "accepted",
+    "in_progress",
+  ];
+
+  const results = await Promise.all(
+    statuses.map((status) =>
+      api
+        .get<GetBookingsResponse>("/bookings/customer", {
+          params: { status, page: 1, limit: 100 },
+        })
+        .then((res) => res.data.bookings.map((b) => ({ partnerId: b.partner._id, status })))
+    )
+  );
+
+  const map = new Map<string, ActiveBookingInfo["status"]>();
+  for (const list of results) {
+    for (const { partnerId, status } of list) {
+      // Priority: in_progress > accepted > pending
+      const existing = map.get(partnerId);
+      if (!existing || statusPriority(status) > statusPriority(existing)) {
+        map.set(partnerId, status);
+      }
+    }
+  }
+  return map;
+};
+
+function statusPriority(s: ActiveBookingInfo["status"]): number {
+  switch (s) {
+    case "in_progress":
+      return 3;
+    case "accepted":
+      return 2;
+    case "pending":
+      return 1;
+    default:
+      return 0;
+  }
+}

@@ -1,6 +1,8 @@
 import Booking from "../models/partner/partner.booking.js";
 import Partner from "../models/partner/Partner.js";
 import Customer from "../models/customer/Customer.js";
+import DocumentType from "../models/verification/DocumentType.js";
+import PartnerDocument from "../models/verification/PartnerDocument.js";
 
 // ─── CUSTOMER: Create Booking ─────────────────────────────────────────────────
 /**
@@ -240,20 +242,46 @@ export const completeBooking = async (req, res) => {
  *  - Neither  can cancel an in_progress or completed booking.
  *
  * The caller is identified by which cookie is present on the request.
- * The route is mounted twice — once under /partner and once under /customer.
+ * req.partnerId OR req.customerId must be set by the auth middleware.
  */
 export const cancelBooking = async (req, res) => {
   try {
     const { reason } = req.body;
 
-    // Determine who is cancelling
-    const isPartner  = !!req.partnerId;
-    const cancelledBy = isPartner ? "partner" : "customer";
-    const callerId    = isPartner ? req.partnerId : req.customerId;
-
+    // Determine who is cancelling based on which ID was set by the middleware.
+    // If both are present (shared cookie jar in dev), prefer customerId when
+    // the booking belongs to that customer, and partnerId when it belongs to
+    // that partner. This avoids mis-attribution.
     const booking = await Booking.findById(req.params.id);
     if (!booking) {
       return res.status(404).json({ message: "Booking not found." });
+    }
+
+    // Determine caller identity — resolve ambiguity when both IDs are present
+    let isPartner  = false;
+    let cancelledBy = "customer";
+    let callerId   = req.customerId;
+
+    if (req.partnerId && booking.partner.toString() === req.partnerId) {
+      isPartner   = true;
+      cancelledBy = "partner";
+      callerId    = req.partnerId;
+    } else if (req.customerId && booking.customer.toString() === req.customerId) {
+      isPartner   = false;
+      cancelledBy = "customer";
+      callerId    = req.customerId;
+    } else if (req.partnerId && !req.customerId) {
+      // Only partner token present
+      isPartner   = true;
+      cancelledBy = "partner";
+      callerId    = req.partnerId;
+    } else if (req.customerId && !req.partnerId) {
+      // Only customer token present
+      isPartner   = false;
+      cancelledBy = "customer";
+      callerId    = req.customerId;
+    } else {
+      return res.status(403).json({ message: "Not authorised to cancel this booking." });
     }
 
     // Ownership check
@@ -478,8 +506,43 @@ export const getCustomerBookings = async (req, res) => {
       Booking.countDocuments(filter),
     ]);
 
+    // ── Attach selfie URL from partnerdocuments collection ────────────────────
+    const selfieType = await DocumentType.findOne({ key: "selfie" }).select("_id").lean();
+
+    let selfieMap = {};
+    if (selfieType) {
+      const partnerIds = [...new Set(bookings.map((b) => b.partner?._id).filter(Boolean))];
+      if (partnerIds.length > 0) {
+        const selfieDocs = await PartnerDocument.find({
+          partnerId: { $in: partnerIds },
+          documentTypeId: selfieType._id,
+          status: "Approved",
+        })
+          .sort({ version: -1 })
+          .select("partnerId cloudinary.url")
+          .lean();
+
+        // Keep only the latest version per partner
+        for (const doc of selfieDocs) {
+          const pid = doc.partnerId.toString();
+          if (!selfieMap[pid]) {
+            selfieMap[pid] = doc.cloudinary?.url;
+          }
+        }
+      }
+    }
+
+    // Serialize bookings with selfieUrl injected into partner
+    const enrichedBookings = bookings.map((b) => {
+      const obj = b.toObject();
+      if (obj.partner) {
+        obj.partner.selfieUrl = selfieMap[obj.partner._id?.toString()] ?? null;
+      }
+      return obj;
+    });
+
     return res.status(200).json({
-      bookings,
+      bookings: enrichedBookings,
       pagination: {
         total,
         page:       Number(page),

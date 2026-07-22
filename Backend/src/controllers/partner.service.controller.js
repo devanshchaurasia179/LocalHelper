@@ -1,4 +1,5 @@
 import Partner from "../models/partner/Partner.js";
+import Booking from "../models/partner/partner.booking.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -224,6 +225,53 @@ export const updateVisitingCredits = async (req, res) => {
     });
   } catch (error) {
     console.error("updateVisitingCredits error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+// ─── DASHBOARD STATS ──────────────────────────────────────────────────────────
+/**
+ * GET /api/partner/service/dashboard
+ * 🔒 Requires partner_token cookie
+ *
+ * Returns quick stats for the partner's home screen:
+ * - todayBookings: count of bookings scheduled today
+ * - totalEarnings: lifetime earnings
+ * - averageRating: current average rating
+ * - completedJobs: total completed jobs
+ */
+export const getDashboardStats = async (req, res) => {
+  try {
+    const partner = await Partner.findById(req.partnerId).select(
+      "averageRating totalReviews completedJobs totalEarnings walletBalance"
+    );
+
+    if (!partner) {
+      return res.status(404).json({ message: "Partner not found." });
+    }
+
+    // Count bookings scheduled for today
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const todayBookings = await Booking.countDocuments({
+      partner: req.partnerId,
+      status: { $in: ["pending", "accepted", "in_progress"] },
+      scheduledAt: { $gte: startOfDay, $lte: endOfDay },
+    });
+
+    return res.status(200).json({
+      todayBookings,
+      totalEarnings: partner.totalEarnings ?? 0,
+      walletBalance: partner.walletBalance ?? 0,
+      averageRating: partner.averageRating ?? 0,
+      totalReviews: partner.totalReviews ?? 0,
+      completedJobs: partner.completedJobs ?? 0,
+    });
+  } catch (error) {
+    console.error("getDashboardStats error:", error);
     return res.status(500).json({ message: "Internal server error." });
   }
 };

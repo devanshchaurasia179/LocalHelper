@@ -30,7 +30,9 @@ export const ROUTES = {
   // Main app tabs
   APP: {
     HOME: "/(tabs)/home",
+    WALLET: "/(tabs)/wallet",
     BOOKINGS: "/(tabs)/bookings",
+    CHAT: "/(tabs)/chat",
     PROFILE: "/(tabs)/profile",
   },
 

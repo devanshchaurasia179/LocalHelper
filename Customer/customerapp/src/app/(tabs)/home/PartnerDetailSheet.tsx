@@ -218,9 +218,9 @@ export default function PartnerDetailSheet({
 
   if (!partner) return null;
 
-  const avatarUri = partner.profilePhoto
-    ? partner.profilePhoto
-    : `https://ui-avatars.com/api/?name=${encodeURIComponent(partner.fullName)}&background=12493B&color=fff&size=300`;
+  const avatarUri = partner.selfieUrl
+    ?? partner.profilePhoto
+    ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(partner.fullName)}&background=12493B&color=fff&size=300`;
 
   const primaryCategory = partner.categories[0]?.name ?? 'General';
 

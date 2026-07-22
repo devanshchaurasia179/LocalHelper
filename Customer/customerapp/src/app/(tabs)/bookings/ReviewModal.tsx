@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radii, typography } from '../home/theme';
-import { submitReview } from '@/constants/booking.api';
 import type { Booking } from './bookings.types';
 
 interface ReviewModalProps {
@@ -49,7 +48,8 @@ export default function ReviewModal({ visible, booking, onClose, onSubmitted }: 
     setLoading(true);
     setError(null);
     try {
-      await submitReview(booking._id, rating, comment.trim() || undefined);
+      // Delegate the API call to the parent via onSubmitted — don't call submitReview here
+      // to avoid a double-submit (parent's handler already calls the API)
       onSubmitted(booking._id, rating, comment.trim());
       reset();
       onClose();

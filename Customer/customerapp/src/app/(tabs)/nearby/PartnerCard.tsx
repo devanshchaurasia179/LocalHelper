@@ -5,15 +5,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radii, typography } from '../home/theme';
 import type { NearbyPartner } from '@/api/nearby.api';
 
+export type ActiveBookingStatus = 'pending' | 'accepted' | 'in_progress' | null;
+
 interface PartnerCardProps {
   partner: NearbyPartner;
   onPress: () => void;
+  /** If this partner already has an active booking, pass its status to block re-booking */
+  activeBookingStatus?: ActiveBookingStatus;
 }
 
-export default function PartnerCard({ partner, onPress }: PartnerCardProps) {
-  const avatarUri = partner.profilePhoto
-    ? partner.profilePhoto
-    : `https://ui-avatars.com/api/?name=${encodeURIComponent(partner.fullName)}&background=16493c&color=fff&size=200`;
+export default function PartnerCard({ partner, onPress, activeBookingStatus = null }: PartnerCardProps) {
+  const isBooked = activeBookingStatus !== null;
+  const avatarUri = partner.selfieUrl
+    ?? partner.profilePhoto
+    ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(partner.fullName)}&background=16493c&color=fff&size=200`;
 
   const primaryCategory = partner.categories[0]?.name ?? 'General';
   const isTopRated = partner.averageRating >= 4.5 && partner.totalReviews >= 5;
@@ -44,13 +49,23 @@ export default function PartnerCard({ partner, onPress }: PartnerCardProps) {
 
   return (
     <Pressable
-      onPress={onPress}
-      onPressIn={pressIn}
-      onPressOut={pressOut}
+      onPress={isBooked ? undefined : onPress}
+      onPressIn={isBooked ? undefined : pressIn}
+      onPressOut={isBooked ? undefined : pressOut}
       accessibilityRole="button"
-      accessibilityLabel={`View profile of ${partner.fullName}${partner.isOnline ? ', online now' : ''}`}
+      accessibilityLabel={`View profile of ${partner.fullName}${partner.isOnline ? ', online now' : ''}${isBooked ? `, currently ${getBookingLabel(activeBookingStatus)}` : ''}`}
+      disabled={isBooked}
     >
-      <Animated.View style={[styles.card, { transform: [{ scale }] }]}>
+      <Animated.View style={[styles.card, isBooked && styles.cardBooked, isBooked && { paddingTop: spacing.md + 22 }, { transform: [{ scale }] }]}>
+        {/* ── Booking status banner ── */}
+        {isBooked && (
+          <View style={[styles.bookingBanner, getBannerStyle(activeBookingStatus)]}>
+            <Ionicons name={getBannerIcon(activeBookingStatus)} size={12} color={getBannerColor(activeBookingStatus)} />
+            <Text style={[styles.bookingBannerText, { color: getBannerColor(activeBookingStatus) }]}>
+              {getBookingLabel(activeBookingStatus)}
+            </Text>
+          </View>
+        )}
         {/* ── Avatar ── */}
         <View style={styles.avatarWrap}>
           {!imageLoaded && <View style={styles.avatarPlaceholder} />}
@@ -70,6 +85,11 @@ export default function PartnerCard({ partner, onPress }: PartnerCardProps) {
                 ]}
               />
               <View style={styles.onlineDot} />
+            </View>
+          )}
+          {!partner.isOnline && (
+            <View style={styles.offlineBadge}>
+              <View style={styles.offlineDot} />
             </View>
           )}
         </View>
@@ -133,6 +153,13 @@ export default function PartnerCard({ partner, onPress }: PartnerCardProps) {
 
           {/* Tags: experience | visiting fee | emergency */}
           <View style={styles.tagsRow}>
+            {/* Online/Offline status chip */}
+            <View style={[styles.tag, partner.isOnline ? styles.tagOnline : styles.tagOffline]}>
+              <View style={[styles.statusChipDot, partner.isOnline ? styles.statusChipDotOnline : styles.statusChipDotOffline]} />
+              <Text style={[styles.tagText, partner.isOnline ? styles.tagOnlineText : styles.tagOfflineText]}>
+                {partner.isOnline ? 'Online' : 'Offline'}
+              </Text>
+            </View>
             {partner.experience != null && partner.experience > 0 && (
               <View style={styles.tag}>
                 <Text style={styles.tagText}>{partner.experience} yr exp</Text>
@@ -171,6 +198,58 @@ export default function PartnerCard({ partner, onPress }: PartnerCardProps) {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+function getBookingLabel(status: ActiveBookingStatus): string {
+  switch (status) {
+    case 'pending':
+      return 'Booking Pending';
+    case 'accepted':
+      return 'Booked – Busy';
+    case 'in_progress':
+      return 'Service In Progress';
+    default:
+      return '';
+  }
+}
+
+function getBannerIcon(status: ActiveBookingStatus): keyof typeof Ionicons.glyphMap {
+  switch (status) {
+    case 'pending':
+      return 'time-outline';
+    case 'accepted':
+      return 'checkmark-circle-outline';
+    case 'in_progress':
+      return 'construct-outline';
+    default:
+      return 'information-circle-outline';
+  }
+}
+
+function getBannerColor(status: ActiveBookingStatus): string {
+  switch (status) {
+    case 'pending':
+      return '#D97706'; // amber
+    case 'accepted':
+      return '#2563EB'; // blue
+    case 'in_progress':
+      return '#7C3AED'; // purple
+    default:
+      return colors.textSecondary;
+  }
+}
+
+function getBannerStyle(status: ActiveBookingStatus) {
+  switch (status) {
+    case 'pending':
+      return { backgroundColor: '#FEF3C7' }; // amber light
+    case 'accepted':
+      return { backgroundColor: '#DBEAFE' }; // blue light
+    case 'in_progress':
+      return { backgroundColor: '#EDE9FE' }; // purple light
+    default:
+      return {};
+  }
+}
+
 function formatDistance(km: number): string {
   if (km < 1) return `${Math.round(km * 1000)} m`;
   return `${km.toFixed(1)} km`;
@@ -194,6 +273,29 @@ const styles = StyleSheet.create({
     elevation: 3,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.05)',
+  },
+  cardBooked: {
+    opacity: 0.7,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+
+  // Booking banner
+  bookingBanner: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 5,
+    borderTopLeftRadius: radii.lg,
+    borderTopRightRadius: radii.lg,
+  },
+  bookingBannerText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
 
   // Avatar
@@ -229,6 +331,23 @@ const styles = StyleSheet.create({
     height: 11,
     borderRadius: 6,
     backgroundColor: '#22C55E',
+    borderWidth: 2,
+    borderColor: colors.background,
+  },
+  offlineBadge: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    width: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offlineDot: {
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: '#9CA3AF',
     borderWidth: 2,
     borderColor: colors.background,
   },
@@ -347,6 +466,29 @@ const styles = StyleSheet.create({
   },
   tagEmergencyText: {
     color: '#EF4444',
+  },
+  tagOnline: {
+    backgroundColor: '#ECFDF5',
+  },
+  tagOnlineText: {
+    color: '#059669',
+  },
+  tagOffline: {
+    backgroundColor: '#F3F4F6',
+  },
+  tagOfflineText: {
+    color: '#6B7280',
+  },
+  statusChipDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusChipDotOnline: {
+    backgroundColor: '#22C55E',
+  },
+  statusChipDotOffline: {
+    backgroundColor: '#9CA3AF',
   },
 
   // Skills

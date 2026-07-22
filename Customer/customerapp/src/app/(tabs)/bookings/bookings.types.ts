@@ -33,6 +33,7 @@ export interface BookingPartner {
   fullName: string;
   phone: string;
   profilePhoto?: string;
+  selfieUrl?: string;
   averageRating?: number;
   visitingCredits?: number;
 }

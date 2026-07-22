@@ -46,9 +46,9 @@ export default function BookingCard({ booking, onPress }: BookingCardProps) {
   const { status, partner, category, scheduledAt, visitingCredit, isEmergency, review } = booking;
   const cfg = STATUS_CONFIG[status];
 
-  const avatarUri = partner?.profilePhoto
-    ? partner.profilePhoto
-    : `https://ui-avatars.com/api/?name=${encodeURIComponent(partner?.fullName ?? 'P')}&background=12493B&color=fff&size=200`;
+  const avatarUri = partner?.selfieUrl
+    ?? partner?.profilePhoto
+    ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(partner?.fullName ?? 'P')}&background=12493B&color=fff&size=200`;
 
   return (
     <TouchableOpacity

@@ -18,6 +18,7 @@ export interface NearbyPartner {
   _id: string;
   fullName: string;
   profilePhoto?: string;
+  selfieUrl?: string;
   bio?: string;
   skills: string[];
   categories: NearbyCategory[];
