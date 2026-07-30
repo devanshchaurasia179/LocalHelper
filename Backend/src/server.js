@@ -48,6 +48,11 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
+// Health check
+app.get("/health", (req, res) => {
+    res.status(200).json({ status: "ok" });
+});
+
 // Routes
 app.use("/api/partner/auth", partnerAuthRoutes);
 app.use("/api/partner/service", partnerServiceRoutes);

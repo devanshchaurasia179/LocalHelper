@@ -42,3 +42,9 @@ example
 # generated native folders
 /ios
 /android
+
+
+# Elastic Beanstalk Files
+.elasticbeanstalk/*
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml
