@@ -10,6 +10,7 @@ import {
   TextInput,
   Alert,
   Platform,
+  Pressable,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +20,231 @@ import * as Location from 'expo-location';
 import { colors, spacing, radii, typography } from './theme';
 import { useBookPartner } from '@/hooks/useBookPartner';
 import type { NearbyPartner } from '@/api/nearby.api';
+
+// ─── Offline Booking Modal ────────────────────────────────────────────────────
+
+type OfflineModalType = 'emergency_available' | 'no_emergency' | 'success' | null;
+
+interface OfflineBookingModalProps {
+  type: OfflineModalType;
+  partnerName: string;
+  loading: boolean;
+  onClose: () => void;
+  onConfirmEmergency: () => void;
+}
+
+function OfflineBookingModal({
+  type,
+  partnerName,
+  loading,
+  onClose,
+  onConfirmEmergency,
+}: OfflineBookingModalProps) {
+  if (!type) return null;
+
+  const isEmergencyAvailable = type === 'emergency_available';
+  const isSuccess = type === 'success';
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={modalStyles.overlay}>
+        <Pressable style={modalStyles.backdrop} onPress={onClose} />
+        <View style={modalStyles.container}>
+          {/* Icon */}
+          <View style={[modalStyles.iconCircle, isSuccess ? modalStyles.iconSuccess : isEmergencyAvailable ? modalStyles.iconWarning : modalStyles.iconError]}>
+            <Ionicons
+              name={isSuccess ? 'checkmark-circle' : isEmergencyAvailable ? 'flash' : 'moon'}
+              size={36}
+              color={isSuccess ? '#059669' : isEmergencyAvailable ? '#D97706' : '#DC2626'}
+            />
+          </View>
+
+          {/* Title */}
+          <Text style={modalStyles.title}>
+            {isSuccess
+              ? 'Emergency Booking Confirmed!'
+              : isEmergencyAvailable
+              ? 'Partner is Offline'
+              : 'Partner Unavailable'}
+          </Text>
+
+          {/* Body */}
+          <Text style={modalStyles.body}>
+            {isSuccess
+              ? `Your emergency booking with ${partnerName} has been placed successfully.`
+              : isEmergencyAvailable
+              ? `${partnerName} is currently offline. You can book an emergency service, but you may have to pay extra charges.`
+              : `${partnerName} is currently offline and does not accept emergency bookings. Please try again after some time.`}
+          </Text>
+
+          {/* Extra charge notice for emergency */}
+          {isEmergencyAvailable && (
+            <View style={modalStyles.noticeRow}>
+              <Ionicons name="information-circle-outline" size={16} color="#D97706" />
+              <Text style={modalStyles.noticeText}>
+                Emergency bookings may include additional charges
+              </Text>
+            </View>
+          )}
+
+          {/* Buttons */}
+          <View style={modalStyles.btnRow}>
+            {isSuccess ? (
+              <TouchableOpacity style={modalStyles.btnPrimary} onPress={onClose} activeOpacity={0.85}>
+                <Text style={modalStyles.btnPrimaryText}>Done</Text>
+              </TouchableOpacity>
+            ) : isEmergencyAvailable ? (
+              <>
+                <TouchableOpacity style={modalStyles.btnSecondary} onPress={onClose} activeOpacity={0.85}>
+                  <Text style={modalStyles.btnSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[modalStyles.btnEmergency, loading && { opacity: 0.6 }]}
+                  onPress={onConfirmEmergency}
+                  disabled={loading}
+                  activeOpacity={0.85}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons name="flash" size={16} color="#fff" />
+                      <Text style={modalStyles.btnEmergencyText}>Book Emergency</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </>
+            ) : (
+              <TouchableOpacity style={modalStyles.btnPrimary} onPress={onClose} activeOpacity={0.85}>
+                <Text style={modalStyles.btnPrimaryText}>OK, Got it</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const modalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  container: {
+    width: '85%',
+    maxWidth: 340,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    alignItems: 'center',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+  },
+  iconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  iconWarning: {
+    backgroundColor: '#FEF3C7',
+  },
+  iconError: {
+    backgroundColor: '#FEE2E2',
+  },
+  iconSuccess: {
+    backgroundColor: '#D1FAE5',
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  body: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: 16,
+  },
+  noticeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 20,
+    alignSelf: 'stretch',
+  },
+  noticeText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#92400E',
+    fontWeight: '500',
+  },
+  btnRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignSelf: 'stretch',
+  },
+  btnPrimary: {
+    flex: 1,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnPrimaryText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  btnSecondary: {
+    flex: 1,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnSecondaryText: {
+    color: '#374151',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  btnEmergency: {
+    flex: 1.3,
+    flexDirection: 'row',
+    backgroundColor: '#DC2626',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  btnEmergencyText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+});
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -151,6 +377,10 @@ export default function PartnerDetailSheet({
   const [description, setDescription] = useState('');
   const [isEmergency, setIsEmergency] = useState(false);
 
+  // ── Offline modal state ─────────────────────────────────────────────────────
+  const [offlineModalType, setOfflineModalType] = useState<OfflineModalType>(null);
+  const [emergencyBooking, setEmergencyBooking] = useState(false);
+
   // Reset form when sheet opens with a new partner
   useEffect(() => {
     if (visible) {
@@ -160,6 +390,8 @@ export default function PartnerDetailSheet({
       setIsEmergency(false);
       setShowDatePicker(false);
       setShowTimePicker(false);
+      setOfflineModalType(null);
+      setEmergencyBooking(false);
     }
   }, [visible, reset]);
 
@@ -193,6 +425,7 @@ export default function PartnerDetailSheet({
     []
   );
 
+  // ── Offline modal handlers ───────────────────────────────────────────────────
   const handleBook = useCallback(async () => {
     if (!partner) return;
 
@@ -201,6 +434,17 @@ export default function PartnerDetailSheet({
       return;
     }
 
+    // If partner is offline, show the offline modal
+    if (!partner.isOnline || !partner.isAvailable) {
+      if (!partner.emergencyAvailable) {
+        setOfflineModalType('no_emergency');
+      } else {
+        setOfflineModalType('emergency_available');
+      }
+      return;
+    }
+
+    // Partner is online — proceed normally
     const ok = await book(partner, {
       scheduledAt,
       description: description.trim() || undefined,
@@ -208,13 +452,36 @@ export default function PartnerDetailSheet({
     });
 
     if (ok) {
-      Alert.alert(
-        'Booking Confirmed 🎉',
-        `Your booking with ${partner.fullName} has been placed successfully.`,
-        [{ text: 'OK', onPress: () => { onBooked(); onClose(); } }]
-      );
+      onBooked();
+      onClose();
     }
   }, [partner, scheduledAt, description, isEmergency, book, onBooked, onClose]);
+
+  // Handle emergency booking confirmation from modal
+  const handleConfirmEmergency = useCallback(async () => {
+    if (!partner) return;
+
+    setEmergencyBooking(true);
+    const ok = await book(partner, {
+      scheduledAt,
+      description: description.trim() || undefined,
+      isEmergency: true,
+    });
+    setEmergencyBooking(false);
+
+    if (ok) {
+      setOfflineModalType('success');
+    }
+  }, [partner, scheduledAt, description, book]);
+
+  const handleOfflineModalClose = useCallback(() => {
+    const wasSuccess = offlineModalType === 'success';
+    setOfflineModalType(null);
+    if (wasSuccess) {
+      onBooked();
+      onClose();
+    }
+  }, [offlineModalType, onBooked, onClose]);
 
   if (!partner) return null;
 
@@ -225,6 +492,7 @@ export default function PartnerDetailSheet({
   const primaryCategory = partner.categories[0]?.name ?? 'General';
 
   return (
+    <>
     <Modal
       visible={visible}
       animationType="slide"
@@ -250,6 +518,16 @@ export default function PartnerDetailSheet({
             keyboardShouldPersistTaps="handled"
           >
             {/* ── Partner hero ─────────────────────────────────────────────── */}
+            {(!partner.isOnline || !partner.isAvailable) && (
+              <View style={styles.offlineBanner}>
+                <Ionicons name="moon-outline" size={16} color="#92400E" />
+                <Text style={styles.offlineBannerText}>
+                  {partner.emergencyAvailable
+                    ? 'This partner is currently offline. Emergency booking available.'
+                    : 'This partner is currently offline and not accepting bookings.'}
+                </Text>
+              </View>
+            )}
             <View style={styles.hero}>
               <Image source={{ uri: avatarUri }} style={styles.avatar} contentFit="cover" />
 
@@ -441,7 +719,7 @@ export default function PartnerDetailSheet({
               </View>
             )}
             <TouchableOpacity
-              style={[styles.bookBtn, booking && styles.bookBtnDisabled]}
+              style={[styles.bookBtn, booking && styles.bookBtnDisabled, (!partner.isOnline || !partner.isAvailable) && styles.bookBtnEmergency]}
               onPress={handleBook}
               disabled={booking}
               activeOpacity={0.85}
@@ -450,8 +728,14 @@ export default function PartnerDetailSheet({
                 <ActivityIndicator color={colors.white} size="small" />
               ) : (
                 <>
-                  <Ionicons name="checkmark-circle-outline" size={20} color={colors.white} />
-                  <Text style={styles.bookBtnText}>Book Now</Text>
+                  <Ionicons
+                    name={(!partner.isOnline || !partner.isAvailable) ? 'flash-outline' : 'checkmark-circle-outline'}
+                    size={20}
+                    color={colors.white}
+                  />
+                  <Text style={styles.bookBtnText}>
+                    {(!partner.isOnline || !partner.isAvailable) ? 'Book Now' : 'Book Now'}
+                  </Text>
                 </>
               )}
             </TouchableOpacity>
@@ -459,6 +743,16 @@ export default function PartnerDetailSheet({
         </View>
       </View>
     </Modal>
+
+    {/* ── Offline Partner Modal ─────────────────────────────────────────────── */}
+    <OfflineBookingModal
+      type={offlineModalType}
+      partnerName={partner.fullName}
+      loading={emergencyBooking}
+      onClose={handleOfflineModalClose}
+      onConfirmEmergency={handleConfirmEmergency}
+    />
+    </>
   );
 }
 
@@ -506,6 +800,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: spacing.md,
     gap: spacing.sm,
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: '#FEF3C7',
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginTop: spacing.sm,
+  },
+  offlineBannerText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#92400E',
+    fontWeight: '500',
   },
   avatar: {
     width: 88,
@@ -698,6 +1007,9 @@ const styles = StyleSheet.create({
   },
   bookBtnDisabled: {
     opacity: 0.6,
+  },
+  bookBtnEmergency: {
+    backgroundColor: '#DC2626',
   },
   bookBtnText: {
     color: colors.white,

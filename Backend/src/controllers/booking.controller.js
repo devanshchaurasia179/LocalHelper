@@ -39,7 +39,7 @@ export const createBooking = async (req, res) => {
 
     // Verify partner exists and is available
     const partner = await Partner.findById(partnerId).select(
-      "isOnline isAvailable visitingCredits verificationStatus"
+      "isOnline isAvailable visitingCredits verificationStatus emergencyAvailable"
     );
     if (!partner) {
       return res.status(404).json({ message: "Partner not found." });
@@ -48,7 +48,21 @@ export const createBooking = async (req, res) => {
       return res.status(400).json({ message: "Partner is not approved for bookings." });
     }
     if (!partner.isOnline || !partner.isAvailable) {
-      return res.status(400).json({ message: "Partner is currently unavailable." });
+      // Allow emergency bookings if partner has enabled it
+      if (isEmergency && partner.emergencyAvailable) {
+        // Proceed — emergency booking for offline partner is allowed
+      } else if (!partner.emergencyAvailable) {
+        return res.status(400).json({
+          code: "PARTNER_OFFLINE_NO_EMERGENCY",
+          message: "This partner is currently offline and does not accept emergency bookings. Please try again later.",
+        });
+      } else {
+        return res.status(400).json({
+          code: "PARTNER_OFFLINE",
+          message: "Partner is currently offline. You can book an emergency service, but additional charges may apply.",
+          emergencyAvailable: true,
+        });
+      }
     }
 
     // Load customer for address snapshot

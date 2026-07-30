@@ -13,10 +13,15 @@
 
 import mongoose from "mongoose";
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 import { connectDB } from "../lib/db.js";
 import DocumentType from "../models/verification/DocumentType.js";
 import dns from "dns";
-dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
 const SEED_DATA = [
   // ── Aadhaar Front ──────────────────────────────────────────────────────────
@@ -67,7 +72,7 @@ const SEED_DATA = [
     isMultiPage: false,
     isRequired: true,
     icon: "id-card",
-    displayOrder: 20,
+    displayOrder: 1,
   },
 
   // ── PAN Card ───────────────────────────────────────────────────────────────
@@ -92,7 +97,7 @@ const SEED_DATA = [
     isMultiPage: false,
     isRequired: false,   // optional in the existing system
     icon: "credit-card",
-    displayOrder: 30,
+    displayOrder: 2,
   },
 
   // ── Selfie ─────────────────────────────────────────────────────────────────
@@ -114,7 +119,7 @@ const SEED_DATA = [
     isMultiPage: false,
     isRequired: true,
     icon: "camera",
-    displayOrder: 40,
+    displayOrder: 3,
   },
 ];
 

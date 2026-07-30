@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,6 +14,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Location from "expo-location";
+import { Map, Camera, Marker } from "@maplibre/maplibre-react-native";
+import type { CameraRef } from "@maplibre/maplibre-react-native";
 import { router } from "expo-router";
 
 import { useCompleteProfile } from "@/hooks/useCompleteProfile";
@@ -25,6 +27,28 @@ import { colors, spacing, radii, fonts } from "@/constants/theme";
 
 const STEPS = ["Personal Info", "Address", "Location"] as const;
 type Step = 0 | 1 | 2;
+
+// Free OpenStreetMap raster tiles style (no API key needed)
+const OSM_STYLE = {
+  version: 8 as const,
+  sources: {
+    osm: {
+      type: "raster" as const,
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tileSize: 256,
+      attribution: "© OpenStreetMap contributors",
+    },
+  },
+  layers: [
+    {
+      id: "osm-tiles",
+      type: "raster" as const,
+      source: "osm",
+      minzoom: 0,
+      maxzoom: 19,
+    },
+  ],
+};
 
 const GENDERS = ["Male", "Female", "Other", "Prefer not to say"] as const;
 
@@ -103,6 +127,10 @@ export default function CompleteProfileScreen() {
   const [locationCoords, setLocationCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationStatus, setLocationStatus] = useState<"idle" | "granted" | "denied">("idle");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [locationAddress, setLocationAddress] = useState<string | null>(null);
+  const cameraRef = useRef<CameraRef>(null);
 
   // Validation
   const step0Valid = fullName.trim().length >= 2 && gender !== null && dateOfBirth !== null;
@@ -121,13 +149,79 @@ export default function CompleteProfileScreen() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") { setLocationStatus("denied"); return; }
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setLocationCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+      const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+      setLocationCoords(coords);
       setLocationStatus("granted");
+      // Reverse geocode to get address
+      try {
+        const [addr] = await Location.reverseGeocodeAsync(coords);
+        if (addr) {
+          const parts = [addr.name, addr.street, addr.city, addr.region].filter(Boolean);
+          setLocationAddress(parts.join(", "));
+        }
+      } catch { /* ignore reverse geocode errors */ }
+      // Fly camera to the location
+      cameraRef.current?.flyTo({
+        center: [coords.longitude, coords.latitude],
+        zoom: 15,
+        duration: 800,
+      });
     } catch {
       Alert.alert("Location Error", "Could not fetch your location.");
     } finally {
       setLocationLoading(false);
     }
+  }, []);
+
+  const handleSearchLocation = useCallback(async () => {
+    if (!searchQuery.trim()) return;
+    setSearchLoading(true);
+    try {
+      const results = await Location.geocodeAsync(searchQuery.trim());
+      if (results.length > 0) {
+        const { latitude, longitude } = results[0];
+        const coords = { latitude, longitude };
+        setLocationCoords(coords);
+        setLocationStatus("granted");
+        // Reverse geocode for display name
+        try {
+          const [addr] = await Location.reverseGeocodeAsync(coords);
+          if (addr) {
+            const parts = [addr.name, addr.street, addr.city, addr.region].filter(Boolean);
+            setLocationAddress(parts.join(", "));
+          } else {
+            setLocationAddress(searchQuery.trim());
+          }
+        } catch {
+          setLocationAddress(searchQuery.trim());
+        }
+        cameraRef.current?.flyTo({
+          center: [coords.longitude, coords.latitude],
+          zoom: 15,
+          duration: 800,
+        });
+      } else {
+        Alert.alert("Not Found", "Could not find that location. Try a different search.");
+      }
+    } catch {
+      Alert.alert("Search Error", "Failed to search location. Check your connection.");
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [searchQuery]);
+
+  const handleMapPress = useCallback(async (e: any) => {
+    const [longitude, latitude] = e.nativeEvent.lngLat;
+    const coords = { latitude, longitude };
+    setLocationCoords(coords);
+    setLocationStatus("granted");
+    try {
+      const [addr] = await Location.reverseGeocodeAsync(coords);
+      if (addr) {
+        const parts = [addr.name, addr.street, addr.city, addr.region].filter(Boolean);
+        setLocationAddress(parts.join(", "));
+      }
+    } catch { /* ignore */ }
   }, []);
 
   const handleSubmit = useCallback(async () => {
@@ -291,31 +385,104 @@ export default function CompleteProfileScreen() {
             {/* ── Step 2: Location ───────────────────────────────────── */}
             {step === 2 && (
               <View style={styles.section}>
-                <View style={styles.locationCard}>
-                  <Text style={styles.locationTitle}>
-                    {locationStatus === "granted" ? "📍 Location captured" : "📍 Share your location"}
-                  </Text>
-                  <Text style={styles.locationDesc}>
-                    {locationStatus === "granted"
-                      ? `Lat: ${locationCoords!.latitude.toFixed(5)}  ·  Long: ${locationCoords!.longitude.toFixed(5)}`
-                      : locationStatus === "denied"
-                      ? "Permission denied. You can skip this — location can be updated later."
-                      : "Helps customers find you for nearby jobs. You can skip and update later."}
-                  </Text>
-                  {locationStatus !== "granted" && (
-                    <Pressable style={({ pressed }) => [styles.locationBtn, pressed && { opacity: 0.8 }]} onPress={handleRequestLocation} disabled={locationLoading} accessibilityRole="button" accessibilityLabel="Use current location">
-                      {locationLoading
-                        ? <ActivityIndicator color={colors.primary} />
-                        : <Text style={styles.locationBtnText}>Use current location</Text>}
-                    </Pressable>
-                  )}
+                {/* Search bar */}
+                <FieldLabel label="Search location" />
+                <View style={styles.searchRow}>
+                  <TextInput
+                    style={[styles.input, styles.searchInput]}
+                    placeholder="e.g. Koramangala, Bangalore"
+                    placeholderTextColor={colors.textSecondary}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    returnKeyType="search"
+                    onSubmitEditing={handleSearchLocation}
+                    accessibilityLabel="Search location"
+                  />
+                  <Pressable
+                    style={({ pressed }) => [styles.searchBtn, pressed && { opacity: 0.8 }]}
+                    onPress={handleSearchLocation}
+                    disabled={searchLoading || !searchQuery.trim()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Search"
+                  >
+                    {searchLoading
+                      ? <ActivityIndicator color={colors.white} size="small" />
+                      : <Text style={styles.searchBtnText}>🔍</Text>}
+                  </Pressable>
                 </View>
+
+                {/* Map */}
+                <View style={styles.mapContainer}>
+                  <Map
+                    style={styles.map}
+                    mapStyle={OSM_STYLE as any}
+                    onPress={handleMapPress}
+                    attribution={false}
+                    logo={false}
+                  >
+                    <Camera
+                      ref={cameraRef}
+                      initialViewState={{
+                        center: locationCoords
+                          ? [locationCoords.longitude, locationCoords.latitude]
+                          : [78.9629, 20.5937],
+                        zoom: locationCoords ? 15 : 4,
+                      }}
+                    />
+                    {locationCoords && (
+                      <Marker
+                        lngLat={[locationCoords.longitude, locationCoords.latitude]}
+                      >
+                        <View style={styles.marker}>
+                          <View style={styles.markerInner} />
+                        </View>
+                      </Marker>
+                    )}
+                  </Map>
+
+                  {/* Auto-detect button floating on map */}
+                  <Pressable
+                    style={({ pressed }) => [styles.autoDetectBtn, pressed && { opacity: 0.85 }]}
+                    onPress={handleRequestLocation}
+                    disabled={locationLoading}
+                    accessibilityRole="button"
+                    accessibilityLabel="Auto-detect my location"
+                  >
+                    {locationLoading
+                      ? <ActivityIndicator color={colors.primary} size="small" />
+                      : <Text style={styles.autoDetectText}>📍 Auto-detect</Text>}
+                  </Pressable>
+                </View>
+
+                {/* Location info card */}
+                {locationStatus === "granted" && locationCoords && (
+                  <View style={styles.locationInfoCard}>
+                    <Text style={styles.locationInfoTitle}>📍 Location set</Text>
+                    {locationAddress && (
+                      <Text style={styles.locationInfoAddr}>{locationAddress}</Text>
+                    )}
+                    <Text style={styles.locationInfoCoords}>
+                      {locationCoords.latitude.toFixed(5)}, {locationCoords.longitude.toFixed(5)}
+                    </Text>
+                  </View>
+                )}
+
+                {locationStatus === "denied" && (
+                  <View style={styles.deniedCard}>
+                    <Text style={styles.deniedText}>
+                      Permission denied. Use the search above or tap the map to select your location.
+                    </Text>
+                  </View>
+                )}
+
                 <Text style={styles.skipNote}>
-                  Location is optional — tap{" "}
+                  {locationStatus === "granted"
+                    ? "You can drag the marker to adjust. Tap "
+                    : "Location is optional — tap "}
                   <Text style={{ fontFamily: fonts.jostSemiBold, color: colors.primary }}>
                     {locationStatus === "granted" ? "Save profile" : "Skip & save"}
-                  </Text>{" "}
-                  to continue without it.
+                  </Text>
+                  {locationStatus === "granted" ? " when ready." : " to continue without it."}
                 </Text>
               </View>
             )}
@@ -371,10 +538,10 @@ const stepStyles = StyleSheet.create({
   row: { flexDirection: "row", justifyContent: "center", alignItems: "flex-start", gap: spacing.xs, marginBottom: spacing.md, paddingHorizontal: spacing.sm },
   item: { alignItems: "center", gap: spacing.xs, flex: 1 },
   line: { position: "absolute", top: 16, left: "-50%", right: "50%", height: 2, backgroundColor: colors.navInactive },
-  lineDone: { backgroundColor: colors.primary },
+  lineDone: { backgroundColor: colors.success },
   dot: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.navInactive },
   dotActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  dotDone: { backgroundColor: colors.primary, borderColor: colors.primary },
+  dotDone: { backgroundColor: colors.success, borderColor: colors.success },
   dotLabel: { fontFamily: fonts.oswaldSemiBold, fontSize: 13, color: colors.navInactive },
   dotLabelActive: { color: colors.white },
   check: { fontFamily: fonts.jakartaBold, color: colors.white, fontSize: 14 },
@@ -422,11 +589,26 @@ const styles = StyleSheet.create({
   chipTextSelected: { color: colors.white },
   fieldError: { fontFamily: fonts.jostRegular, color: "#EF4444", fontSize: 12, marginTop: -spacing.xs },
 
-  locationCard: { borderRadius: radii.md, padding: spacing.md, gap: spacing.sm, borderWidth: 1.5, borderColor: colors.primary + "33", backgroundColor: colors.primary + "08" },
-  locationTitle: { fontFamily: fonts.jakartaSemiBold, fontSize: 16, color: colors.textPrimary },
-  locationDesc: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, lineHeight: 20 },
-  locationBtn: { borderWidth: 1.5, borderColor: colors.primary, borderRadius: radii.sm, paddingVertical: spacing.sm + 2, alignItems: "center", marginTop: spacing.xs },
-  locationBtnText: { fontFamily: fonts.jostSemiBold, color: colors.primary, fontSize: 14 },
+  searchRow: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
+  searchInput: { flex: 1 },
+  searchBtn: { backgroundColor: colors.primary, borderRadius: radii.sm, width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  searchBtnText: { fontSize: 18 },
+
+  mapContainer: { height: 220, borderRadius: radii.md, overflow: "hidden", borderWidth: 1.5, borderColor: colors.navInactive + "44", position: "relative" },
+  map: { flex: 1 },
+  marker: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primary + "33", alignItems: "center", justifyContent: "center" },
+  markerInner: { width: 14, height: 14, borderRadius: 7, backgroundColor: colors.primary, borderWidth: 2, borderColor: colors.white },
+  autoDetectBtn: { position: "absolute", bottom: 12, right: 12, backgroundColor: colors.white, borderRadius: radii.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: "row", alignItems: "center", gap: spacing.xs, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 4, elevation: 4, borderWidth: 1, borderColor: colors.primary + "33" },
+  autoDetectText: { fontFamily: fonts.jostSemiBold, fontSize: 13, color: colors.primary },
+
+  locationInfoCard: { borderRadius: radii.md, padding: spacing.md, gap: 4, borderWidth: 1.5, borderColor: colors.success + "44", backgroundColor: colors.successLight },
+  locationInfoTitle: { fontFamily: fonts.jakartaSemiBold, fontSize: 14, color: colors.successDark },
+  locationInfoAddr: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textPrimary, lineHeight: 18 },
+  locationInfoCoords: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary },
+
+  deniedCard: { borderRadius: radii.md, padding: spacing.md, borderWidth: 1.5, borderColor: colors.error + "33", backgroundColor: colors.errorLight },
+  deniedText: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.errorDark, lineHeight: 18 },
+
   skipNote: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, lineHeight: 18, textAlign: "center", marginTop: spacing.sm },
 
   errorBanner: { backgroundColor: "#FEE2E2", borderRadius: radii.sm, padding: spacing.md, marginTop: spacing.sm },
