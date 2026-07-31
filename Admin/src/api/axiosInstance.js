@@ -11,7 +11,7 @@ import axios from 'axios'
  *   cookie is never sent and every protected route returns 401.
  */
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',

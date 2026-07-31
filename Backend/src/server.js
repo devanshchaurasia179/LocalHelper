@@ -49,7 +49,7 @@ app.use(express.json());
 app.use(cookieParser());
 
 // Health check
-app.get("/health", (req, res) => {
+app.get("/api/health", (req, res) => {
     res.status(200).json({ status: "ok" });
 });
 

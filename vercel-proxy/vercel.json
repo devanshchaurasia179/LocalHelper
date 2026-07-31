@@ -1,0 +1,8 @@
+{
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "http://localhelperbackend-env.eba-xsu7rune.ap-south-1.elasticbeanstalk.com"
+    }
+  ]
+}
