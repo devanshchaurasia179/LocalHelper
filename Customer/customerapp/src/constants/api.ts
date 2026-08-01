@@ -1,14 +1,14 @@
 import axios from "axios";
 import Constants from "expo-constants";
 
-// On a physical device / Android emulator "localhost" resolves to the device
-// itself, not your dev machine. We use the Expo dev-server host so it always
-// points to the right machine during development.
+// In production, use the backend URL from .env (EXPO_PUBLIC_BACKEND_URL).
+// In dev, derive the host from the Expo dev-server so it works on physical
+// devices and emulators where "localhost" resolves to the device itself.
 const devHost =
-  Constants.expoConfig?.hostUri?.split(":")[0] ?? // e.g. "192.168.1.5"
-  "localhost";
+  Constants.expoConfig?.hostUri?.split(":")[0] ?? "localhost";
 
-export const BASE_URL = `http://${devHost}:5001/api`;
+export const BASE_URL =
+  process.env.EXPO_PUBLIC_BACKEND_URL ?? `http://${devHost}:5001/api`;
 
 console.log("🔥 RUNTIME API URL:", BASE_URL);
 
