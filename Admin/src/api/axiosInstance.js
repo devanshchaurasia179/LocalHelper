@@ -3,45 +3,55 @@ import axios from 'axios'
 /**
  * Shared Axios instance for all admin API calls.
  *
- * baseURL: '/api' — Vite proxies this to http://localhost:5001/api in dev.
- *          In production, set VITE_API_BASE_URL to the real domain.
+ * Token strategy:
+ *   - On login, the server returns the JWT in the response body.
+ *   - We store it in localStorage under 'admin_token'.
+ *   - Every request attaches it as `Authorization: Bearer <token>`.
  *
- * withCredentials: true — CRITICAL. Tells the browser to include the
- *   httpOnly `admin_token` cookie on every request. Without this, the
- *   cookie is never sent and every protected route returns 401.
+ * Why not httpOnly cookies?
+ *   The app routes requests through a Vercel proxy which strips Set-Cookie
+ *   headers from proxied responses, so cookies never reach the browser.
+ *   Bearer tokens in localStorage are a practical alternative here.
  */
+
+const TOKEN_KEY = 'admin_token'
+
+export const saveToken = (token) => localStorage.setItem(TOKEN_KEY, token)
+export const getToken = () => localStorage.getItem(TOKEN_KEY)
+export const removeToken = () => localStorage.removeItem(TOKEN_KEY)
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 15000, // 15 s — fail fast rather than hang forever
+  timeout: 15000,
 })
 
 // ── Request interceptor ────────────────────────────────────────────
-// Currently a pass-through. Kept here so we can add auth headers,
-// request IDs, or logging in one place later.
+// Attach the Bearer token on every outgoing request if one exists.
 api.interceptors.request.use(
-  (config) => config,
+  (config) => {
+    const token = getToken()
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
   (error) => Promise.reject(error)
 )
 
 // ── Response interceptor ───────────────────────────────────────────
-// Central error handling so every component doesn't repeat this logic.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status
 
-    // 401 — token missing / expired → kick to login
-    // 403 — valid token but insufficient role → same treatment
     if (status === 401 || status === 403) {
-      // Fire a custom event so AuthContext can react without a circular import.
       window.dispatchEvent(new CustomEvent('admin:unauthorized', { detail: { status } }))
     }
 
-    // 500 — surface a readable message instead of the raw axios error
     if (status === 500) {
       error.displayMessage = 'Server error. Please try again later.'
     }

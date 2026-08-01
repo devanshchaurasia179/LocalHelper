@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { getMe, logoutAdmin } from '@/api/auth.api'
+import { removeToken } from '@/api/axiosInstance'
 
 /**
  * AuthContext
@@ -43,8 +44,9 @@ export const AuthProvider = ({ children }) => {
   // a circular dependency).
   useEffect(() => {
     const handleUnauthorized = () => {
+      removeToken()
       setAdmin(null)
-      queryClient.clear() // wipe all cached data on auth failure
+      queryClient.clear()
     }
 
     window.addEventListener('admin:unauthorized', handleUnauthorized)
