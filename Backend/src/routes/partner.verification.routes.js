@@ -1,4 +1,5 @@
 import { Router } from "express";
+import multer from "multer";
 import {
   getVerificationStatus,
   uploadDocument,
@@ -41,6 +42,32 @@ router.get("/", getVerificationStatus);
  *   POST with side=front → uploads front
  *   POST with side=back  → uploads back
  */
-router.post("/documents", multerUploadDocument.single("file"), uploadDocument);
+router.post(
+  "/documents",
+  // Run multer as a local middleware so we can catch its errors here
+  // and return JSON instead of Express's default HTML error page.
+  (req, res, next) => {
+    multerUploadDocument.single("file")(req, res, (err) => {
+      if (!err) return next();
+
+      // Multer rejects unsupported MIME types with a plain Error.
+      // MulterError is a class with a .code property for size/field errors.
+      if (err instanceof multer.MulterError) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(400).json({
+            message: "File too large. Maximum upload size is 50 MB.",
+          });
+        }
+        return res.status(400).json({ message: err.message });
+      }
+
+      // Our custom fileFilter error — unsupported MIME type
+      return res.status(400).json({
+        message: err.message ?? "Unsupported file type.",
+      });
+    });
+  },
+  uploadDocument
+);
 
 export default router;

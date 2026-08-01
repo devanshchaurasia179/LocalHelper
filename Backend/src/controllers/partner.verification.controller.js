@@ -591,8 +591,16 @@ export const uploadDocument = async (req, res) => {
     }
 
     // ── 6. Validate file MIME type ─────────────────────────────────────────
+    // iOS devices capture in HEIC/HEIF by default. Normalise both to the
+    // "image/*" family so they pass the acceptedFileTypes check alongside
+    // JPEG/PNG. Cloudinary handles HEIC natively via resource_type: "auto".
+    const HEIC_ALIASES = ["image/heic", "image/heif"];
+    const effectiveMime = HEIC_ALIASES.includes(req.file.mimetype)
+      ? "image/jpeg" // treat as JPEG for the acceptedFileTypes comparison
+      : req.file.mimetype;
+
     const acceptedTypes = docType.acceptedFileTypes;
-    if (acceptedTypes.length > 0 && !acceptedTypes.includes(req.file.mimetype)) {
+    if (acceptedTypes.length > 0 && !acceptedTypes.includes(effectiveMime) && !acceptedTypes.includes(req.file.mimetype)) {
       return res.status(400).json({
         message: `Invalid file type. "${docType.label}" accepts: ${acceptedTypes.join(", ")}.`,
       });

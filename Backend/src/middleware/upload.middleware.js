@@ -26,6 +26,11 @@ const imageFilter = (_req, file, cb) => {
  * Accepts images AND PDF. The controller performs the final MIME type check
  * against the specific DocumentType's acceptedFileTypes list.
  * Multer only rejects truly unknown/unsafe types here as a first defence.
+ *
+ * NOTE: image/heic and image/heif are included because iOS devices (iPhone 7+)
+ * shoot in HEIF format by default. The Expo ImagePicker can surface this MIME
+ * type before the OS transcodes to JPEG. Cloudinary accepts HEIC natively and
+ * converts it automatically on upload.
  */
 const documentFilter = (_req, file, cb) => {
   const allowed = [
@@ -33,6 +38,8 @@ const documentFilter = (_req, file, cb) => {
     "image/jpg",
     "image/png",
     "image/webp",
+    "image/heic",
+    "image/heif",
     "application/pdf",
   ];
   if (allowed.includes(file.mimetype)) {
@@ -94,7 +101,7 @@ export const uploadToCloudinary = (buffer, folder, publicId) => {
   return new Promise((resolve, reject) => {
     const options = {
       folder,
-      resource_type: "image",
+      resource_type: "auto", // "auto" handles JPEG, PNG, HEIC, PDF, etc.
       ...(publicId && { public_id: publicId }),
     };
 

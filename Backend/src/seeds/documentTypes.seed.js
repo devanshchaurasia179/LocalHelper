@@ -45,7 +45,7 @@ const SEED_DATA = [
     numberFieldPlaceholder: "Enter your 12-digit Aadhaar number",
     numberFieldValidationRegex: "^\\d{12}$",
     numberFieldValidationMessage: "Aadhaar number must be exactly 12 digits.",
-    acceptedFileTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp"],
+    acceptedFileTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif"],
     maxFileSizeMB: 5,
     isMultiPage: false,
     isRequired: true,
@@ -67,7 +67,7 @@ const SEED_DATA = [
       "2. Ensure the address text is sharp and readable.\n" +
       "3. Avoid glare or shadows.",
     hasNumberField: false,
-    acceptedFileTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp"],
+    acceptedFileTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif"],
     maxFileSizeMB: 5,
     isMultiPage: false,
     isRequired: true,
@@ -92,7 +92,7 @@ const SEED_DATA = [
     numberFieldPlaceholder: "E.g. ABCDE1234F",
     numberFieldValidationRegex: "^[A-Z]{5}[0-9]{4}[A-Z]{1}$",
     numberFieldValidationMessage: "PAN must be in format ABCDE1234F (5 letters, 4 digits, 1 letter).",
-    acceptedFileTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp"],
+    acceptedFileTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif"],
     maxFileSizeMB: 5,
     isMultiPage: false,
     isRequired: false,   // optional in the existing system
@@ -114,7 +114,7 @@ const SEED_DATA = [
       "3. Remove sunglasses, hats, or anything covering your face.\n" +
       "4. Make sure your full face is in the frame.",
     hasNumberField: false,
-    acceptedFileTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp"],
+    acceptedFileTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif"],
     maxFileSizeMB: 5,
     isMultiPage: false,
     isRequired: true,
