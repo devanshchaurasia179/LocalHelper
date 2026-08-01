@@ -29,22 +29,13 @@ const app = express();
 const PORT = process.env.PORT;
 
 console.log(cloudinary.config());
-app.use(cors({
-    origin: (origin, callback) => {
-        // Allow requests with no origin (mobile apps, Expo Go, curl, etc.)
-        if (!origin) return callback(null, true);
 
-        const isLocalhost = /^https?:\/\/localhost(:\d+)?$/.test(origin);
-        const isLAN = /^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)\d+\.\d+(:\d+)?$/.test(origin);
-
-        if (isLocalhost || isLAN) {
-            return callback(null, true);
-        }
-
-        callback(new Error(`CORS blocked: ${origin}`));
-    },
+app.use(
+  cors({
+    origin: true,
     credentials: true,
-}));
+  })
+);
 app.use(express.json());
 app.use(cookieParser());
 

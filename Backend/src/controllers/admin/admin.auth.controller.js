@@ -24,7 +24,10 @@ const sendTokenCookie = (res, token) => {
   res.cookie("admin_token", token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    // "lax" is required when the frontend and backend are on different domains
+    // (e.g. Vercel proxy → AWS). "strict" silently drops the cookie on
+    // cross-origin navigations, causing 401s even after a successful login.
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
     maxAge: 24 * 60 * 60 * 1000, // 1 day
   });
 };
@@ -110,7 +113,7 @@ export const login = async (req, res) => {
 export const logout = (req, res) => {
   res.clearCookie("admin_token", {
     httpOnly: true,
-    sameSite: "strict",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
     secure: process.env.NODE_ENV === "production",
   });
   return res.status(200).json({ message: "Logged out successfully." });
