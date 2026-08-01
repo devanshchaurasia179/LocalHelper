@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import Partner from "../models/partner/Partner.js";
 import DocumentType from "../models/verification/DocumentType.js";
 import PartnerDocument from "../models/verification/PartnerDocument.js";
+import { sendOtpViaSms } from "../services/startMessaging.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -50,14 +51,10 @@ export const sendOtp = async (req, res) => {
 
     await partner.save();
 
-    // ⚠️  DEV ONLY — log OTP to console, return in response
-    console.log(`[DEV] OTP for ${phone}: ${otp}`);
+    // Deliver OTP via StartMessaging SMS
+    await sendOtpViaSms(phone, otp);
 
-    return res.status(200).json({
-      message: "OTP sent successfully.",
-      // Remove the line below before going to production
-      otp,
-    });
+    return res.status(200).json({ message: "OTP sent successfully." });
   } catch (error) {
     console.error("sendOtp error:", error);
     return res.status(500).json({ message: "Internal server error." });

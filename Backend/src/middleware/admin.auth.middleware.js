@@ -19,7 +19,16 @@ import Admin from "../models/admin/Admin.js";
  */
 export const protectAdmin = async (req, res, next) => {
   try {
-    const token = req.cookies?.admin_token;
+    // 1. Try httpOnly cookie first (direct backend access)
+    // 2. Fall back to Authorization: Bearer <token> (proxied access via Vercel)
+    let token = req.cookies?.admin_token;
+
+    if (!token) {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith("Bearer ")) {
+        token = authHeader.slice(7);
+      }
+    }
 
     if (!token) {
       return res.status(401).json({ message: "Unauthorized. Please log in." });
