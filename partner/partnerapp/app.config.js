@@ -1,4 +1,5 @@
 // app.config.js — dynamic config so we can inject env vars into native config
+require("dotenv").config();
 const baseConfig = require("./app.json");
 
 module.exports = {
