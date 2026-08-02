@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,8 +14,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Location from "expo-location";
-import { Map, Camera, Marker } from "@maplibre/maplibre-react-native";
-import type { CameraRef } from "@maplibre/maplibre-react-native";
+import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import type { MapPressEvent, Region } from "react-native-maps";
 import { router } from "expo-router";
 
 import { useCompleteProfile } from "@/hooks/useCompleteProfile";
@@ -27,28 +27,6 @@ import { colors, spacing, radii, fonts } from "@/constants/theme";
 
 const STEPS = ["Personal Info", "Address", "Location"] as const;
 type Step = 0 | 1 | 2;
-
-// Free OpenStreetMap raster tiles style (no API key needed)
-const OSM_STYLE = {
-  version: 8 as const,
-  sources: {
-    osm: {
-      type: "raster" as const,
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      attribution: "© OpenStreetMap contributors",
-    },
-  },
-  layers: [
-    {
-      id: "osm-tiles",
-      type: "raster" as const,
-      source: "osm",
-      minzoom: 0,
-      maxzoom: 19,
-    },
-  ],
-};
 
 const GENDERS = ["Male", "Female", "Other", "Prefer not to say"] as const;
 
@@ -130,7 +108,12 @@ export default function CompleteProfileScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
   const [locationAddress, setLocationAddress] = useState<string | null>(null);
-  const cameraRef = useRef<CameraRef>(null);
+  const [mapRegion, setMapRegion] = useState<Region>({
+    latitude: 20.5937,
+    longitude: 78.9629,
+    latitudeDelta: 20,
+    longitudeDelta: 20,
+  });
 
   // Validation
   const step0Valid = fullName.trim().length >= 2 && gender !== null && dateOfBirth !== null;
@@ -152,6 +135,12 @@ export default function CompleteProfileScreen() {
       const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
       setLocationCoords(coords);
       setLocationStatus("granted");
+      setMapRegion({
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      });
       // Reverse geocode to get address
       try {
         const [addr] = await Location.reverseGeocodeAsync(coords);
@@ -160,12 +149,6 @@ export default function CompleteProfileScreen() {
           setLocationAddress(parts.join(", "));
         }
       } catch { /* ignore reverse geocode errors */ }
-      // Fly camera to the location
-      cameraRef.current?.flyTo({
-        center: [coords.longitude, coords.latitude],
-        zoom: 15,
-        duration: 800,
-      });
     } catch {
       Alert.alert("Location Error", "Could not fetch your location.");
     } finally {
@@ -183,6 +166,12 @@ export default function CompleteProfileScreen() {
         const coords = { latitude, longitude };
         setLocationCoords(coords);
         setLocationStatus("granted");
+        setMapRegion({
+          latitude,
+          longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        });
         // Reverse geocode for display name
         try {
           const [addr] = await Location.reverseGeocodeAsync(coords);
@@ -195,11 +184,6 @@ export default function CompleteProfileScreen() {
         } catch {
           setLocationAddress(searchQuery.trim());
         }
-        cameraRef.current?.flyTo({
-          center: [coords.longitude, coords.latitude],
-          zoom: 15,
-          duration: 800,
-        });
       } else {
         Alert.alert("Not Found", "Could not find that location. Try a different search.");
       }
@@ -210,8 +194,8 @@ export default function CompleteProfileScreen() {
     }
   }, [searchQuery]);
 
-  const handleMapPress = useCallback(async (e: any) => {
-    const [longitude, latitude] = e.nativeEvent.lngLat;
+  const handleMapPress = useCallback(async (e: MapPressEvent) => {
+    const { latitude, longitude } = e.nativeEvent.coordinate;
     const coords = { latitude, longitude };
     setLocationCoords(coords);
     setLocationStatus("granted");
@@ -413,32 +397,22 @@ export default function CompleteProfileScreen() {
 
                 {/* Map */}
                 <View style={styles.mapContainer}>
-                  <Map
+                  <MapView
                     style={styles.map}
-                    mapStyle={OSM_STYLE as any}
+                    provider={PROVIDER_GOOGLE}
+                    region={mapRegion}
                     onPress={handleMapPress}
-                    attribution={false}
-                    logo={false}
+                    showsUserLocation
+                    showsMyLocationButton={false}
+                    toolbarEnabled={false}
                   >
-                    <Camera
-                      ref={cameraRef}
-                      initialViewState={{
-                        center: locationCoords
-                          ? [locationCoords.longitude, locationCoords.latitude]
-                          : [78.9629, 20.5937],
-                        zoom: locationCoords ? 15 : 4,
-                      }}
-                    />
                     {locationCoords && (
                       <Marker
-                        lngLat={[locationCoords.longitude, locationCoords.latitude]}
-                      >
-                        <View style={styles.marker}>
-                          <View style={styles.markerInner} />
-                        </View>
-                      </Marker>
+                        coordinate={locationCoords}
+                        pinColor="#208AEF"
+                      />
                     )}
-                  </Map>
+                  </MapView>
 
                   {/* Auto-detect button floating on map */}
                   <Pressable
@@ -596,8 +570,6 @@ const styles = StyleSheet.create({
 
   mapContainer: { height: 220, borderRadius: radii.md, overflow: "hidden", borderWidth: 1.5, borderColor: colors.navInactive + "44", position: "relative" },
   map: { flex: 1 },
-  marker: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primary + "33", alignItems: "center", justifyContent: "center" },
-  markerInner: { width: 14, height: 14, borderRadius: 7, backgroundColor: colors.primary, borderWidth: 2, borderColor: colors.white },
   autoDetectBtn: { position: "absolute", bottom: 12, right: 12, backgroundColor: colors.white, borderRadius: radii.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: "row", alignItems: "center", gap: spacing.xs, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 4, elevation: 4, borderWidth: 1, borderColor: colors.primary + "33" },
   autoDetectText: { fontFamily: fonts.jostSemiBold, fontSize: 13, color: colors.primary },
 
