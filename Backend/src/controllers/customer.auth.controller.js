@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import Customer from "../models/customer/Customer.js";
-import { sendOtpViaSms } from "../services/startMessaging.js";
+import { sendOtpViaSms } from "../services/apitxt.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ export const sendOtp = async (req, res) => {
 
     await customer.save();
 
-    // Deliver OTP via StartMessaging SMS
+    // Deliver OTP via ApiTxt SMS
     await sendOtpViaSms(phone, otp);
 
     return res.status(200).json({ message: "OTP sent successfully." });

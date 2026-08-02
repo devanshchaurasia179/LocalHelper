@@ -215,6 +215,8 @@ export const replaceKycImage = async (req, res) => {
       [field]: result.url,
       verificationStatus: partner.verificationStatus,
     });
+
+
   } catch (error) {
     console.error("replaceKycImage error:", error);
     return res.status(500).json({ message: "Internal server error." });

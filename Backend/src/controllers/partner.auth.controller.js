@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import Partner from "../models/partner/Partner.js";
 import DocumentType from "../models/verification/DocumentType.js";
 import PartnerDocument from "../models/verification/PartnerDocument.js";
-import { sendOtpViaSms } from "../services/startMessaging.js";
+import { sendOtpViaSms } from "../services/apitxt.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ export const sendOtp = async (req, res) => {
 
     await partner.save();
 
-    // Deliver OTP via StartMessaging SMS
+    // Deliver OTP via ApiTxt SMS
     await sendOtpViaSms(phone, otp);
 
     return res.status(200).json({ message: "OTP sent successfully." });

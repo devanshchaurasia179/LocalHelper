@@ -37,14 +37,18 @@ export function useVerificationStatusRefresh(options: Options = {}) {
           router.replace(ROUTES.VERIFICATION.REJECTED as any);
         }
         break;
-      case VERIFICATION_STATUS.NOT_SUBMITTED:
-        router.replace(ROUTES.ONBOARDING.DOCUMENTS as any);
-        break;
       case VERIFICATION_STATUS.UNDER_REVIEW:
         if (screen !== "under-review") {
           router.replace(ROUTES.VERIFICATION.UNDER_REVIEW as any);
         }
         break;
+      // NOT_SUBMITTED is intentionally not handled here.
+      // This hook is used on verification status screens (under-review, rejected)
+      // where the partner has already submitted documents. Redirecting to the
+      // documents upload screen from here would cause a redirect loop because
+      // the AuthContext still holds the stale isDocument: true from login,
+      // causing VerificationGate to immediately send them back here.
+      // AuthGate / index.tsx handles the NOT_SUBMITTED case at the root level.
     }
   }, [status, router, screen]);
 
