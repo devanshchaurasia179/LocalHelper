@@ -1,4 +1,5 @@
 // app.config.js — dynamic config so we can inject env vars into native config
+// NOTE: dotenv only runs locally; on EAS use `eas secret:create` or eas.json env to set MAPS_KEY
 require("dotenv").config();
 const baseConfig = require("./app.json");
 
@@ -18,15 +19,5 @@ module.exports = {
       },
     },
   },
-  plugins: [
-    "expo-router",
-    [
-      "expo-splash-screen",
-      {
-        backgroundColor: "#208AEF",
-        image: "./assets/images/splash-icon.png",
-        imageWidth: 76,
-      },
-    ],
-  ],
+  // plugins are inherited from app.json via the spread above — no override needed
 };

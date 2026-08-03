@@ -7,18 +7,21 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "environment": "development",
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://localhelperproxy.vercel.app/api"
       }
     },
     "preview": {
       "distribution": "internal",
+      "environment": "preview",
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://localhelperproxy.vercel.app/api"
       }
     },
     "production": {
       "autoIncrement": true,
+      "environment": "production",
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://localhelperproxy.vercel.app/api"
       }
