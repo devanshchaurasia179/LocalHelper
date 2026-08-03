@@ -480,7 +480,8 @@ const buildDocumentObject = (docType, upload, side) => {
     action,        // { type, label }  — render the CTA button directly
 
     // ── Upload data ───────────────────────────────────────────────────────
-    previewUrl:  upload?.cloudinary?.url || null,  // thumbnail / preview image
+    previewUrl:  upload?.cloudinaryFiles?.[0]?.url || null, // primary / first photo
+    previewUrls: upload?.cloudinaryFiles?.map((f) => f.url) || [], // all photos
     numberValue: upload?.numberValue     || null,  // pre-fill the number input on re-upload
     uploadedAt:  upload?.uploadedAt      || null,
     version:     upload?.version         || null,  // raw number
@@ -636,13 +637,12 @@ export const uploadDocument = async (req, res) => {
 
     // ── 10. Upload to Cloudinary ───────────────────────────────────────────
     // Folder: partners/{partnerId}/documents
-    // PublicId: {key}_{side}  — predictable, overwrites on Cloudinary if same public_id
-    // We use versioning in the DB, not in the Cloudinary public_id, so the URL
-    // stays stable while we track history internally.
+    // PublicId: {key}_{side}_{timestamp} — unique per file so multiple photos
+    // in the same slot don't overwrite each other on Cloudinary.
     const folder   = `partners/${req.partnerId}/documents`;
     const publicId = side === "single"
-      ? `${docType.key}`
-      : `${docType.key}_${side}`;
+      ? `${docType.key}_${Date.now()}`
+      : `${docType.key}_${side}_${Date.now()}`;
 
     const cloudinaryResult = await uploadToCloudinary(
       req.file.buffer,
@@ -650,37 +650,70 @@ export const uploadDocument = async (req, res) => {
       publicId
     );
 
-    // ── 11. Archive the previous upload ────────────────────────────────────
-    // Marking as Superseded BEFORE creating the new record to avoid any
-    // window where two active records exist for the same slot.
+    // ── 11. Archive the previous upload when re-uploading ──────────────────
+    // On first upload → no previous record, just create.
+    // On re-upload (rejected / partner replacing) → supersede the old record
+    // so only one active record exists per slot at any time.
+    // Note: we do NOT delete previous cloudinaryFiles here — the slot keeps its
+    // full photo history inside the archived (Superseded) record.
     if (previousUpload) {
       await PartnerDocument.findByIdAndUpdate(previousUpload._id, {
         $set: { status: "Superseded" },
       });
     }
 
-    // ── 12. Create the new PartnerDocument record ──────────────────────────
-    const newDocument = await PartnerDocument.create({
-      partnerId:      req.partnerId,
-      documentTypeId: docType._id,
-      side,
-      status:         "Under Review",
-      cloudinary: {
-        url:      cloudinaryResult.url,
-        publicId: cloudinaryResult.publicId,
-        format:   cloudinaryResult.format,
-        width:    cloudinaryResult.width,
-        height:   cloudinaryResult.height,
-        bytes:    req.file.size,
-      },
-      numberValue: docType.hasNumberField
-        ? (numberValue.trim().toUpperCase())
-        : null,
-      version:    nextVersion,
-      uploadedAt: new Date(),
-    });
+    // ── 12. Check if there is an active record to append to ────────────────
+    // Scenario: partner already uploaded one photo for this slot today and is
+    // now adding a second photo (multi-photo upload sequence).
+    // In this case we append to the existing active record instead of creating
+    // a new one (which would immediately supersede the first photo).
+    //
+    // A "fresh" record for this slot = status Under Review, created in the
+    // current upload session (not a previously approved/rejected one we just
+    // archived above).
+    const existingActive = previousUpload
+      ? null  // we just superseded it — must create fresh
+      : await PartnerDocument.findOne({
+          partnerId:      req.partnerId,
+          documentTypeId: docType._id,
+          side,
+          status:         "Under Review",
+        });
 
-    // ── 13. Get/create VerificationSession and sync status ─────────────────
+    const newCloudinaryEntry = {
+      url:      cloudinaryResult.url,
+      publicId: cloudinaryResult.publicId,
+      format:   cloudinaryResult.format,
+      width:    cloudinaryResult.width,
+      height:   cloudinaryResult.height,
+      bytes:    req.file.size,
+    };
+
+    let newDocument;
+
+    if (existingActive) {
+      // Append photo to the existing Under Review record
+      existingActive.cloudinaryFiles.push(newCloudinaryEntry);
+      existingActive.uploadedAt = new Date();
+      await existingActive.save();
+      newDocument = existingActive;
+    } else {
+      // ── 13. Create a new PartnerDocument record ────────────────────────
+      newDocument = await PartnerDocument.create({
+        partnerId:      req.partnerId,
+        documentTypeId: docType._id,
+        side,
+        status:         "Under Review",
+        cloudinaryFiles: [newCloudinaryEntry],
+        numberValue: docType.hasNumberField
+          ? (numberValue.trim().toUpperCase())
+          : null,
+        version:    nextVersion,
+        uploadedAt: new Date(),
+      });
+    }
+
+    // ── 14. Get/create VerificationSession and sync status ─────────────────
     const session = await getOrCreateSession(req.partnerId);
 
     // If this is a re-upload after rejection, record that in history
@@ -725,10 +758,10 @@ export const uploadDocument = async (req, res) => {
     session.overallStatus = newSessionStatus;
     await session.save();
 
-    // ── 14. Sync Partner.verificationStatus (denormalized cache) ──────────
+    // ── 15. Sync Partner.verificationStatus (denormalized cache) ──────────
     await syncPartnerVerificationStatus(req.partnerId, newSessionStatus);
 
-    // ── 15. Build and return the document object ───────────────────────────
+    // ── 16. Build and return the document object ───────────────────────────
     const responseDoc = buildDocumentObject(
       docType.toObject(),
       newDocument.toObject(),

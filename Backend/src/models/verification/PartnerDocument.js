@@ -66,16 +66,38 @@ const partnerDocumentSchema = new mongoose.Schema(
       index: true,
     },
 
-    // ── Cloudinary asset ──────────────────────────────────────────────────────
-    // Stored as a sub-document for easy access to both URL and publicId.
-    // publicId is needed to delete the old asset from Cloudinary on re-upload.
-    cloudinary: {
-      url:      { type: String, required: true },
-      publicId: { type: String, required: true },
-      format:   { type: String },
-      width:    { type: Number },
-      height:   { type: Number },
-      bytes:    { type: Number },
+    // ── Cloudinary assets ─────────────────────────────────────────────────────
+    // Stored as an array to support multi-photo uploads for a single document slot.
+    // Each element represents one uploaded file (photo or PDF page).
+    //
+    // Why an array?
+    //   A partner may upload multiple photos for a single document — e.g., two
+    //   angles of a trade license or a multi-page bank statement. Each call to
+    //   POST /partner/verification/documents pushes one entry here.
+    //   The UI can then display a scrollable strip of all uploaded photos.
+    //
+    // publicId is stored per-file so we can delete individual files from
+    // Cloudinary without affecting the others when the entire slot is superseded.
+    //
+    // Backwards-compat: the virtual `cloudinary` getter (below the schema)
+    // returns cloudinaryFiles[0] so existing code that reads .cloudinary?.url
+    // continues to work without any changes.
+    cloudinaryFiles: {
+      type: [
+        {
+          url:      { type: String, required: true },
+          publicId: { type: String, required: true },
+          format:   { type: String },
+          width:    { type: Number },
+          height:   { type: Number },
+          bytes:    { type: Number },
+        },
+      ],
+      default:  [],
+      validate: {
+        validator: (arr) => arr.length >= 1,
+        message:   "At least one file must be uploaded per document slot.",
+      },
     },
 
     // ── Number value ──────────────────────────────────────────────────────────
@@ -140,6 +162,14 @@ const partnerDocumentSchema = new mongoose.Schema(
     timestamps: true, // adds createdAt (immutable) and updatedAt
   }
 );
+
+// ─── Virtual: cloudinary ──────────────────────────────────────────────────────
+// Returns cloudinaryFiles[0] so all existing code that reads
+// doc.cloudinary?.url / doc.cloudinary?.publicId / etc. continues to work
+// without any modifications. New code should use cloudinaryFiles directly.
+partnerDocumentSchema.virtual("cloudinary").get(function () {
+  return this.cloudinaryFiles?.[0] ?? null;
+});
 
 // ─── Indexes ───────────────────────────────────────────────────────────────────
 

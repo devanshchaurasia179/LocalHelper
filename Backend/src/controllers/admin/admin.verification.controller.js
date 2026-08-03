@@ -265,15 +265,16 @@ export const getPartnerVerificationDetail = async (req, res) => {
 
         // ── Upload data ───────────────────────────────────────────────────
         status:        upload.status,         // raw: "Under Review" | "Approved" | "Rejected"
-        previewUrl:    upload.cloudinary?.url || null,
+        previewUrl:    upload.cloudinaryFiles?.[0]?.url || null, // primary photo
+        previewUrls:   upload.cloudinaryFiles?.map((f) => f.url) || [], // all photos
         numberValue:   upload.numberValue     || null,
         uploadedAt:    upload.uploadedAt,
         version:       upload.version,
         reuploadCount, // how many times this slot was previously uploaded
 
-        // ── File metadata ─────────────────────────────────────────────────
-        fileFormat: upload.cloudinary?.format || null,
-        fileBytes:  upload.cloudinary?.bytes  || null,
+        // ── File metadata (from primary/first file) ───────────────────────
+        fileFormat: upload.cloudinaryFiles?.[0]?.format || null,
+        fileBytes:  upload.cloudinaryFiles?.[0]?.bytes  || null,
 
         // ── Admin action audit ────────────────────────────────────────────
         approvedBy:  upload.approvedBy?.name || null,

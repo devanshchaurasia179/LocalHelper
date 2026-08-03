@@ -158,7 +158,7 @@ export const verifyOtp = async (req, res) => {
  */
 export const completeProfile = async (req, res) => {
   try {
-    const { fullName, gender, dateOfBirth, profilePhoto, address, location } = req.body;
+    const { fullName, gender, dateOfBirth, profilePhoto, address, location, serviceRadius } = req.body;
 
     const partner = await Partner.findById(req.partnerId);
     if (!partner) {
@@ -205,6 +205,11 @@ export const completeProfile = async (req, res) => {
         type: "Point",
         coordinates: [location.longitude, location.latitude],
       };
+    }
+
+    // ── Store service radius (km) — how far the partner is willing to travel ──
+    if (typeof serviceRadius === "number" && serviceRadius >= 1 && serviceRadius <= 100) {
+      partner.serviceRadius = serviceRadius;
     }
 
     // Mark profile step as complete
