@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -12,7 +11,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import * as Location from "expo-location";
 import { router } from "expo-router";
 
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -29,6 +27,8 @@ type WorkingDay = { day: string; startTime: string; endTime: string };
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ALL_DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"] as const;
+const WEEKDAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday"] as const;
+const WEEKENDS = ["Saturday","Sunday"] as const;
 
 const LANGUAGES = ["Hindi","English","Tamil","Telugu","Kannada","Bengali","Marathi","Gujarati"] as const;
 
@@ -50,6 +50,35 @@ const fieldStyles = StyleSheet.create({
   required: { color: "#EF4444" },
 });
 
+// ─── Section Title (icon + text, replaces emoji headers) ───────────────────────
+
+function SectionTitle({
+  icon, title, subtitle,
+}: { icon: keyof typeof MaterialCommunityIcons.glyphMap; title: string; subtitle?: string }) {
+  return (
+    <View style={sectionStyles.wrap}>
+      <View style={sectionStyles.iconBadge}>
+        <MaterialCommunityIcons name={icon} size={16} color={colors.primary} />
+      </View>
+      <View style={sectionStyles.textCol}>
+        <Text style={sectionStyles.title}>{title}</Text>
+        {subtitle ? <Text style={sectionStyles.subtitle}>{subtitle}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+const sectionStyles = StyleSheet.create({
+  wrap: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  iconBadge: {
+    width: 28, height: 28, borderRadius: radii.sm, alignItems: "center", justifyContent: "center",
+    backgroundColor: colors.primary + "14",
+  },
+  textCol: { flex: 1 },
+  title: { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.textPrimary },
+  subtitle: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: 1 },
+});
+
 // ─── Working Day Row ──────────────────────────────────────────────────────────
 
 function WorkingDayRow({
@@ -67,13 +96,17 @@ function WorkingDayRow({
       <Pressable
         style={[wdStyles.dayChip, active && wdStyles.dayChipActive]}
         onPress={() => active ? onRemove(day) : onAdd(day)}
+        hitSlop={6}
         accessibilityRole="checkbox"
         accessibilityState={{ checked: active }}
       >
-        <Text style={[wdStyles.dayText, active && wdStyles.dayTextActive]}>
-          {day.slice(0, 3)}
-        </Text>
+        {active ? (
+          <MaterialCommunityIcons name="check" size={16} color={colors.white} />
+        ) : (
+          <Text style={wdStyles.dayText}>{day.slice(0, 3)}</Text>
+        )}
       </Pressable>
+      <Text style={[wdStyles.dayFullName, active && wdStyles.dayFullNameActive]}>{day}</Text>
       {active && (
         <View style={wdStyles.timePair}>
           <TextInput
@@ -84,9 +117,10 @@ function WorkingDayRow({
             placeholderTextColor={colors.textSecondary}
             keyboardType="numbers-and-punctuation"
             maxLength={5}
+            allowFontScaling={false}
             accessibilityLabel={`${day} start time`}
           />
-          <Text style={wdStyles.timeSep}>–</Text>
+          <MaterialCommunityIcons name="arrow-right-thin" size={14} color={colors.textSecondary} />
           <TextInput
             style={wdStyles.timeInput}
             value={entry!.endTime}
@@ -95,6 +129,7 @@ function WorkingDayRow({
             placeholderTextColor={colors.textSecondary}
             keyboardType="numbers-and-punctuation"
             maxLength={5}
+            allowFontScaling={false}
             accessibilityLabel={`${day} end time`}
           />
         </View>
@@ -104,22 +139,36 @@ function WorkingDayRow({
 }
 
 const wdStyles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.xs },
+  row: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.sm },
   dayChip: {
-    width: 44, height: 36, borderRadius: radii.sm, alignItems: "center", justifyContent: "center",
+    width: 36, height: 36, borderRadius: radii.sm, alignItems: "center", justifyContent: "center",
     borderWidth: 1.5, borderColor: colors.navInactive, backgroundColor: colors.surface,
   },
   dayChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   dayText: { fontFamily: fonts.jostMedium, fontSize: 11, color: colors.textSecondary },
-  dayTextActive: { color: colors.white },
+  dayFullName: {
+    fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, width: 76,
+  },
+  dayFullNameActive: { fontFamily: fonts.jostMedium, color: colors.textPrimary },
   timePair: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.xs },
   timeInput: {
-    flex: 1, height: 36, borderRadius: radii.sm, borderWidth: 1.5,
-    borderColor: colors.navInactive + "88", paddingHorizontal: spacing.sm,
-    fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textPrimary,
-    backgroundColor: colors.surface, textAlign: "center",
+    flex: 1,
+    minWidth: 64,
+    minHeight: 40,
+    borderRadius: radii.sm,
+    borderWidth: 1.5,
+    borderColor: colors.navInactive + "88",
+    paddingHorizontal: spacing.xs,
+    paddingVertical: Platform.OS === "android" ? 4 : 8,
+    fontFamily: fonts.jostRegular,
+    fontSize: 13,
+    lineHeight: Platform.OS === "ios" ? 16 : undefined,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
+    textAlign: "center",
+    textAlignVertical: "center",
+    includeFontPadding: false,
   },
-  timeSep: { fontFamily: fonts.jostRegular, color: colors.textSecondary, fontSize: 14 },
 });
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
@@ -137,12 +186,7 @@ export default function AddServiceScreen() {
   const [bio, setBio] = useState("");
   const [visitingCredits, setVisitingCredits] = useState("");
   const [emergency, setEmergency] = useState(false);
-  const [serviceRadius, setServiceRadius] = useState("10");
   const [workingDays, setWorkingDays] = useState<WorkingDay[]>([]);
-
-  const [locationCoords, setLocationCoords] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [locationLoading, setLocationLoading] = useState(false);
-  const [locationStatus, setLocationStatus] = useState<"idle" | "granted" | "denied">("idle");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -169,20 +213,12 @@ export default function AddServiceScreen() {
   const changeTime = (day: string, field: "startTime" | "endTime", value: string) =>
     setWorkingDays((p) => p.map((d) => d.day === day ? { ...d, [field]: value } : d));
 
-  const handleRequestLocation = useCallback(async () => {
-    setLocationLoading(true);
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") { setLocationStatus("denied"); return; }
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setLocationCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
-      setLocationStatus("granted");
-    } catch {
-      Alert.alert("Location Error", "Could not fetch your location. You can continue without it.");
-    } finally {
-      setLocationLoading(false);
-    }
-  }, []);
+  const applyPreset = (days: readonly string[]) =>
+    setWorkingDays((prev) =>
+      days.map((day) => prev.find((d) => d.day === day) ?? { day, startTime: "09:00", endTime: "18:00" })
+    );
+
+  const clearDays = () => setWorkingDays([]);
 
   const parsedSkills = skills.split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -205,11 +241,7 @@ export default function AddServiceScreen() {
         bio: bio.trim() || undefined,
         visitingCredits: Number(visitingCredits),
         emergencyAvailable: emergency,
-        serviceRadius: serviceRadius ? Number(serviceRadius) : 10,
         workingDays: workingDays.length > 0 ? workingDays : undefined,
-        serviceLocation: locationCoords
-          ? { longitude: locationCoords.longitude, latitude: locationCoords.latitude }
-          : undefined,
       });
       patchPartner({ isService: true });
       router.replace(ROUTES.ONBOARDING.DOCUMENTS as any);
@@ -218,7 +250,7 @@ export default function AddServiceScreen() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCats, parsedSkills, experience, selectedLangs, bio, visitingCredits, emergency, serviceRadius, workingDays, locationCoords, patchPartner]);
+  }, [selectedCats, parsedSkills, experience, selectedLangs, bio, visitingCredits, emergency, workingDays, patchPartner]);
 
   return (
     <SafeAreaView style={styles.safe} edges={["bottom"]}>
@@ -262,15 +294,11 @@ export default function AddServiceScreen() {
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: active }}
                     >
-                      {cat.icon ? (
-                        <MaterialCommunityIcons
-                          name={cat.icon as any}
-                          size={16}
-                          color={active ? colors.white : colors.textSecondary}
-                        />
-                      ) : (
-                        <Text style={styles.catIcon}>🛠️</Text>
-                      )}
+                      <MaterialCommunityIcons
+                        name={(cat.icon as any) || "tools"}
+                        size={16}
+                        color={active ? colors.white : colors.textSecondary}
+                      />
                       <Text style={[styles.catName, active && styles.catNameActive]}>{cat.name}</Text>
                     </Pressable>
                   );
@@ -349,7 +377,7 @@ export default function AddServiceScreen() {
 
             {/* ── Pricing ────────────────────────────────────────────── */}
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>💰 Pricing & Availability</Text>
+              <SectionTitle icon="currency-inr" title="Pricing & Availability" />
             </View>
 
             <View style={styles.fieldGap}>
@@ -366,20 +394,6 @@ export default function AddServiceScreen() {
               <Text style={styles.hint}>Amount charged just to visit the customer's location</Text>
             </View>
 
-            <View style={styles.fieldGap}>
-              <FieldLabel label="Service radius (km)" />
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. 10"
-                placeholderTextColor={colors.textSecondary}
-                keyboardType="number-pad"
-                maxLength={3}
-                value={serviceRadius}
-                onChangeText={(t) => setServiceRadius(t.replace(/\D/g, ""))}
-                accessibilityLabel="Service radius in kilometres"
-              />
-            </View>
-
             {/* ── Emergency toggle ───────────────────────────────────── */}
             <Pressable
               style={[styles.toggleRow, emergency && styles.toggleRowActive]}
@@ -387,8 +401,15 @@ export default function AddServiceScreen() {
               accessibilityRole="switch"
               accessibilityState={{ checked: emergency }}
             >
+              <View style={styles.toggleIconBadge}>
+                <MaterialCommunityIcons
+                  name="lightning-bolt"
+                  size={16}
+                  color={emergency ? colors.primary : colors.textSecondary}
+                />
+              </View>
               <View style={styles.toggleInfo}>
-                <Text style={styles.toggleTitle}>🚨 Emergency available</Text>
+                <Text style={styles.toggleTitle}>Emergency available</Text>
                 <Text style={styles.toggleDesc}>Accept urgent same-day requests (may earn more)</Text>
               </View>
               <View style={[styles.togglePill, emergency && styles.togglePillOn]}>
@@ -398,8 +419,29 @@ export default function AddServiceScreen() {
 
             {/* ── Working days ───────────────────────────────────────── */}
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>📅 Working Schedule</Text>
-              <Text style={styles.sectionSub}>Tap a day to toggle, then set hours</Text>
+              <SectionTitle
+                icon="calendar-clock-outline"
+                title="Working Schedule"
+                subtitle="Tap a day to toggle, then set hours"
+              />
+            </View>
+
+            <View style={styles.presetRow}>
+              <Pressable style={styles.presetChip} onPress={() => applyPreset(WEEKDAYS)}>
+                <Text style={styles.presetChipText}>Weekdays</Text>
+              </Pressable>
+              <Pressable style={styles.presetChip} onPress={() => applyPreset(WEEKENDS)}>
+                <Text style={styles.presetChipText}>Weekends</Text>
+              </Pressable>
+              <Pressable style={styles.presetChip} onPress={() => applyPreset(ALL_DAYS)}>
+                <Text style={styles.presetChipText}>All days</Text>
+              </Pressable>
+              {workingDays.length > 0 && (
+                <Pressable style={styles.presetChipClear} onPress={clearDays}>
+                  <MaterialCommunityIcons name="close" size={13} color={colors.textSecondary} />
+                  <Text style={styles.presetChipText}>Clear</Text>
+                </Pressable>
+              )}
             </View>
 
             <View style={styles.fieldGap}>
@@ -415,45 +457,10 @@ export default function AddServiceScreen() {
               ))}
             </View>
 
-            {/* ── Location ───────────────────────────────────────── */}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>📍 Service Location</Text>
-              <Text style={styles.sectionSub}>Helps customers find you for nearby jobs</Text>
-            </View>
-
-            <Pressable
-              style={[styles.locationCard, locationStatus === "granted" && styles.locationCardGranted]}
-              onPress={locationStatus !== "granted" ? handleRequestLocation : undefined}
-              disabled={locationLoading || locationStatus === "granted"}
-              accessibilityRole="button"
-              accessibilityLabel="Share your location"
-            >
-              {locationLoading ? (
-                <ActivityIndicator color={colors.primary} />
-              ) : locationStatus === "granted" ? (
-                <>
-                  <Text style={styles.locationTitle}>✅ Location captured</Text>
-                  <Text style={styles.locationDesc}>
-                    {`${locationCoords!.latitude.toFixed(5)}, ${locationCoords!.longitude.toFixed(5)}`}
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.locationTitle}>
-                    {locationStatus === "denied" ? "⚠️ Permission denied" : "Tap to share location"}
-                  </Text>
-                  <Text style={styles.locationDesc}>
-                    {locationStatus === "denied"
-                      ? "You can still continue — location can be updated from profile later."
-                      : "Optional but recommended. Skip to continue without it."}
-                  </Text>
-                </>
-              )}
-            </Pressable>
-
             {/* ── Error banner ───────────────────────────────────────── */}
             {error ? (
               <View style={styles.errorBanner}>
+                <MaterialCommunityIcons name="alert-circle-outline" size={16} color="#991B1B" />
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             ) : null}
@@ -466,9 +473,14 @@ export default function AddServiceScreen() {
               accessibilityRole="button"
               accessibilityLabel="Save service details"
             >
-              {loading
-                ? <ActivityIndicator color={colors.white} />
-                : <Text style={styles.submitBtnText}>Save & Continue →</Text>}
+              {loading ? (
+                <ActivityIndicator color={colors.white} />
+              ) : (
+                <View style={styles.submitBtnContent}>
+                  <Text style={styles.submitBtnText}>Save & Continue</Text>
+                  <MaterialCommunityIcons name="arrow-right" size={18} color={colors.white} />
+                </View>
+              )}
             </Pressable>
 
             {!isValid && (
@@ -597,7 +609,6 @@ const styles = StyleSheet.create({
     borderColor: colors.navInactive, backgroundColor: colors.surface,
   },
   catChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  catIcon: { fontSize: 15 },
   catName: { fontFamily: fonts.jostMedium, fontSize: 12, color: colors.textSecondary },
   catNameActive: { color: colors.white },
 
@@ -614,17 +625,32 @@ const styles = StyleSheet.create({
 
   // ── Section headers ──────────────────────────────────────────────────────────
   sectionHeader: { marginTop: spacing.lg, marginBottom: spacing.xs },
-  sectionTitle: { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.textPrimary },
-  sectionSub: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+
+  // ── Working schedule presets ─────────────────────────────────────────────────
+  presetRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginTop: spacing.xs, marginBottom: spacing.xs },
+  presetChip: {
+    paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radii.pill,
+    borderWidth: 1.5, borderColor: colors.primary + "44", backgroundColor: colors.primary + "0D",
+  },
+  presetChipClear: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radii.pill,
+    borderWidth: 1.5, borderColor: colors.navInactive, backgroundColor: colors.surface,
+  },
+  presetChipText: { fontFamily: fonts.jostMedium, fontSize: 11, color: colors.textPrimary },
 
   // ── Emergency toggle ─────────────────────────────────────────────────────────
   toggleRow: {
     marginTop: spacing.md, flexDirection: "row", alignItems: "center",
-    justifyContent: "space-between", gap: spacing.sm,
+    gap: spacing.sm,
     backgroundColor: colors.surface, borderRadius: radii.md,
     padding: spacing.md, borderWidth: 1.5, borderColor: colors.navInactive + "55",
   },
   toggleRowActive: { borderColor: colors.primary + "66", backgroundColor: colors.primary + "08" },
+  toggleIconBadge: {
+    width: 28, height: 28, borderRadius: radii.sm, alignItems: "center", justifyContent: "center",
+    backgroundColor: colors.white,
+  },
   toggleInfo: { flex: 1, gap: 2 },
   toggleTitle: { fontFamily: fonts.jakartaSemiBold, fontSize: 14, color: colors.textPrimary },
   toggleDesc: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
@@ -639,31 +665,13 @@ const styles = StyleSheet.create({
   },
   toggleThumbOn: { alignSelf: "flex-end" },
 
-  // ── Location card ─────────────────────────────────────────────────────────────
-  locationCard: {
-    borderRadius: radii.md, padding: spacing.md, gap: spacing.xs,
-    borderWidth: 1.5, borderColor: colors.navInactive + "55",
-    backgroundColor: colors.surface, alignItems: "center",
-    minHeight: 72, justifyContent: "center",
-  },
-  locationCardGranted: {
-    borderColor: colors.primary + "44",
-    backgroundColor: colors.primary + "08",
-  },
-  locationTitle: {
-    fontFamily: fonts.jakartaSemiBold, fontSize: 14, color: colors.textPrimary, textAlign: "center",
-  },
-  locationDesc: {
-    fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary,
-    textAlign: "center", lineHeight: 18,
-  },
-
   // ── Error & validation ───────────────────────────────────────────────────────
   errorBanner: {
+    flexDirection: "row", alignItems: "flex-start", gap: spacing.xs,
     backgroundColor: "#FEE2E2", borderRadius: radii.sm,
     padding: spacing.md, marginTop: spacing.sm,
   },
-  errorText: { fontFamily: fonts.jostMedium, color: "#991B1B", fontSize: 13 },
+  errorText: { fontFamily: fonts.jostMedium, color: "#991B1B", fontSize: 13, flex: 1 },
   validationNote: {
     fontFamily: fonts.jostRegular, fontSize: 12,
     color: colors.textSecondary, textAlign: "center",
@@ -678,6 +686,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3, shadowRadius: 8, elevation: 6,
   },
   submitBtnDisabled: { opacity: 0.4 },
+  submitBtnContent: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   submitBtnText: {
     fontFamily: fonts.jakartaBold, color: colors.white,
     fontSize: 15, letterSpacing: 0.3,

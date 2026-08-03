@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   Eye,
@@ -12,6 +11,7 @@ import {
   Calendar,
   HardDrive,
   User,
+  Images,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import Button from '@/components/ui/Button'
@@ -73,9 +73,14 @@ const DEFAULT_STATUS = {
 
 const formatFileSize = (bytes) => {
   if (!bytes) return null
-  if (bytes < 1024)       return `${bytes} B`
+  if (bytes < 1024)        return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const isPdfUrl = (format, url) => {
+  if (format?.toLowerCase() === 'pdf') return true
+  return url?.split('?')[0].split('.').pop()?.toLowerCase() === 'pdf'
 }
 
 const DocumentCard = ({ document, onPreview, onApprove, onReject, disabled = false }) => {
@@ -84,6 +89,18 @@ const DocumentCard = ({ document, onPreview, onApprove, onReject, disabled = fal
 
   const canApprove = document.status !== 'Approved' && document.status !== 'Pending'
   const canReject  = document.status !== 'Rejected' && document.status !== 'Pending'
+
+  // Collect all uploaded photo URLs for this document slot.
+  // previewUrls (array) takes priority over the legacy single previewUrl.
+  const allUrls = document.previewUrls?.length
+    ? document.previewUrls
+    : document.previewUrl
+      ? [document.previewUrl]
+      : []
+
+  const primaryUrl = allUrls[0] || null
+  const photoCount = allUrls.length
+  const isPdf      = isPdfUrl(document.fileFormat, primaryUrl)
 
   return (
     <motion.div
@@ -96,7 +113,6 @@ const DocumentCard = ({ document, onPreview, onApprove, onReject, disabled = fal
       {/* ── Header band ──────────────────────────────────────────────── */}
       <div className={cn('px-5 py-3.5 border-b flex items-center justify-between gap-3', statusCfg.headerBg)}>
         <div className="flex items-center gap-2.5 min-w-0">
-          {/* Icon from backend or fallback */}
           <div className="w-8 h-8 rounded-lg bg-white shadow-sm flex items-center justify-center flex-shrink-0">
             <StatusIcon className={cn('w-4 h-4', statusCfg.iconColor)} aria-hidden="true" />
           </div>
@@ -127,27 +143,37 @@ const DocumentCard = ({ document, onPreview, onApprove, onReject, disabled = fal
         onKeyDown={(e) => e.key === 'Enter' && onPreview(document)}
         aria-label={`Preview ${document.title}`}
       >
-        {document.previewUrl ? (
+        {primaryUrl ? (
           <>
-            {document.fileFormat?.toLowerCase() === 'pdf' ||
-            document.previewUrl.toLowerCase().endsWith('.pdf') ? (
+            {isPdf ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-400">
                 <FileText className="w-10 h-10" />
                 <p className="text-xs font-medium">PDF Document</p>
               </div>
             ) : (
               <img
-                src={document.previewUrl}
+                src={primaryUrl}
                 alt={document.title}
                 className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-105"
               />
             )}
+
+            {/* Multi-photo count badge */}
+            {photoCount > 1 && (
+              <div className="absolute top-2 left-2 flex items-center gap-1 bg-slate-900/70 text-white text-xs font-semibold px-2 py-1 rounded-lg backdrop-blur-sm pointer-events-none">
+                <Images className="w-3 h-3" />
+                <span>{photoCount} photos</span>
+              </div>
+            )}
+
             {/* Hover overlay */}
             <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/40 transition-all duration-200 flex items-center justify-center">
               <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                 <div className="bg-white/95 rounded-xl px-3 py-2 flex items-center gap-2 shadow-lg">
                   <Eye className="w-4 h-4 text-slate-700" />
-                  <span className="text-xs font-semibold text-slate-700">Preview</span>
+                  <span className="text-xs font-semibold text-slate-700">
+                    {photoCount > 1 ? `View ${photoCount} photos` : 'Preview'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -162,7 +188,7 @@ const DocumentCard = ({ document, onPreview, onApprove, onReject, disabled = fal
 
       {/* ── Metadata ──────────────────────────────────────────────────── */}
       <div className="px-5 py-4 space-y-2.5">
-        {/* Number value (e.g., Aadhaar number, PAN number) */}
+        {/* Document number (Aadhaar, PAN, etc.) */}
         {document.numberValue && (
           <MetaRow icon={Hash} label="Number" value={document.numberValue} />
         )}
@@ -194,7 +220,7 @@ const DocumentCard = ({ document, onPreview, onApprove, onReject, disabled = fal
           />
         )}
 
-        {/* Approved by / rejected by */}
+        {/* Approved by */}
         {document.status === 'Approved' && document.approvedBy && (
           <MetaRow
             icon={User}
@@ -203,6 +229,8 @@ const DocumentCard = ({ document, onPreview, onApprove, onReject, disabled = fal
             className="text-emerald-700"
           />
         )}
+
+        {/* Rejected by */}
         {document.status === 'Rejected' && document.rejectedBy && (
           <MetaRow
             icon={User}
@@ -244,7 +272,7 @@ const DocumentCard = ({ document, onPreview, onApprove, onReject, disabled = fal
             Approve
           </Button>
         )}
-        {/* Show Reject when status is Under Review (canReject true) OR Approved (allow revoking) */}
+        {/* Show Reject for Under Review AND allow revoking an Approved doc */}
         {(canReject || document.status === 'Approved') && (
           <Button
             variant="danger"

@@ -120,11 +120,37 @@ const VerificationDetailPage = () => {
 
   // ── Handlers ──────────────────────────────────────────────────────
   const handlePreview = useCallback((doc) => {
-    // Open with this doc; allow navigating to others from the modal
-    const allWithPreview = documents.filter((d) => d.previewUrl)
-    const idx = allWithPreview.findIndex((d) => d.documentId === doc.documentId)
-    setPreviewDocs(allWithPreview)
-    setPreviewIndex(Math.max(0, idx))
+    // Expand every document into one entry per photo URL so multi-photo
+    // documents are fully navigable inside the preview modal.
+    const entries = []
+    let startIndex = 0
+    let found = false
+
+    for (const d of documents) {
+      const urls = d.previewUrls?.length ? d.previewUrls : d.previewUrl ? [d.previewUrl] : []
+      if (!urls.length) continue
+
+      // Record where this document starts in the flat entries list
+      if (d.documentId === doc.documentId && !found) {
+        startIndex = entries.length
+        found = true
+      }
+
+      urls.forEach((url, photoIdx) => {
+        entries.push({
+          documentId: d.documentId,
+          previewUrl:  url,
+          fileFormat:  d.fileFormat || null,
+          title:
+            urls.length > 1
+              ? `${d.title} (${photoIdx + 1}/${urls.length})`
+              : d.title,
+        })
+      })
+    }
+
+    setPreviewDocs(entries)
+    setPreviewIndex(Math.max(0, startIndex))
     setPreviewOpen(true)
   }, [documents])
 

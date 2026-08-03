@@ -3,6 +3,7 @@ import DocumentType from "../models/verification/DocumentType.js";
 import PartnerDocument from "../models/verification/PartnerDocument.js";
 import VerificationSession from "../models/verification/VerificationSession.js";
 import { uploadToCloudinary } from "../middleware/upload.middleware.js";
+import cloudinary from "../config/cloudinary.js";
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -130,34 +131,38 @@ const syncSessionStatus = (session, relevantDocTypes, uploadMap) => {
   // (Rejected recovery is handled separately in uploadDocument)
   if (session.overallStatus === "Approved") return "Approved";
 
+  // Never auto-advance to "Under Review" — partner must explicitly submit.
+  // We only track whether they're "In Progress" (some uploaded) or "Pending" (none).
+  if (session.overallStatus === "Under Review") return "Under Review";
+
   const requiredTypes = relevantDocTypes.filter((dt) => dt.isRequired);
 
-  if (requiredTypes.length === 0) return "Under Review";
-
-  // Check each required document type for coverage
-  let allCovered = true;
+  // Check if any required doc slot has been uploaded
+  let anyCovered = false;
 
   for (const docType of requiredTypes) {
     if (docType.isMultiPage) {
-      // Multi-page: both front AND back must have an active upload
       const frontKey = `${docType._id.toString()}_front`;
       const backKey  = `${docType._id.toString()}_back`;
-      const hasFront = uploadMap.has(frontKey);
-      const hasBack  = uploadMap.has(backKey);
-      if (!hasFront || !hasBack) {
-        allCovered = false;
+      if (uploadMap.has(frontKey) || uploadMap.has(backKey)) {
+        anyCovered = true;
         break;
       }
     } else {
       const singleKey = `${docType._id.toString()}_single`;
-      if (!uploadMap.has(singleKey)) {
-        allCovered = false;
+      if (uploadMap.has(singleKey)) {
+        anyCovered = true;
         break;
       }
     }
   }
 
-  return allCovered ? "Under Review" : "In Progress";
+  // Also count optional docs
+  if (!anyCovered) {
+    anyCovered = uploadMap.size > 0;
+  }
+
+  return anyCovered ? "In Progress" : "Pending";
 };
 
 /**
@@ -170,7 +175,7 @@ const syncSessionStatus = (session, relevantDocTypes, uploadMap) => {
  */
 const SESSION_TO_PARTNER_STATUS = {
   Pending:       "Pending",
-  "In Progress": "Pending",      // Partner hasn't submitted yet, still Pending
+  "In Progress": "Pending",       // still uploading, not yet submitted
   "Under Review": "Under Review",
   Approved:      "Approved",
   Rejected:      "Rejected",
@@ -414,19 +419,23 @@ const buildDocumentObject = (docType, upload, side) => {
   const badge = badgeMap[uploadStatus] || badgeMap.missing;
 
   // ── Compute action ──────────────────────────────────────────────────────
-  // "approved" docs are view-only — no replace allowed until admin rejects
-  // "under_review" docs cannot be replaced while in review (no action)
-  // "missing" / "rejected" → upload / replace
+  // "missing"      → upload CTA ("upload")
+  // "pending"      → draft, partner can add more photos ("add_more")
+  // "under_review" → locked, awaiting admin action ("none")
+  // "approved"     → view-only ("view")
+  // "rejected"     → fresh re-upload ("replace")
   let action;
   if (uploadStatus === "missing") {
-    action = { type: "upload",  label: "Upload Document" };
+    action = { type: "upload",   label: "Upload Document"  };
+  } else if (uploadStatus === "pending") {
+    action = { type: "add_more", label: "Add More Photos"  };
   } else if (uploadStatus === "approved") {
-    action = { type: "view",    label: "View Document"   };
+    action = { type: "view",     label: "View Document"    };
   } else if (uploadStatus === "under_review") {
-    action = { type: "none",    label: null               };
+    action = { type: "none",     label: null               };
   } else {
-    // rejected or pending
-    action = { type: "replace", label: "Replace Document" };
+    // rejected
+    action = { type: "replace",  label: "Replace Document" };
   }
 
   // ── Side label suffix ───────────────────────────────────────────────────
@@ -624,21 +633,42 @@ export const uploadDocument = async (req, res) => {
       return res.status(404).json({ message: "Partner not found." });
     }
 
-    // ── 9. Find the previous active upload for this slot ──────────────────
+    // ── 9. Find the current active upload for this slot ───────────────────
     // "Slot" = the unique combination of (partnerId, documentTypeId, side)
-    const previousUpload = await PartnerDocument.findOne({
+    const activeUpload = await PartnerDocument.findOne({
       partnerId:      req.partnerId,
       documentTypeId: docType._id,
       side,
       status:         { $ne: "Superseded" },
     });
 
-    const nextVersion = previousUpload ? previousUpload.version + 1 : 1;
+    // ── Decide: append photo vs. replace document ──────────────────────────
+    //
+    // APPEND  — active record exists AND is "Pending"
+    //           Partner has not yet submitted. Adding another photo to the
+    //           same draft slot. Push to cloudinaryFiles, keep same record.
+    //
+    // REPLACE — active record exists AND is "Approved" or "Rejected"
+    //           Partner is starting a fresh submission for this slot.
+    //           Supersede the old record and create a new one.
+    //
+    // FIRST   — no active record at all → create fresh (version 1, Pending).
+    //
+    // NOTE: "Under Review" records are NOT editable — the submit endpoint
+    // locks all Pending records to Under Review. Once locked the partner
+    // can only wait for admin action.
+    //
+    const shouldAppend =
+      activeUpload && activeUpload.status === "Pending";
+
+    const shouldReplace =
+      activeUpload &&
+      (activeUpload.status === "Approved" || activeUpload.status === "Rejected");
+
+    // version only increments on a true re-upload (replace), not on append
+    const nextVersion = shouldReplace ? activeUpload.version + 1 : 1;
 
     // ── 10. Upload to Cloudinary ───────────────────────────────────────────
-    // Folder: partners/{partnerId}/documents
-    // PublicId: {key}_{side}_{timestamp} — unique per file so multiple photos
-    // in the same slot don't overwrite each other on Cloudinary.
     const folder   = `partners/${req.partnerId}/documents`;
     const publicId = side === "single"
       ? `${docType.key}_${Date.now()}`
@@ -650,35 +680,12 @@ export const uploadDocument = async (req, res) => {
       publicId
     );
 
-    // ── 11. Archive the previous upload when re-uploading ──────────────────
-    // On first upload → no previous record, just create.
-    // On re-upload (rejected / partner replacing) → supersede the old record
-    // so only one active record exists per slot at any time.
-    // Note: we do NOT delete previous cloudinaryFiles here — the slot keeps its
-    // full photo history inside the archived (Superseded) record.
-    if (previousUpload) {
-      await PartnerDocument.findByIdAndUpdate(previousUpload._id, {
+    // ── 11. Supersede only when replacing (not when appending) ─────────────
+    if (shouldReplace) {
+      await PartnerDocument.findByIdAndUpdate(activeUpload._id, {
         $set: { status: "Superseded" },
       });
     }
-
-    // ── 12. Check if there is an active record to append to ────────────────
-    // Scenario: partner already uploaded one photo for this slot today and is
-    // now adding a second photo (multi-photo upload sequence).
-    // In this case we append to the existing active record instead of creating
-    // a new one (which would immediately supersede the first photo).
-    //
-    // A "fresh" record for this slot = status Under Review, created in the
-    // current upload session (not a previously approved/rejected one we just
-    // archived above).
-    const existingActive = previousUpload
-      ? null  // we just superseded it — must create fresh
-      : await PartnerDocument.findOne({
-          partnerId:      req.partnerId,
-          documentTypeId: docType._id,
-          side,
-          status:         "Under Review",
-        });
 
     const newCloudinaryEntry = {
       url:      cloudinaryResult.url,
@@ -691,24 +698,30 @@ export const uploadDocument = async (req, res) => {
 
     let newDocument;
 
-    if (existingActive) {
-      // Append photo to the existing Under Review record
-      existingActive.cloudinaryFiles.push(newCloudinaryEntry);
-      existingActive.uploadedAt = new Date();
-      await existingActive.save();
-      newDocument = existingActive;
+    if (shouldAppend) {
+      // ── 12a. Append photo to the existing Pending draft record ─────────
+      activeUpload.cloudinaryFiles.push(newCloudinaryEntry);
+      activeUpload.uploadedAt = new Date();
+      // Update numberValue if partner corrected it while still in draft
+      if (docType.hasNumberField && numberValue?.trim()) {
+        activeUpload.numberValue = numberValue.trim().toUpperCase();
+      }
+      await activeUpload.save();
+      newDocument = activeUpload;
     } else {
-      // ── 13. Create a new PartnerDocument record ────────────────────────
+      // ── 12b. Create a fresh PartnerDocument draft record ───────────────
+      // Status is "Pending" — it only moves to "Under Review" when the
+      // partner explicitly presses "Submit for Review".
       newDocument = await PartnerDocument.create({
         partnerId:      req.partnerId,
         documentTypeId: docType._id,
         side,
-        status:         "Under Review",
+        status:         "Pending",
         cloudinaryFiles: [newCloudinaryEntry],
         numberValue: docType.hasNumberField
           ? (numberValue.trim().toUpperCase())
           : null,
-        version:    nextVersion,
+        version:    shouldReplace ? nextVersion : 1,
         uploadedAt: new Date(),
       });
     }
@@ -778,6 +791,217 @@ export const uploadDocument = async (req, res) => {
       return res.status(400).json({ message: "Invalid documentTypeId." });
     }
     console.error("uploadDocument error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+// ─── SUBMIT FOR REVIEW ────────────────────────────────────────────────────────
+/**
+ * POST /api/partner/verification/submit
+ * 🔒 Requires partner_token cookie
+ *
+ * Explicitly submits the partner's uploaded documents for admin review.
+ * Transitions the session from "In Progress" → "Under Review".
+ *
+ * Validation:
+ *   - All required document slots must have at least one active upload.
+ *   - Session must not already be "Under Review" or "Approved".
+ *
+ * This replaces the old auto-advance logic that triggered "Under Review"
+ * as soon as the last required document was uploaded. Now the partner
+ * controls when to submit — they can upload multiple photos per slot
+ * freely and only submit when they're satisfied.
+ */
+export const submitVerification = async (req, res) => {
+  try {
+    const partner = await Partner.findById(req.partnerId)
+      .select("categories verificationStatus")
+      .lean();
+
+    if (!partner) {
+      return res.status(404).json({ message: "Partner not found." });
+    }
+
+    // Already approved — nothing to submit
+    if (partner.verificationStatus === "Approved") {
+      return res.status(400).json({ message: "Your verification is already approved." });
+    }
+
+    // Load session
+    const session = await VerificationSession.findOne({
+      partnerId: req.partnerId,
+      overallStatus: { $nin: ["Approved"] },
+    }).sort({ createdAt: -1 });
+
+    if (!session) {
+      return res.status(400).json({ message: "No active verification session found. Upload documents first." });
+    }
+
+    if (session.overallStatus === "Under Review") {
+      return res.status(400).json({ message: "Already submitted and under review." });
+    }
+
+    // Load relevant document types for this partner
+    const relevantDocTypes = await getRelevantDocumentTypes(partner.categories);
+    const requiredDocTypes  = relevantDocTypes.filter((dt) => dt.isRequired);
+
+    // Load all active uploads
+    const uploadMap = await getActiveUploads(req.partnerId);
+
+    // Validate all required slots are covered
+    const missing = [];
+
+    for (const docType of requiredDocTypes) {
+      if (docType.isMultiPage) {
+        const frontKey = `${docType._id.toString()}_front`;
+        const backKey  = `${docType._id.toString()}_back`;
+        if (!uploadMap.has(frontKey)) missing.push(`${docType.label} (Front)`);
+        if (!uploadMap.has(backKey))  missing.push(`${docType.label} (Back)`);
+      } else {
+        const singleKey = `${docType._id.toString()}_single`;
+        if (!uploadMap.has(singleKey)) missing.push(docType.label);
+      }
+    }
+
+    if (missing.length > 0) {
+      return res.status(400).json({
+        message: `Please upload all required documents before submitting: ${missing.join(", ")}.`,
+        missingDocuments: missing,
+      });
+    }
+
+    // ── Atomically flip all Pending document records to Under Review ──────
+    // This is the moment documents become locked — they were in "Pending"
+    // draft state until the partner explicitly pressed Submit.
+    await PartnerDocument.updateMany(
+      { partnerId: req.partnerId, status: "Pending" },
+      { $set: { status: "Under Review" } }
+    );
+
+    // Transition to Under Review
+    const previousStatus   = session.overallStatus;
+    session.overallStatus  = "Under Review";
+    session.submittedAt    = new Date();
+
+    // Snapshot required document IDs at submission time
+    session.requiredDocumentsSnapshot = requiredDocTypes.map((dt) => dt._id);
+
+    session.history.push({
+      status:        "Under Review",
+      changedBy:     "partner",
+      changedByRole: "partner",
+      changedByName: "Partner",
+      changedAt:     new Date(),
+      note: previousStatus === "Rejected"
+        ? "Partner re-submitted all documents for review."
+        : "Partner submitted documents for review.",
+    });
+
+    await session.save();
+
+    // Sync partner status
+    await syncPartnerVerificationStatus(req.partnerId, "Under Review");
+
+    return res.status(200).json({
+      message:       "Documents submitted for review. We'll notify you within 24–48 hours.",
+      sessionStatus: "Under Review",
+    });
+  } catch (error) {
+    console.error("submitVerification error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+// ─── DELETE A SINGLE PHOTO FROM A PENDING DOCUMENT SLOT ──────────────────────
+/**
+ * DELETE /api/partner/verification/documents/:documentTypeId/:side/photos/:photoIndex
+ * 🔒 Requires partner_token cookie
+ *
+ * Removes one photo (by 0-based index) from a "Pending" document slot.
+ * The slot must be in "Pending" status — locked "Under Review" slots cannot
+ * be modified.
+ *
+ * If the removed photo was the last one in the slot, the entire
+ * PartnerDocument record is deleted (restoring the slot to "missing").
+ *
+ * The photo is also deleted from Cloudinary to avoid orphaned assets.
+ */
+export const deleteDocumentPhoto = async (req, res) => {
+  try {
+    const { documentTypeId, side, photoIndex } = req.params;
+    const idx = parseInt(photoIndex, 10);
+
+    if (!["single", "front", "back"].includes(side)) {
+      return res.status(400).json({ message: "Invalid side parameter." });
+    }
+
+    if (isNaN(idx) || idx < 0) {
+      return res.status(400).json({ message: "photoIndex must be a non-negative integer." });
+    }
+
+    // Find the active Pending record for this slot
+    const doc = await PartnerDocument.findOne({
+      partnerId:      req.partnerId,
+      documentTypeId,
+      side,
+      status:         "Pending",
+    });
+
+    if (!doc) {
+      return res.status(404).json({
+        message: "No editable draft found for this document slot. Only Pending documents can be modified.",
+      });
+    }
+
+    if (idx >= doc.cloudinaryFiles.length) {
+      return res.status(400).json({
+        message: `photoIndex ${idx} is out of range. This slot has ${doc.cloudinaryFiles.length} photo(s).`,
+      });
+    }
+
+    const photoToRemove = doc.cloudinaryFiles[idx];
+
+    // ── Delete from Cloudinary ─────────────────────────────────────────────
+    if (photoToRemove?.publicId) {
+      try {
+        await cloudinary.uploader.destroy(photoToRemove.publicId);
+      } catch (cloudErr) {
+        // Log but don't fail the request — DB consistency is more important
+        console.error("Cloudinary delete failed for", photoToRemove.publicId, cloudErr);
+      }
+    }
+
+    if (doc.cloudinaryFiles.length === 1) {
+      // Last photo removed — delete the entire record (slot goes back to "missing")
+      await PartnerDocument.findByIdAndDelete(doc._id);
+
+      return res.status(200).json({
+        message:     "Photo removed. Document slot is now empty.",
+        slotDeleted: true,
+        documentTypeId,
+        side,
+      });
+    }
+
+    // Remove just this photo from the array
+    doc.cloudinaryFiles.splice(idx, 1);
+    doc.uploadedAt = new Date();
+    await doc.save();
+
+    // Rebuild the document object for cache patching on the frontend
+    const docType = await DocumentType.findById(documentTypeId).lean();
+    const responseDoc = buildDocumentObject(docType, doc.toObject(), side);
+
+    return res.status(200).json({
+      message:     "Photo removed successfully.",
+      slotDeleted: false,
+      document:    responseDoc,
+    });
+  } catch (error) {
+    if (error.name === "CastError") {
+      return res.status(400).json({ message: "Invalid documentTypeId." });
+    }
+    console.error("deleteDocumentPhoto error:", error);
     return res.status(500).json({ message: "Internal server error." });
   }
 };

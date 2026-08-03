@@ -50,6 +50,8 @@ export type CompleteProfilePayload = {
     latitude: number;
     longitude: number;
   };
+  /** Radius (km) around serviceLocation within which the partner is willing to work */
+  serviceRadius?: number;
 };
 
 export type CompleteProfileResponse = {

@@ -28,7 +28,7 @@ export type DocumentBadge = {
 
 // ─── Action ───────────────────────────────────────────────────────────────
 
-export type DocumentActionType = "upload" | "replace" | "view" | "none";
+export type DocumentActionType = "upload" | "add_more" | "replace" | "view" | "none";
 
 export type DocumentAction = {
   type: DocumentActionType;
@@ -77,7 +77,8 @@ export type VerificationDocument = {
   action: DocumentAction;
 
   // ── Upload data ───────────────────────────────────────────────────────
-  previewUrl: string | null;
+  previewUrl: string | null;         // first/primary photo URL (backwards compat)
+  previewUrls: string[];             // all uploaded photos for this document slot
   numberValue: string | null;    // pre-fill number input on re-upload
   uploadedAt: string | null;
   version: number | null;

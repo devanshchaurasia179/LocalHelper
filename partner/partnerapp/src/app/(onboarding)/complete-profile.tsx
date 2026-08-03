@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -17,15 +17,35 @@ import * as Location from "expo-location";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import type { MapPressEvent, Region } from "react-native-maps";
 import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import axios from "axios";
 
 import { useCompleteProfile } from "@/hooks/useCompleteProfile";
 import { useAuth } from "@/providers/AuthProvider";
 import { ROUTES } from "@/constants/routes";
 import { colors, spacing, radii, fonts } from "@/constants/theme";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type PlaceSuggestion = {
+  place_id: string;
+  description: string;
+  structured_formatting: { main_text: string; secondary_text: string };
+};
+
+type AddressComponent = {
+  long_name: string;
+  short_name: string;
+  types: string[];
+};
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STEPS = ["Personal Info", "Address", "Location"] as const;
+// EXPO_PUBLIC_ prefix makes this readable at JS runtime in both Expo Go and EAS builds.
+// MAPS_KEY (without prefix) is used by app.config.js only for native map tiles.
+const MAPS_KEY: string = process.env.EXPO_PUBLIC_MAPS_KEY ?? "";
+
+const STEPS = ["Personal Info", "Address", "Service Location"] as const;
 type Step = 0 | 1 | 2;
 
 const GENDERS = ["Male", "Female", "Other", "Prefer not to say"] as const;
@@ -39,25 +59,193 @@ const INDIAN_STATES = [
   "Delhi", "Jammu & Kashmir", "Ladakh", "Puducherry",
 ] as const;
 
+function getComponent(
+  components: AddressComponent[],
+  type: string,
+  form: "long_name" | "short_name" = "long_name"
+): string {
+  return components.find((c) => c.types.includes(type))?.[form] ?? "";
+}
+
+// ─── Places HTTP helpers ──────────────────────────────────────────────────────
+
+async function fetchSuggestions(
+  input: string,
+  sessionToken: string
+): Promise<PlaceSuggestion[]> {
+  const { data } = await axios.get(
+    "https://maps.googleapis.com/maps/api/place/autocomplete/json",
+    {
+      params: {
+        input,
+        key: MAPS_KEY,
+        language: "en",
+        components: "country:in",
+        sessiontoken: sessionToken,
+      },
+    }
+  );
+  if (__DEV__ && data.status !== "OK") {
+    console.warn("[Places Autocomplete]", data.status, data.error_message);
+  }
+  return data.status === "OK" ? data.predictions : [];
+}
+
+async function fetchPlaceDetails(
+  placeId: string,
+  sessionToken: string
+): Promise<{ components: AddressComponent[]; lat: number; lng: number } | null> {
+  const { data } = await axios.get(
+    "https://maps.googleapis.com/maps/api/place/details/json",
+    {
+      params: {
+        place_id: placeId,
+        fields: "address_components,geometry",
+        key: MAPS_KEY,
+        sessiontoken: sessionToken,
+      },
+    }
+  );
+  if (data.status !== "OK") return null;
+  const result = data.result;
+  return {
+    components: result.address_components ?? [],
+    lat: result.geometry?.location?.lat ?? 0,
+    lng: result.geometry?.location?.lng ?? 0,
+  };
+}
+
+/** Simple random session token */
+function newSessionToken() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+// ─── PlacesInput component ────────────────────────────────────────────────────
+// Reusable autocomplete backed by the Places Autocomplete HTTP API.
+// The suggestion list renders INLINE (not absolutely positioned) so it is
+// never clipped by a parent ScrollView.
+
+type PlacesInputProps = {
+  placeholder: string;
+  iconName: "search-outline" | "location-outline";
+  onSelect: (suggestion: PlaceSuggestion) => void;
+};
+
+function PlacesInput({ placeholder, iconName, onSelect }: PlacesInputProps) {
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [loading, setLoading] = useState(false);
+  const sessionToken = useRef(newSessionToken());
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleChange = useCallback((text: string) => {
+    setQuery(text);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    if (text.trim().length < 3) { setSuggestions([]); return; }
+    debounceTimer.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const results = await fetchSuggestions(text.trim(), sessionToken.current);
+        setSuggestions(results);
+      } catch (e) {
+        console.warn("[PlacesInput] fetch error", e);
+        setSuggestions([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 350);
+  }, []);
+
+  const handlePick = useCallback((item: PlaceSuggestion) => {
+    setQuery(item.description);
+    setSuggestions([]);
+    sessionToken.current = newSessionToken(); // rotate token after selection
+    onSelect(item);
+  }, [onSelect]);
+
+  const handleClear = useCallback(() => {
+    setQuery("");
+    setSuggestions([]);
+  }, []);
+
+  return (
+    // Outer View has no overflow:hidden so the inline list expands naturally
+    <View>
+      {/* Input row */}
+      <View style={acStyles.inputRow}>
+        <Ionicons name={iconName} size={16} color={colors.textSecondary} style={acStyles.icon} />
+        <TextInput
+          style={acStyles.input}
+          value={query}
+          onChangeText={handleChange}
+          placeholder={placeholder}
+          placeholderTextColor={colors.textSecondary}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
+          accessibilityLabel={placeholder}
+        />
+        {loading
+          ? <ActivityIndicator size="small" color={colors.primary} style={acStyles.endIcon} />
+          : query.length > 0
+          ? (
+            <Pressable onPress={handleClear} hitSlop={8} accessibilityLabel="Clear" style={acStyles.endIcon}>
+              <Ionicons name="close-circle" size={16} color={colors.textSecondary} />
+            </Pressable>
+          )
+          : null}
+      </View>
+
+      {/* Inline suggestion list — renders below the input, pushes content down */}
+      {suggestions.length > 0 && (
+        <View style={acStyles.suggestionList}>
+          {suggestions.map((item, index) => (
+            <View key={item.place_id}>
+              {index > 0 && <View style={acStyles.separator} />}
+              <Pressable
+                style={({ pressed }) => [acStyles.suggestionRow, pressed && acStyles.rowPressed]}
+                onPress={() => handlePick(item)}
+                accessibilityRole="button"
+              >
+                <Ionicons name="location-outline" size={14} color={colors.primary} style={{ marginTop: 2, flexShrink: 0 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={acStyles.mainText} numberOfLines={1}>
+                    {item.structured_formatting.main_text}
+                  </Text>
+                  <Text style={acStyles.subText} numberOfLines={1}>
+                    {item.structured_formatting.secondary_text}
+                  </Text>
+                </View>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 // ─── Step Indicator ───────────────────────────────────────────────────────────
+
+const CIRCLE_SIZE = 32;
 
 function StepIndicator({ current }: { current: Step }) {
   return (
-    <View style={stepStyles.row} accessibilityRole="progressbar">
+    <View style={stepStyles.wrapper} accessibilityRole="progressbar">
       {STEPS.map((label, i) => {
         const done = i < current;
         const active = i === current;
         return (
           <View key={label} style={stepStyles.item}>
             {i > 0 && (
-              <View style={[stepStyles.line, done && stepStyles.lineDone]} />
+              <View style={stepStyles.lineTrack}>
+                <View style={[stepStyles.lineFill, done && stepStyles.lineFillDone]} />
+              </View>
             )}
             <View style={[stepStyles.dot, active && stepStyles.dotActive, done && stepStyles.dotDone]}>
-              {done ? (
-                <Text style={stepStyles.check}>✓</Text>
-              ) : (
-                <Text style={[stepStyles.dotLabel, active && stepStyles.dotLabelActive]}>{i + 1}</Text>
-              )}
+              {done
+                ? <Ionicons name="checkmark" size={14} color={colors.white} />
+                : <Text style={[stepStyles.dotLabel, active && stepStyles.dotLabelActive]}>{i + 1}</Text>}
             </View>
             <Text style={[stepStyles.stepText, active && stepStyles.stepTextActive]}>{label}</Text>
           </View>
@@ -86,13 +274,13 @@ export default function CompleteProfileScreen() {
 
   const [step, setStep] = useState<Step>(0);
 
-  // Step 0: Personal Info
+  // Step 0 — Personal Info
   const [fullName, setFullName] = useState("");
   const [gender, setGender] = useState<string | null>(null);
   const [dateOfBirth, setDateOfBirth] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
-  // Step 1: Address
+  // Step 1 — Address
   const [house, setHouse] = useState("");
   const [street, setStreet] = useState("");
   const [locality, setLocality] = useState("");
@@ -100,14 +288,14 @@ export default function CompleteProfileScreen() {
   const [state, setState] = useState("");
   const [pincode, setPincode] = useState("");
   const [showStateList, setShowStateList] = useState(false);
+  const [addressFilled, setAddressFilled] = useState(false);
 
-  // Step 2: Location
+  // Step 2 — Service Location
   const [locationCoords, setLocationCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationStatus, setLocationStatus] = useState<"idle" | "granted" | "denied">("idle");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchLoading, setSearchLoading] = useState(false);
   const [locationAddress, setLocationAddress] = useState<string | null>(null);
+  const [serviceRadius, setServiceRadius] = useState(10); // km
   const [mapRegion, setMapRegion] = useState<Region>({
     latitude: 20.5937,
     longitude: 78.9629,
@@ -121,11 +309,53 @@ export default function CompleteProfileScreen() {
 
   const handleNext = () => { clearError(); if (step < 2) setStep((s) => (s + 1) as Step); };
   const handleBack = () => { clearError(); if (step > 0) setStep((s) => (s - 1) as Step); };
-
-  // Format date as readable string
   const formatDate = (d: Date) =>
     d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 
+  // ── Address suggestion picked → fetch details & auto-fill ───────────────
+  const handleAddressSelect = useCallback(async (suggestion: PlaceSuggestion) => {
+    try {
+      const details = await fetchPlaceDetails(suggestion.place_id, newSessionToken());
+      if (!details) return;
+      const c = details.components;
+
+      const streetNumber = getComponent(c, "street_number");
+      const routeName    = getComponent(c, "route");
+      const sublocality  = getComponent(c, "sublocality_level_1") || getComponent(c, "sublocality");
+      const cityName     = getComponent(c, "locality") || getComponent(c, "administrative_area_level_2");
+      const stateName    = getComponent(c, "administrative_area_level_1");
+      const postal       = getComponent(c, "postal_code");
+
+      setStreet([streetNumber, routeName].filter(Boolean).join(" "));
+      setLocality(sublocality);
+      setCity(cityName);
+      setState(
+        INDIAN_STATES.find((s) => s.toLowerCase() === stateName.toLowerCase()) ?? stateName
+      );
+      setPincode(postal);
+      setAddressFilled(true);
+      clearError();
+    } catch {
+      Alert.alert("Error", "Could not fetch address details. Please fill in manually.");
+    }
+  }, [clearError]);
+
+  // ── Location suggestion picked ────────────────────────────────────────────
+  const handleLocationSelect = useCallback(async (suggestion: PlaceSuggestion) => {
+    try {
+      const details = await fetchPlaceDetails(suggestion.place_id, newSessionToken());
+      if (!details) return;
+      const coords = { latitude: details.lat, longitude: details.lng };
+      setLocationCoords(coords);
+      setLocationStatus("granted");
+      setMapRegion({ ...coords, latitudeDelta: 0.01, longitudeDelta: 0.01 });
+      setLocationAddress(suggestion.description);
+    } catch {
+      Alert.alert("Error", "Could not fetch location details.");
+    }
+  }, []);
+
+  // ── GPS auto-detect ───────────────────────────────────────────────────────
   const handleRequestLocation = useCallback(async () => {
     setLocationLoading(true);
     try {
@@ -135,20 +365,13 @@ export default function CompleteProfileScreen() {
       const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
       setLocationCoords(coords);
       setLocationStatus("granted");
-      setMapRegion({
-        latitude: coords.latitude,
-        longitude: coords.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      });
-      // Reverse geocode to get address
+      setMapRegion({ ...coords, latitudeDelta: 0.01, longitudeDelta: 0.01 });
       try {
         const [addr] = await Location.reverseGeocodeAsync(coords);
         if (addr) {
-          const parts = [addr.name, addr.street, addr.city, addr.region].filter(Boolean);
-          setLocationAddress(parts.join(", "));
+          setLocationAddress([addr.name, addr.street, addr.city, addr.region].filter(Boolean).join(", "));
         }
-      } catch { /* ignore reverse geocode errors */ }
+      } catch { /* ignore */ }
     } catch {
       Alert.alert("Location Error", "Could not fetch your location.");
     } finally {
@@ -156,44 +379,7 @@ export default function CompleteProfileScreen() {
     }
   }, []);
 
-  const handleSearchLocation = useCallback(async () => {
-    if (!searchQuery.trim()) return;
-    setSearchLoading(true);
-    try {
-      const results = await Location.geocodeAsync(searchQuery.trim());
-      if (results.length > 0) {
-        const { latitude, longitude } = results[0];
-        const coords = { latitude, longitude };
-        setLocationCoords(coords);
-        setLocationStatus("granted");
-        setMapRegion({
-          latitude,
-          longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        });
-        // Reverse geocode for display name
-        try {
-          const [addr] = await Location.reverseGeocodeAsync(coords);
-          if (addr) {
-            const parts = [addr.name, addr.street, addr.city, addr.region].filter(Boolean);
-            setLocationAddress(parts.join(", "));
-          } else {
-            setLocationAddress(searchQuery.trim());
-          }
-        } catch {
-          setLocationAddress(searchQuery.trim());
-        }
-      } else {
-        Alert.alert("Not Found", "Could not find that location. Try a different search.");
-      }
-    } catch {
-      Alert.alert("Search Error", "Failed to search location. Check your connection.");
-    } finally {
-      setSearchLoading(false);
-    }
-  }, [searchQuery]);
-
+  // ── Map tap ───────────────────────────────────────────────────────────────
   const handleMapPress = useCallback(async (e: MapPressEvent) => {
     const { latitude, longitude } = e.nativeEvent.coordinate;
     const coords = { latitude, longitude };
@@ -202,12 +388,12 @@ export default function CompleteProfileScreen() {
     try {
       const [addr] = await Location.reverseGeocodeAsync(coords);
       if (addr) {
-        const parts = [addr.name, addr.street, addr.city, addr.region].filter(Boolean);
-        setLocationAddress(parts.join(", "));
+        setLocationAddress([addr.name, addr.street, addr.city, addr.region].filter(Boolean).join(", "));
       }
     } catch { /* ignore */ }
   }, []);
 
+  // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = useCallback(async () => {
     if (!dateOfBirth) return;
     const success = await complete({
@@ -223,18 +409,20 @@ export default function CompleteProfileScreen() {
         pincode: pincode.trim(),
       },
       location: locationCoords ?? undefined,
+      serviceRadius,
     });
     if (success) {
       patchPartner({ isProfile: true });
       router.replace(ROUTES.ONBOARDING.SERVICE as any);
     }
-  }, [complete, fullName, gender, dateOfBirth, house, street, locality, city, state, pincode, locationCoords, patchPartner]);
+  }, [complete, fullName, gender, dateOfBirth, house, street, locality, city, state, pincode, locationCoords, serviceRadius, patchPartner]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.safe} edges={["bottom"]}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-        {/* ── Hero band ─────────────────────────────────────────────── */}
+
+        {/* Hero band */}
         <View style={styles.hero}>
           <View style={styles.triTopRight} pointerEvents="none" />
           <View style={styles.triTopRightInner} pointerEvents="none" />
@@ -244,15 +432,24 @@ export default function CompleteProfileScreen() {
           <View style={styles.triBottomRight} pointerEvents="none" />
           <Text style={styles.appName}>LocalHelpers Partner</Text>
           <Text style={styles.heroTitle}>Set up your{"\n"}profile</Text>
-          <Text style={styles.heroSub}>Step 1 of 3 — Tell us about yourself</Text>
+          <Text style={styles.heroSub}>
+            {step === 0 && "Step 1 of 3 — Tell us about yourself"}
+            {step === 1 && "Step 2 of 3 — Where do you live?"}
+            {step === 2 && "Step 3 of 3 — Where do you want to work?"}
+          </Text>
         </View>
 
-        {/* ── White content card ─────────────────────────────────────── */}
+        {/* White card */}
         <View style={styles.card}>
           <View style={styles.handle} />
           <StepIndicator current={step} />
 
-          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scroll}
+            nestedScrollEnabled
+          >
 
             {/* ── Step 0: Personal Info ──────────────────────────── */}
             {step === 0 && (
@@ -287,15 +484,15 @@ export default function CompleteProfileScreen() {
 
                 <FieldLabel label="Date of birth" required />
                 <Pressable
-                  style={[styles.input, styles.dropdown]}
+                  style={[styles.input, styles.row]}
                   onPress={() => setShowDatePicker(true)}
                   accessibilityRole="button"
                   accessibilityLabel="Pick date of birth"
                 >
-                  <Text style={{ fontFamily: fonts.jostRegular, fontSize: 15, color: dateOfBirth ? colors.textPrimary : colors.textSecondary }}>
+                  <Text style={[styles.inputText, !dateOfBirth && styles.placeholder]}>
                     {dateOfBirth ? formatDate(dateOfBirth) : "DD Mon YYYY"}
                   </Text>
-                  <Text style={{ color: colors.textSecondary }}>📅</Text>
+                  <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
                 </Pressable>
                 {showDatePicker && (
                   <DateTimePicker
@@ -316,32 +513,100 @@ export default function CompleteProfileScreen() {
             {/* ── Step 1: Address ────────────────────────────────────── */}
             {step === 1 && (
               <View style={styles.section}>
+
+                {/* Places search → auto-fills fields below */}
+                <FieldLabel label="Search your address" required />
+                <Text style={styles.fieldHint}>
+                  Type a street, area or landmark to auto-fill the form
+                </Text>
+                <PlacesInput
+                  placeholder="e.g. MG Road, Koramangala…"
+                  iconName="search-outline"
+                  onSelect={handleAddressSelect}
+                />
+
+                {/* Auto-filled badge */}
+                {addressFilled && (
+                  <View style={styles.autoFilledBadge}>
+                    <Ionicons name="checkmark-circle" size={14} color={colors.successDark} />
+                    <Text style={styles.autoFilledText}>
+                      Address auto-filled — edit below if needed
+                    </Text>
+                  </View>
+                )}
+
+                {/* Editable fields — always visible so user can override */}
                 <FieldLabel label="Flat / House no." />
-                <TextInput style={styles.input} placeholder="e.g. 12A" placeholderTextColor={colors.textSecondary} value={house} onChangeText={setHouse} returnKeyType="next" accessibilityLabel="House number" />
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. 12A"
+                  placeholderTextColor={colors.textSecondary}
+                  value={house}
+                  onChangeText={setHouse}
+                  returnKeyType="next"
+                  accessibilityLabel="House number"
+                />
 
                 <FieldLabel label="Street / Road" />
-                <TextInput style={styles.input} placeholder="e.g. MG Road" placeholderTextColor={colors.textSecondary} value={street} onChangeText={setStreet} returnKeyType="next" accessibilityLabel="Street" />
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. MG Road"
+                  placeholderTextColor={colors.textSecondary}
+                  value={street}
+                  onChangeText={setStreet}
+                  returnKeyType="next"
+                  accessibilityLabel="Street"
+                />
 
                 <FieldLabel label="Locality / Area" />
-                <TextInput style={styles.input} placeholder="e.g. Koramangala" placeholderTextColor={colors.textSecondary} value={locality} onChangeText={setLocality} returnKeyType="next" accessibilityLabel="Locality" />
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. Koramangala"
+                  placeholderTextColor={colors.textSecondary}
+                  value={locality}
+                  onChangeText={setLocality}
+                  returnKeyType="next"
+                  accessibilityLabel="Locality"
+                />
 
                 <FieldLabel label="City" required />
-                <TextInput style={styles.input} placeholder="e.g. Bangalore" placeholderTextColor={colors.textSecondary} value={city} onChangeText={(t) => { clearError(); setCity(t); }} returnKeyType="next" accessibilityLabel="City" />
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. Bangalore"
+                  placeholderTextColor={colors.textSecondary}
+                  value={city}
+                  onChangeText={(t) => { clearError(); setCity(t); }}
+                  returnKeyType="next"
+                  accessibilityLabel="City"
+                />
 
                 <FieldLabel label="State" required />
-                <Pressable style={[styles.input, styles.dropdown]} onPress={() => setShowStateList((v) => !v)} accessibilityRole="combobox" accessibilityLabel="Select state">
-                  <Text style={{ fontFamily: fonts.jostRegular, fontSize: 15, color: state ? colors.textPrimary : colors.textSecondary }}>
+                <Pressable
+                  style={[styles.input, styles.row]}
+                  onPress={() => setShowStateList((v) => !v)}
+                  accessibilityRole="combobox"
+                  accessibilityLabel="Select state"
+                >
+                  <Text style={[styles.inputText, !state && styles.placeholder]}>
                     {state || "Select state"}
                   </Text>
-                  <Text style={{ color: colors.textSecondary }}>{showStateList ? "▲" : "▼"}</Text>
+                  <Ionicons name={showStateList ? "chevron-up" : "chevron-down"} size={16} color={colors.textSecondary} />
                 </Pressable>
 
                 {showStateList && (
                   <View style={styles.stateList}>
                     <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
                       {INDIAN_STATES.map((s) => (
-                        <Pressable key={s} style={[styles.stateItem, state === s && styles.stateItemSelected]} onPress={() => { setState(s); setShowStateList(false); clearError(); }} accessibilityRole="menuitem" accessibilityState={{ selected: state === s }}>
-                          <Text style={{ fontFamily: fonts.jostRegular, fontSize: 14, color: state === s ? colors.primary : colors.textPrimary }}>{s}</Text>
+                        <Pressable
+                          key={s}
+                          style={[styles.stateItem, state === s && styles.stateItemSelected]}
+                          onPress={() => { setState(s); setShowStateList(false); clearError(); }}
+                          accessibilityRole="menuitem"
+                          accessibilityState={{ selected: state === s }}
+                        >
+                          <Text style={{ fontFamily: fonts.jostRegular, fontSize: 14, color: state === s ? colors.primary : colors.textPrimary }}>
+                            {s}
+                          </Text>
                         </Pressable>
                       ))}
                     </ScrollView>
@@ -366,34 +631,20 @@ export default function CompleteProfileScreen() {
               </View>
             )}
 
-            {/* ── Step 2: Location ───────────────────────────────────── */}
+            {/* ── Step 2: Service Location ───────────────────────────────────── */}
             {step === 2 && (
               <View style={styles.section}>
-                {/* Search bar */}
-                <FieldLabel label="Search location" />
-                <View style={styles.searchRow}>
-                  <TextInput
-                    style={[styles.input, styles.searchInput]}
-                    placeholder="e.g. Koramangala, Bangalore"
-                    placeholderTextColor={colors.textSecondary}
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                    returnKeyType="search"
-                    onSubmitEditing={handleSearchLocation}
-                    accessibilityLabel="Search location"
-                  />
-                  <Pressable
-                    style={({ pressed }) => [styles.searchBtn, pressed && { opacity: 0.8 }]}
-                    onPress={handleSearchLocation}
-                    disabled={searchLoading || !searchQuery.trim()}
-                    accessibilityRole="button"
-                    accessibilityLabel="Search"
-                  >
-                    {searchLoading
-                      ? <ActivityIndicator color={colors.white} size="small" />
-                      : <Text style={styles.searchBtnText}>🔍</Text>}
-                  </Pressable>
-                </View>
+
+                {/* Places search for service location pin */}
+                <FieldLabel label="Where do you want to work?" />
+                <Text style={styles.fieldHint}>
+                  Search your primary work area or tap the map to pin it
+                </Text>
+                <PlacesInput
+                  placeholder="e.g. Koramangala, Bangalore"
+                  iconName="location-outline"
+                  onSelect={handleLocationSelect}
+                />
 
                 {/* Map */}
                 <View style={styles.mapContainer}>
@@ -407,14 +658,11 @@ export default function CompleteProfileScreen() {
                     toolbarEnabled={false}
                   >
                     {locationCoords && (
-                      <Marker
-                        coordinate={locationCoords}
-                        pinColor="#208AEF"
-                      />
+                      <Marker coordinate={locationCoords} pinColor={colors.primary} />
                     )}
                   </MapView>
 
-                  {/* Auto-detect button floating on map */}
+                  {/* Floating auto-detect button */}
                   <Pressable
                     style={({ pressed }) => [styles.autoDetectBtn, pressed && { opacity: 0.85 }]}
                     onPress={handleRequestLocation}
@@ -424,14 +672,22 @@ export default function CompleteProfileScreen() {
                   >
                     {locationLoading
                       ? <ActivityIndicator color={colors.primary} size="small" />
-                      : <Text style={styles.autoDetectText}>📍 Auto-detect</Text>}
+                      : (
+                        <>
+                          <Ionicons name="locate" size={15} color={colors.primary} />
+                          <Text style={styles.autoDetectText}>Auto-detect</Text>
+                        </>
+                      )}
                   </Pressable>
                 </View>
 
-                {/* Location info card */}
+                {/* Location confirmed card */}
                 {locationStatus === "granted" && locationCoords && (
                   <View style={styles.locationInfoCard}>
-                    <Text style={styles.locationInfoTitle}>📍 Location set</Text>
+                    <View style={styles.locationInfoHeader}>
+                      <Ionicons name="location" size={16} color={colors.successDark} />
+                      <Text style={styles.locationInfoTitle}>Location set</Text>
+                    </View>
                     {locationAddress && (
                       <Text style={styles.locationInfoAddr}>{locationAddress}</Text>
                     )}
@@ -443,16 +699,80 @@ export default function CompleteProfileScreen() {
 
                 {locationStatus === "denied" && (
                   <View style={styles.deniedCard}>
-                    <Text style={styles.deniedText}>
-                      Permission denied. Use the search above or tap the map to select your location.
-                    </Text>
+                    <View style={styles.deniedRow}>
+                      <Ionicons name="warning-outline" size={16} color={colors.errorDark} />
+                      <Text style={styles.deniedText}>
+                        Permission denied. Search above or tap the map to set your work location.
+                      </Text>
+                    </View>
                   </View>
                 )}
 
+                {/* ── Service Radius Slider ─────────────────────────────────── */}
+                <View style={styles.radiusCard}>
+                  <View style={styles.radiusHeader}>
+                    <View style={styles.radiusHeaderLeft}>
+                      <Ionicons name="radio-outline" size={16} color={colors.primary} />
+                      <Text style={styles.radiusTitle}>Working radius</Text>
+                    </View>
+                    <View style={styles.radiusBadge}>
+                      <Text style={styles.radiusBadgeText}>{serviceRadius} km</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.radiusHint}>
+                    You'll receive job requests within this distance from your pinned location
+                  </Text>
+
+                  {/* Manual step buttons — no native Slider dependency needed */}
+                  <View style={styles.radiusRow}>
+                    <Pressable
+                      style={[styles.radiusStepBtn, serviceRadius <= 5 && styles.radiusStepBtnDisabled]}
+                      onPress={() => setServiceRadius((r) => Math.max(5, r - 5))}
+                      disabled={serviceRadius <= 5}
+                      accessibilityLabel="Decrease radius"
+                      hitSlop={6}
+                    >
+                      <Ionicons name="remove" size={18} color={serviceRadius <= 5 ? colors.textSecondary : colors.primary} />
+                    </Pressable>
+
+                    {/* Visual track */}
+                    <View style={styles.radiusTrack}>
+                      <View style={[styles.radiusFill, { flex: (serviceRadius - 5) / 45 }]} />
+                      <View style={{ flex: (50 - serviceRadius) / 45 }} />
+                    </View>
+
+                    <Pressable
+                      style={[styles.radiusStepBtn, serviceRadius >= 50 && styles.radiusStepBtnDisabled]}
+                      onPress={() => setServiceRadius((r) => Math.min(50, r + 5))}
+                      disabled={serviceRadius >= 50}
+                      accessibilityLabel="Increase radius"
+                      hitSlop={6}
+                    >
+                      <Ionicons name="add" size={18} color={serviceRadius >= 50 ? colors.textSecondary : colors.primary} />
+                    </Pressable>
+                  </View>
+
+                  {/* Preset chips */}
+                  <View style={styles.radiusPresets}>
+                    {[5, 10, 15, 20, 30, 50].map((preset) => (
+                      <Pressable
+                        key={preset}
+                        style={[styles.radiusPresetChip, serviceRadius === preset && styles.radiusPresetChipActive]}
+                        onPress={() => setServiceRadius(preset)}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: serviceRadius === preset }}
+                        accessibilityLabel={`${preset} km`}
+                      >
+                        <Text style={[styles.radiusPresetText, serviceRadius === preset && styles.radiusPresetTextActive]}>
+                          {preset} km
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+
                 <Text style={styles.skipNote}>
-                  {locationStatus === "granted"
-                    ? "You can drag the marker to adjust. Tap "
-                    : "Location is optional — tap "}
+                  {locationStatus === "granted" ? "Tap the map to adjust your work location. Tap " : "Location is optional — tap "}
                   <Text style={{ fontFamily: fonts.jostSemiBold, color: colors.primary }}>
                     {locationStatus === "granted" ? "Save profile" : "Skip & save"}
                   </Text>
@@ -461,29 +781,43 @@ export default function CompleteProfileScreen() {
               </View>
             )}
 
-            {/* ── Error banner ────────────────────────────────────────── */}
+            {/* Error banner */}
             {error ? (
               <View style={styles.errorBanner}>
+                <Ionicons name="alert-circle-outline" size={16} color="#991B1B" style={{ marginRight: 6 }} />
                 <Text style={styles.errorBannerText}>{error}</Text>
               </View>
             ) : null}
 
-            {/* ── Navigation buttons ──────────────────────────────────── */}
+            {/* Nav buttons */}
             <View style={styles.navRow}>
               {step > 0 && (
-                <Pressable style={styles.secondaryBtn} onPress={handleBack} disabled={loading} accessibilityRole="button" accessibilityLabel="Back">
-                  <Text style={styles.secondaryBtnText}>← Back</Text>
+                <Pressable
+                  style={styles.secondaryBtn}
+                  onPress={handleBack}
+                  disabled={loading}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back"
+                >
+                  <Ionicons name="arrow-back" size={16} color={colors.textSecondary} style={{ marginRight: 4 }} />
+                  <Text style={styles.secondaryBtnText}>Back</Text>
                 </Pressable>
               )}
 
               {step < 2 ? (
                 <Pressable
-                  style={[styles.primaryBtn, ((step === 0 && !step0Valid) || (step === 1 && !step1Valid)) && styles.primaryBtnDisabled, step === 0 && { flex: 1 }]}
+                  style={[
+                    styles.primaryBtn,
+                    ((step === 0 && !step0Valid) || (step === 1 && !step1Valid)) && styles.primaryBtnDisabled,
+                    step === 0 && { flex: 1 },
+                  ]}
                   onPress={handleNext}
                   disabled={(step === 0 && !step0Valid) || (step === 1 && !step1Valid)}
-                  accessibilityRole="button" accessibilityLabel="Continue"
+                  accessibilityRole="button"
+                  accessibilityLabel="Continue"
                 >
-                  <Text style={styles.primaryBtnText}>Continue →</Text>
+                  <Text style={styles.primaryBtnText}>Continue</Text>
+                  <Ionicons name="arrow-forward" size={16} color={colors.white} style={{ marginLeft: 4 }} />
                 </Pressable>
               ) : (
                 <Pressable
@@ -493,12 +827,25 @@ export default function CompleteProfileScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={locationStatus === "granted" ? "Save profile" : "Skip & save"}
                 >
-                  {loading
-                    ? <ActivityIndicator color={colors.white} />
-                    : <Text style={styles.primaryBtnText}>{locationStatus === "granted" ? "Save profile" : "Skip & save"}</Text>}
+                  {loading ? (
+                    <ActivityIndicator color={colors.white} />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name={locationStatus === "granted" ? "checkmark-circle-outline" : "play-skip-forward-outline"}
+                        size={16}
+                        color={colors.white}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.primaryBtnText}>
+                        {locationStatus === "granted" ? "Save profile" : "Skip & save"}
+                      </Text>
+                    </>
+                  )}
                 </Pressable>
               )}
             </View>
+
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
@@ -508,18 +855,88 @@ export default function CompleteProfileScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
+const acStyles = StyleSheet.create({
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: radii.sm,
+    borderWidth: 1.5,
+    borderColor: colors.navInactive + "66",
+    paddingHorizontal: spacing.md,
+    height: 46,
+  },
+  icon: { marginRight: spacing.xs },
+  input: {
+    flex: 1,
+    fontFamily: fonts.jostRegular,
+    fontSize: 15,
+    color: colors.textPrimary,
+    paddingVertical: 0,
+  },
+  endIcon: { marginLeft: spacing.xs },
+  // Inline list — no absolute positioning, expands inside ScrollView naturally
+  suggestionList: {
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: colors.navInactive + "55",
+    borderBottomLeftRadius: radii.sm,
+    borderBottomRightRadius: radii.sm,
+    overflow: "hidden",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+  },
+  suggestionRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+  },
+  rowPressed: { backgroundColor: colors.surface },
+  mainText: { fontFamily: fonts.jostMedium, fontSize: 13, color: colors.textPrimary },
+  subText: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary, marginTop: 1 },
+  separator: { height: 1, backgroundColor: colors.navInactive + "33", marginHorizontal: spacing.md },
+});
+
 const stepStyles = StyleSheet.create({
-  row: { flexDirection: "row", justifyContent: "center", alignItems: "flex-start", gap: spacing.xs, marginBottom: spacing.md, paddingHorizontal: spacing.sm },
-  item: { alignItems: "center", gap: spacing.xs, flex: 1 },
-  line: { position: "absolute", top: 16, left: "-50%", right: "50%", height: 2, backgroundColor: colors.navInactive },
-  lineDone: { backgroundColor: colors.success },
-  dot: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.navInactive },
+  wrapper: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  item: { flex: 1, alignItems: "center", position: "relative" },
+  lineTrack: {
+    position: "absolute",
+    top: CIRCLE_SIZE / 2 - 1,
+    left: -35,
+    right: "50%",
+    height: 2,
+    overflow: "hidden",
+  },
+  lineFill: { flex: 1, backgroundColor: colors.navInactive + "99" },
+  lineFillDone: { backgroundColor: colors.success },
+  dot: {
+    width: CIRCLE_SIZE,
+    height: CIRCLE_SIZE,
+    borderRadius: CIRCLE_SIZE / 2,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.navInactive,
+    zIndex: 1,
+  },
   dotActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   dotDone: { backgroundColor: colors.success, borderColor: colors.success },
   dotLabel: { fontFamily: fonts.oswaldSemiBold, fontSize: 13, color: colors.navInactive },
   dotLabelActive: { color: colors.white },
-  check: { fontFamily: fonts.jakartaBold, color: colors.white, fontSize: 14 },
-  stepText: { fontFamily: fonts.jostRegular, fontSize: 10, color: colors.textSecondary, textAlign: "center" },
+  stepText: { fontFamily: fonts.jostRegular, fontSize: 10, color: colors.textSecondary, textAlign: "center", marginTop: spacing.xs },
   stepTextActive: { fontFamily: fonts.jostSemiBold, color: colors.primary },
 });
 
@@ -531,7 +948,16 @@ const fieldStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.primary },
   flex: { flex: 1 },
-  hero: { flex: 1, backgroundColor: colors.primary, paddingTop: 64, paddingHorizontal: spacing.lg, paddingBottom: spacing.xl + 16, overflow: "hidden", justifyContent: "flex-end" },
+
+  hero: {
+    flex: 1,
+    backgroundColor: colors.primary,
+    paddingTop: 64,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xl + 16,
+    overflow: "hidden",
+    justifyContent: "flex-end",
+  },
   appName: { fontFamily: fonts.jostSemiBold, fontSize: 13, color: "rgba(255,255,255,0.7)", letterSpacing: 2, textTransform: "uppercase", marginBottom: spacing.sm },
   heroTitle: { fontFamily: fonts.oswaldBold, fontSize: 30, color: colors.white, lineHeight: 38, letterSpacing: 0.3 },
   heroSub: { fontFamily: fonts.jostRegular, fontSize: 14, color: "rgba(255,255,255,0.65)", marginTop: spacing.xs, lineHeight: 20 },
@@ -543,14 +969,56 @@ const styles = StyleSheet.create({
   triMidLeft: { position: "absolute", top: "30%", left: 20, width: 0, height: 0, borderStyle: "solid", borderRightWidth: 36, borderTopWidth: 36, borderRightColor: "transparent", borderTopColor: "rgba(255,255,255,0.05)", transform: [{ rotate: "-15deg" }] },
   triBottomRight: { position: "absolute", bottom: -30, right: -30, width: 0, height: 0, borderStyle: "solid", borderLeftWidth: 130, borderTopWidth: 130, borderLeftColor: "transparent", borderTopColor: "rgba(255,255,255,0.06)", transform: [{ rotate: "-5deg" }] },
 
-  card: { backgroundColor: colors.white, borderTopLeftRadius: radii.lg + 8, borderTopRightRadius: radii.lg + 8, paddingHorizontal: spacing.lg, paddingTop: spacing.sm, marginTop: -28, flex: 2, shadowColor: colors.primary, shadowOffset: { width: 0, height: -10 }, shadowOpacity: 0.45, shadowRadius: 18, elevation: 24 },
+  card: {
+    backgroundColor: colors.white,
+    borderTopLeftRadius: radii.lg + 8,
+    borderTopRightRadius: radii.lg + 8,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    marginTop: -28,
+    flex: 2,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.45,
+    shadowRadius: 18,
+    elevation: 24,
+  },
   handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: "#D1D5DB", alignSelf: "center", marginBottom: spacing.md },
   scroll: { paddingBottom: spacing.xl },
   section: { gap: spacing.sm },
 
-  input: { fontFamily: fonts.jostRegular, fontSize: 15, color: colors.textPrimary, backgroundColor: colors.surface, borderRadius: radii.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.md - 2, borderWidth: 1.5, borderColor: colors.navInactive + "66" },
+  // Base input / shared row
+  input: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 15,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md - 2,
+    borderWidth: 1.5,
+    borderColor: colors.navInactive + "66",
+  },
   inputError: { borderColor: "#EF4444" },
-  dropdown: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  inputText: { fontFamily: fonts.jostRegular, fontSize: 15, color: colors.textPrimary, flex: 1 },
+  placeholder: { color: colors.textSecondary },
+  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+
+  fieldHint: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: -spacing.xs, lineHeight: 16 },
+  fieldError: { fontFamily: fonts.jostRegular, color: "#EF4444", fontSize: 12, marginTop: -spacing.xs },
+
+  autoFilledBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.successLight,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderWidth: 1,
+    borderColor: colors.success + "44",
+  },
+  autoFilledText: { fontFamily: fonts.jostMedium, fontSize: 12, color: colors.successDark, flex: 1 },
 
   stateList: { backgroundColor: colors.surface, borderRadius: radii.sm, borderWidth: 1.5, borderColor: colors.navInactive + "44", overflow: "hidden", marginTop: -spacing.sm },
   stateItem: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2 },
@@ -561,35 +1029,103 @@ const styles = StyleSheet.create({
   chipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { fontFamily: fonts.jostMedium, fontSize: 13, color: colors.textSecondary },
   chipTextSelected: { color: colors.white },
-  fieldError: { fontFamily: fonts.jostRegular, color: "#EF4444", fontSize: 12, marginTop: -spacing.xs },
-
-  searchRow: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
-  searchInput: { flex: 1 },
-  searchBtn: { backgroundColor: colors.primary, borderRadius: radii.sm, width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  searchBtnText: { fontSize: 18 },
 
   mapContainer: { height: 220, borderRadius: radii.md, overflow: "hidden", borderWidth: 1.5, borderColor: colors.navInactive + "44", position: "relative" },
   map: { flex: 1 },
-  autoDetectBtn: { position: "absolute", bottom: 12, right: 12, backgroundColor: colors.white, borderRadius: radii.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: "row", alignItems: "center", gap: spacing.xs, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 4, elevation: 4, borderWidth: 1, borderColor: colors.primary + "33" },
+  autoDetectBtn: {
+    position: "absolute",
+    bottom: 12,
+    right: 12,
+    backgroundColor: colors.white,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: colors.primary + "33",
+  },
   autoDetectText: { fontFamily: fonts.jostSemiBold, fontSize: 13, color: colors.primary },
 
   locationInfoCard: { borderRadius: radii.md, padding: spacing.md, gap: 4, borderWidth: 1.5, borderColor: colors.success + "44", backgroundColor: colors.successLight },
+  locationInfoHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
   locationInfoTitle: { fontFamily: fonts.jakartaSemiBold, fontSize: 14, color: colors.successDark },
   locationInfoAddr: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textPrimary, lineHeight: 18 },
   locationInfoCoords: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary },
 
   deniedCard: { borderRadius: radii.md, padding: spacing.md, borderWidth: 1.5, borderColor: colors.error + "33", backgroundColor: colors.errorLight },
-  deniedText: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.errorDark, lineHeight: 18 },
+  deniedRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  deniedText: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.errorDark, lineHeight: 18, flex: 1 },
 
   skipNote: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, lineHeight: 18, textAlign: "center", marginTop: spacing.sm },
 
-  errorBanner: { backgroundColor: "#FEE2E2", borderRadius: radii.sm, padding: spacing.md, marginTop: spacing.sm },
-  errorBannerText: { fontFamily: fonts.jostMedium, color: "#991B1B", fontSize: 13 },
+  // ── Service radius ─────────────────────────────────────────────────────────
+  radiusCard: {
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    borderColor: colors.primary + "33",
+    backgroundColor: colors.primary + "08",
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  radiusHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  radiusHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 6 },
+  radiusTitle: { fontFamily: fonts.jostSemiBold, fontSize: 14, color: colors.textPrimary },
+  radiusBadge: {
+    backgroundColor: colors.primary,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 3,
+  },
+  radiusBadgeText: { fontFamily: fonts.oswaldSemiBold, fontSize: 13, color: colors.white },
+  radiusHint: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, lineHeight: 16 },
+  radiusRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  radiusTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.navInactive + "55",
+    flexDirection: "row",
+    overflow: "hidden",
+  },
+  radiusFill: { backgroundColor: colors.primary, borderRadius: 3 },
+  radiusStepBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: radii.sm,
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    borderColor: colors.primary + "55",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radiusStepBtnDisabled: { borderColor: colors.navInactive + "66", backgroundColor: colors.surface },
+  radiusPresets: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs + 2 },
+  radiusPresetChip: {
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.pill,
+    borderWidth: 1.5,
+    borderColor: colors.navInactive,
+    backgroundColor: colors.white,
+  },
+  radiusPresetChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  radiusPresetText: { fontFamily: fonts.jostMedium, fontSize: 12, color: colors.textSecondary },
+  radiusPresetTextActive: { color: colors.white },
+
+  errorBanner: { flexDirection: "row", alignItems: "center", backgroundColor: "#FEE2E2", borderRadius: radii.sm, padding: spacing.md, marginTop: spacing.sm },
+  errorBannerText: { fontFamily: fonts.jostMedium, color: "#991B1B", fontSize: 13, flex: 1 },
 
   navRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
-  primaryBtn: { flex: 1, backgroundColor: colors.primary, borderRadius: radii.md, paddingVertical: spacing.md, alignItems: "center", shadowColor: colors.primaryDark, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },
+  primaryBtn: { flex: 1, backgroundColor: colors.primary, borderRadius: radii.md, paddingVertical: spacing.md, alignItems: "center", justifyContent: "center", flexDirection: "row", shadowColor: colors.primaryDark, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },
   primaryBtnDisabled: { opacity: 0.4 },
   primaryBtnText: { fontFamily: fonts.jakartaBold, color: colors.white, fontSize: 15, letterSpacing: 0.3 },
-  secondaryBtn: { borderRadius: radii.md, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, alignItems: "center", borderWidth: 1.5, borderColor: colors.navInactive, backgroundColor: colors.surface },
+  secondaryBtn: { borderRadius: radii.md, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, alignItems: "center", justifyContent: "center", flexDirection: "row", borderWidth: 1.5, borderColor: colors.navInactive, backgroundColor: colors.surface },
   secondaryBtnText: { fontFamily: fonts.jostMedium, fontSize: 15, color: colors.textSecondary },
 });

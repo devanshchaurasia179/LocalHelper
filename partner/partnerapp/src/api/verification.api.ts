@@ -36,7 +36,40 @@ export async function fetchVerification(): Promise<VerificationResponse> {
   return res.data;
 }
 
-// ─── POST /partner/verification/documents ──────────────────────────────────
+// ─── POST /partner/verification/submit ─────────────────────────────────────
+
+/**
+ * Explicitly submits all uploaded documents for admin review.
+ * Called when the partner taps "Submit for Review" after uploading all docs.
+ * Returns { message, sessionStatus }.
+ */
+export async function submitVerification(): Promise<{ message: string; sessionStatus: string }> {
+  const res = await api.post<{ message: string; sessionStatus: string }>(
+    "/partner/verification/submit"
+  );
+  return res.data;
+}
+
+// ─── DELETE /partner/verification/documents/:documentTypeId/:side/photos/:photoIndex
+
+export type DeletePhotoResponse =
+  | { slotDeleted: true;  documentTypeId: string; side: string; message: string }
+  | { slotDeleted: false; document: VerificationDocument; message: string };
+
+/**
+ * Removes one photo (0-based index) from a Pending document slot.
+ * If it was the last photo the slot is deleted (slotDeleted: true).
+ */
+export async function deleteDocumentPhoto(
+  documentTypeId: string,
+  side: string,
+  photoIndex: number
+): Promise<DeletePhotoResponse> {
+  const res = await api.delete<DeletePhotoResponse>(
+    `/partner/verification/documents/${documentTypeId}/${side}/photos/${photoIndex}`
+  );
+  return res.data;
+}
 
 /**
  * Uploads a single document file.

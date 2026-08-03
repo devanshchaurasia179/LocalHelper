@@ -39,6 +39,9 @@ import {
   Text,
   View,
 } from "react-native";
+
+// Maximum photos that can be picked at once for a single document slot
+const MAX_MULTI_PHOTOS = 5;
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Animated, { FadeIn } from "react-native-reanimated";
@@ -48,6 +51,8 @@ import Toast from "react-native-toast-message";
 
 import { useVerification } from "@/hooks/useVerification";
 import { useDocumentUpload } from "@/hooks/useDocumentUpload";
+import { useSubmitVerification } from "@/hooks/useSubmitVerification";
+import { useDeleteDocumentPhoto } from "@/hooks/useDeleteDocumentPhoto";
 import { UploadCard } from "@/components/verification/UploadCard";
 import { ROUTES } from "@/constants/routes";
 import { colors, fonts, radii, spacing } from "@/constants/theme";
@@ -59,6 +64,8 @@ export default function UploadDocumentsScreen() {
   const { data, isLoading, isError, error, refetch, isRefetching } =
     useVerification();
   const { upload, isUploading } = useDocumentUpload();
+  const { submit, isSubmitting } = useSubmitVerification();
+  const { deletePhoto, isDeleting } = useDeleteDocumentPhoto();
 
   /**
    * numberValues: keyed by documentTypeId — one entry per card that has
@@ -67,6 +74,18 @@ export default function UploadDocumentsScreen() {
    */
   const [numberValues, setNumberValues] = useState<Record<string, string>>({});
   const [numberErrors, setNumberErrors] = useState<Record<string, string | null>>({});
+
+  /**
+   * pendingUris: local URIs for multi-photo uploads, keyed by "docTypeId_side".
+   * Shown as a thumbnail strip on the card while uploading.
+   * Cleared once the upload sequence completes or fails.
+   */
+  const [pendingUris, setPendingUris] = useState<Record<string, string[]>>({});
+  /**
+   * uploadingPhotoIndex: which photo in the array is currently being uploaded.
+   * Keyed by "docTypeId_side". Drives the per-thumb progress indicator.
+   */
+  const [uploadingPhotoIndex, setUploadingPhotoIndex] = useState<Record<string, number>>({});
 
   // Ref to the ScrollView so we can scroll to a card on error
   const scrollRef = useRef<ScrollView>(null);
@@ -86,18 +105,20 @@ export default function UploadDocumentsScreen() {
   // ── Image picker ────────────────────────────────────────────────────────
   /**
    * Opens the platform action sheet (iOS) or Alert (Android) to let the user
-   * choose between camera and gallery. Returns a { uri, mimeType } tuple or
-   * null if the user cancelled.
+   * choose between camera and gallery.
    *
-   * We never hardcode "this document uses camera only". All documents offer
-   * both options. The backend can add a captureMode field in future if needed.
+   * Returns an array of { uri, mimeType } objects (one or more photos),
+   * or null if the user cancelled.
+   *
+   * Camera always returns a single photo.
+   * Gallery allows multi-select (up to MAX_MULTI_PHOTOS), unless the doc
+   * accepts PDFs — PDFs are always single-file and can't be multi-selected.
    */
   const pickFile = useCallback(
     async (
       doc: VerificationDocument
-    ): Promise<{ uri: string; mimeType: string } | null> => {
+    ): Promise<Array<{ uri: string; mimeType: string }> | null> => {
       // ── Check whether PDF is accepted for this document ─────────────────
-      // acceptedTypes comes from the backend — e.g. ["image/jpeg", "application/pdf"]
       const acceptsPdf = doc.acceptedTypes.includes("application/pdf");
 
       // ── Show picker type choice ──────────────────────────────────────────
@@ -120,13 +141,13 @@ export default function UploadDocumentsScreen() {
           quality: 0.85,
         });
         if (result.canceled || !result.assets?.[0]) return null;
-        return {
+        return [{
           uri: result.assets[0].uri,
           mimeType: result.assets[0].mimeType ?? "image/jpeg",
-        };
+        }];
       }
 
-      // gallery
+      // ── Gallery ──────────────────────────────────────────────────────────
       const { status } =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
@@ -136,18 +157,25 @@ export default function UploadDocumentsScreen() {
         );
         return null;
       }
+
+      // PDFs: single-select only (allowsEditing not supported for PDF)
+      // Images: multi-select up to MAX_MULTI_PHOTOS
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: acceptsPdf
           ? ImagePicker.MediaTypeOptions.All
           : ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: !acceptsPdf, // PDFs cannot be cropped
+        allowsEditing: false,           // must be false to enable multi-select
+        allowsMultipleSelection: !acceptsPdf,
+        selectionLimit: acceptsPdf ? 1 : MAX_MULTI_PHOTOS,
         quality: 0.85,
       });
-      if (result.canceled || !result.assets?.[0]) return null;
-      return {
-        uri: result.assets[0].uri,
-        mimeType: result.assets[0].mimeType ?? "image/jpeg",
-      };
+
+      if (result.canceled || !result.assets?.length) return null;
+
+      return result.assets.map((asset) => ({
+        uri: asset.uri,
+        mimeType: asset.mimeType ?? "image/jpeg",
+      }));
     },
     []
   );
@@ -155,11 +183,16 @@ export default function UploadDocumentsScreen() {
   // ── Handle upload for any document card ────────────────────────────────
   /**
    * Called by UploadCard's onUpload prop.
-   * This function is the ONLY upload handler — it handles every document type
-   * through the same generic pipeline.
+   * Handles every document type through the same generic pipeline.
+   *
+   * For multi-photo: iterates through each picked file and calls upload()
+   * sequentially. Each upload patches the cache independently.
+   * The last successful response determines the final session status check.
    */
   const handleUpload = useCallback(
     async (doc: VerificationDocument) => {
+      const slotKey = `${doc.documentTypeId}_${doc.side}`;
+
       // ── 1. Validate number field if required ─────────────────────────────
       if (doc.hasNumberField) {
         const value = getNumberValue(doc).trim();
@@ -170,52 +203,130 @@ export default function UploadDocumentsScreen() {
           }));
           return;
         }
-        // Note: we don't run the regex client-side — the backend validates it
-        // and returns a clear error message. Avoids duplicating regex logic.
       }
 
-      // ── 2. Pick file ──────────────────────────────────────────────────────
-      const file = await pickFile(doc);
-      if (!file) return; // user cancelled
+      // ── 2. Pick file(s) ───────────────────────────────────────────────────
+      const files = await pickFile(doc);
+      if (!files || files.length === 0) return; // user cancelled
 
-      // ── 3. Upload ─────────────────────────────────────────────────────────
-      const result = await upload({
-        fileUri:        file.uri,
-        mimeType:       file.mimeType,
-        documentTypeId: doc.documentTypeId,
-        side:           doc.side,
-        numberValue:    doc.hasNumberField
-          ? getNumberValue(doc).trim()
-          : undefined,
+      // ── 3. Show pending strip immediately after selection ─────────────────
+      setPendingUris((prev) => ({ ...prev, [slotKey]: files.map((f) => f.uri) }));
+      setUploadingPhotoIndex((prev) => ({ ...prev, [slotKey]: 0 }));
+
+      // ── 4. Upload each file sequentially ─────────────────────────────────
+      let lastSessionStatus: string | null = null;
+      let anyFailed = false;
+
+      for (let i = 0; i < files.length; i++) {
+        setUploadingPhotoIndex((prev) => ({ ...prev, [slotKey]: i }));
+
+        const file = files[i];
+        const result = await upload({
+          fileUri:        file.uri,
+          mimeType:       file.mimeType,
+          documentTypeId: doc.documentTypeId,
+          side:           doc.side,
+          numberValue:    doc.hasNumberField
+            ? getNumberValue(doc).trim()
+            : undefined,
+        });
+
+        if (result.ok) {
+          lastSessionStatus = result.sessionStatus;
+          if (files.length > 1) {
+            Toast.show({
+              type: "success",
+              text1: `Photo ${i + 1} of ${files.length} uploaded`,
+              text2: doc.title,
+              visibilityTime: 1800,
+            });
+          }
+        } else {
+          anyFailed = true;
+          Toast.show({
+            type: "error",
+            text1: files.length > 1
+              ? `Photo ${i + 1} of ${files.length} failed`
+              : "Upload failed",
+            text2: result.message,
+            visibilityTime: 3500,
+          });
+          break;
+        }
+      }
+
+      // ── 5. Clear pending strip ────────────────────────────────────────────
+      setPendingUris((prev) => {
+        const next = { ...prev };
+        delete next[slotKey];
+        return next;
+      });
+      setUploadingPhotoIndex((prev) => {
+        const next = { ...prev };
+        delete next[slotKey];
+        return next;
       });
 
-      if (result.ok) {
+      // ── 6. Final success toast ─────────────────────────────────────────────
+      if (!anyFailed) {
         Toast.show({
           type: "success",
-          text1: "Uploaded successfully",
+          text1: files.length > 1
+            ? `${files.length} photos uploaded`
+            : "Uploaded successfully",
           text2: doc.title,
           visibilityTime: 2500,
         });
-
-        // If session transitioned to Under Review, navigate there
-        if (
-          result.sessionStatus === "Under Review" ||
-          result.sessionStatus === "Re-submitted"
-        ) {
-          router.replace(ROUTES.VERIFICATION.UNDER_REVIEW as any);
-        }
-      } else {
-        Toast.show({
-          type: "error",
-          text1: "Upload failed",
-          text2: result.message,
-          visibilityTime: 3500,
-        });
+        // No auto-navigate here — partner submits explicitly via the Submit button
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [upload, pickFile, numberValues]
   );
+
+  // ── Handle photo deletion from a Pending draft slot ─────────────────────
+  const handleDeletePhoto = useCallback(
+    async (doc: VerificationDocument, photoIndex: number) => {
+      const result = await deletePhoto(doc.documentTypeId, doc.side, photoIndex);
+      if (!result.ok) {
+        Toast.show({
+          type: "error",
+          text1: "Remove failed",
+          text2: result.message,
+          visibilityTime: 3000,
+        });
+      }
+    },
+    [deletePhoto]
+  );
+
+  // ── Handle explicit submit for review ────────────────────────────────────
+  const handleSubmit = useCallback(async () => {
+    const result = await submit();
+    if (result.ok) {
+      Toast.show({
+        type: "success",
+        text1: "Submitted for review",
+        text2: "We'll notify you within 24–48 hours.",
+        visibilityTime: 3000,
+      });
+      router.replace(ROUTES.VERIFICATION.UNDER_REVIEW as any);
+    } else {
+      if (result.missingDocuments?.length) {
+        Alert.alert(
+          "Missing Documents",
+          `Please upload the following before submitting:\n\n• ${result.missingDocuments.join("\n• ")}`
+        );
+      } else {
+        Toast.show({
+          type: "error",
+          text1: "Submission failed",
+          text2: result.message,
+          visibilityTime: 3500,
+        });
+      }
+    }
+  }, [submit]);
 
   // ── Loading state ────────────────────────────────────────────────────────
   if (isLoading) {
@@ -271,6 +382,11 @@ export default function UploadDocumentsScreen() {
     (d) => d.isRequired && d.uploadStatus === "missing"
   ).length;
 
+  // Ready to submit when all required slots have at least one photo (pending)
+  // and the session hasn't already been submitted (Under Review).
+  const canSubmit = missingRequired === 0 && data.sessionStatus !== "Under Review";
+  const alreadyUnderReview = data.sessionStatus === "Under Review";
+
   // ── Main render ──────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.safe} edges={["bottom"]}>
@@ -322,10 +438,23 @@ export default function UploadDocumentsScreen() {
               key={doc.key}
               doc={doc}
               onUpload={handleUpload}
+              onDeletePhoto={handleDeletePhoto}
               isUploading={isUploading(doc.documentTypeId, doc.side)}
+              isDeletingPhotoIndex={
+                // pass the index being deleted if it's for this specific slot
+                (() => {
+                  // find which index is being deleted for this slot by probing each
+                  for (let i = 0; i < (doc.previewUrls?.length ?? 0); i++) {
+                    if (isDeleting(doc.documentTypeId, doc.side, i)) return i;
+                  }
+                  return null;
+                })()
+              }
               numberValue={getNumberValue(doc)}
               onNumberChange={(v) => setNumberValue(doc.documentTypeId, v)}
               numberError={numberErrors[doc.documentTypeId]}
+              pendingUris={pendingUris[`${doc.documentTypeId}_${doc.side}`]}
+              uploadingIndex={uploadingPhotoIndex[`${doc.documentTypeId}_${doc.side}`]}
             />
           ))}
 
@@ -341,6 +470,44 @@ export default function UploadDocumentsScreen() {
                 {missingRequired} required document
                 {missingRequired > 1 ? "s" : ""} remaining
               </Text>
+            </Animated.View>
+          )}
+
+          {/* ── Submit for Review button ──────────────────────────────── */}
+          {!alreadyUnderReview && actionableDocuments.length > 0 && (
+            <Animated.View entering={FadeIn} style={styles.submitWrap}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.submitBtn,
+                  !canSubmit && styles.submitBtnDisabled,
+                  pressed && canSubmit && { opacity: 0.85 },
+                ]}
+                onPress={handleSubmit}
+                disabled={!canSubmit || isSubmitting}
+                accessibilityRole="button"
+                accessibilityLabel="Submit documents for review"
+                accessibilityState={{ disabled: !canSubmit || isSubmitting }}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="shield-checkmark-outline"
+                      size={20}
+                      color={canSubmit ? colors.white : colors.textSecondary}
+                    />
+                    <Text style={[styles.submitBtnText, !canSubmit && styles.submitBtnTextDisabled]}>
+                      Submit for Review
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+              {!canSubmit && missingRequired > 0 && (
+                <Text style={styles.submitHint}>
+                  Upload {missingRequired} more required document{missingRequired > 1 ? "s" : ""} to submit
+                </Text>
+              )}
             </Animated.View>
           )}
 
@@ -537,7 +704,8 @@ function showPickerChoice(
   acceptsPdf: boolean
 ): Promise<"camera" | "gallery" | null> {
   return new Promise((resolve) => {
-    const options = ["Camera", acceptsPdf ? "Files / Gallery" : "Photo Library", "Cancel"];
+    const galleryLabel = acceptsPdf ? "Files / Gallery" : "Photo Library (multi-select)";
+    const options = ["Camera", galleryLabel, "Cancel"];
 
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
@@ -545,7 +713,9 @@ function showPickerChoice(
           options,
           cancelButtonIndex: 2,
           title: "Upload Document",
-          message: "Choose how to add your file",
+          message: acceptsPdf
+            ? "Choose how to add your file"
+            : "Choose how to add your photo(s)",
         },
         (index) => {
           if (index === 0) resolve("camera");
@@ -554,11 +724,15 @@ function showPickerChoice(
         }
       );
     } else {
-      Alert.alert("Upload Document", "Choose how to add your file", [
-        { text: "Camera",          onPress: () => resolve("camera")  },
-        { text: options[1],        onPress: () => resolve("gallery") },
-        { text: "Cancel", style: "cancel", onPress: () => resolve(null) },
-      ]);
+      Alert.alert(
+        "Upload Document",
+        acceptsPdf ? "Choose how to add your file" : "Choose how to add your photo(s)",
+        [
+          { text: "Camera",          onPress: () => resolve("camera")  },
+          { text: galleryLabel,      onPress: () => resolve("gallery") },
+          { text: "Cancel", style: "cancel", onPress: () => resolve(null) },
+        ]
+      );
     }
   });
 }
@@ -675,6 +849,45 @@ const styles = StyleSheet.create({
   remainingHintText: {
     fontFamily: fonts.jostRegular, fontSize: 13,
     color: colors.textSecondary,
+  },
+
+  // ── Submit for Review button ───────────────────────────────────────────────
+  submitWrap: {
+    marginTop: spacing.lg,
+    gap: spacing.sm,
+  },
+  submitBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: radii.md,
+    paddingVertical: spacing.md + 2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  submitBtnDisabled: {
+    backgroundColor: colors.surfaceAlt,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  submitBtnText: {
+    fontFamily: fonts.jakartaSemiBold,
+    fontSize: 16,
+    color: colors.white,
+  },
+  submitBtnTextDisabled: {
+    color: colors.textSecondary,
+  },
+  submitHint: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: "center",
   },
 
   // ── Error state ────────────────────────────────────────────────────────────
