@@ -147,7 +147,30 @@ const documentTypeSchema = new mongoose.Schema(
       // If false, document is optional (shown but not blocking for verification)
     },
 
-    // Empty array = required for ALL service categories.
+    // ── Visibility config ────────────────────────────────────────────────────
+    // Controls which service categories can SEE this document at all.
+    //
+    // Empty array = shown to ALL categories (global document).
+    // Populated array = shown ONLY to partners in those categories.
+    //
+    // Example: visibleToCategories: [<driverCategoryId>]
+    //   → Only partners who offer driving services will see "Driving License".
+    //   → All other categories will not see this document type at all.
+    //
+    // This is different from requiredForCategories:
+    //   visibleToCategories  — controls VISIBILITY (who sees the document)
+    //   requiredForCategories — controls REQUIREMENT (who must upload it)
+    //
+    // Typical use-cases:
+    //   Driving License  → visibleToCategories: [drivers]
+    //   GST Certificate  → visibleToCategories: [], requiredForCategories: [commercial]
+    //   Aadhaar          → visibleToCategories: [] (everyone sees and must upload it)
+    visibleToCategories: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
+      default: [],
+    },
+
+    // Empty array = required for ALL categories that can see this document.
     // Populated array = required only for partners in those categories.
     // This lets you add GST Certificate only for commercial service partners
     // without touching any other document or code.
@@ -210,5 +233,8 @@ const documentTypeSchema = new mongoose.Schema(
 // key is unique by schema definition above (unique: true creates the index).
 // Compound index for the partner-facing fetch: active documents in order.
 documentTypeSchema.index({ isActive: 1, displayOrder: 1 });
+// Index for category-scoped queries (visibleToCategories and requiredForCategories)
+documentTypeSchema.index({ visibleToCategories: 1 });
+documentTypeSchema.index({ requiredForCategories: 1 });
 
 export default mongoose.model("DocumentType", documentTypeSchema);

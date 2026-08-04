@@ -9,6 +9,11 @@
  *
  * Safe to re-run — uses upsert on `key` so it won't create duplicates.
  * It WILL update fields if the seed data changes (useful for initial setup).
+ *
+ * ── Category IDs (from DB) ────────────────────────────────────────────────────
+ *   Electrician : 6a5d67a6ccd37630b9bfca67
+ *   Driver      : 6a5fcd70a42e2534927a4717
+ *   Mechanic    : 6a5fd9d2c5e4dc206c1eb462
  */
 
 import mongoose from "mongoose";
@@ -20,59 +25,52 @@ import DocumentType from "../models/verification/DocumentType.js";
 import dns from "dns";
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname  = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
+
+// ─── Category ObjectIds ───────────────────────────────────────────────────────
+const CAT_ELECTRICIAN = new mongoose.Types.ObjectId("6a5d67a6ccd37630b9bfca67");
+const CAT_DRIVER      = new mongoose.Types.ObjectId("6a5fcd70a42e2534927a4717");
+const CAT_MECHANIC    = new mongoose.Types.ObjectId("6a5fd9d2c5e4dc206c1eb462");
+
 const SEED_DATA = [
-  // ── Aadhaar Front ──────────────────────────────────────────────────────────
-  // isMultiPage: false — this IS the front side. It is its own single-slot record.
-  // The backend appends no side suffix when isMultiPage is false.
-  // "aadhaar_back" is a separate single-slot record for the back.
+  // ── Aadhaar Card (Front + Back) ────────────────────────────────────────────
+  // isMultiPage: true — the frontend renders TWO upload slots (front & back).
+  // Both slots share this single DocumentType record, differentiated by the
+  // `side` field ("front" / "back") on each PartnerDocument record.
   {
-    key: "aadhaar_front",
-    label: "Aadhaar Card (Front)",
-    description: "Front side of your Aadhaar card showing your name and photo.",
+    key: "aadhaar_card",
+    label: "Aadhaar Card",
+    description: "Front and back of your Aadhaar card for identity and address verification.",
     helpText:
-      "Upload a clear, well-lit photo of the front of your Aadhaar card. " +
-      "All four corners should be visible.",
+      "Upload clear photos of both sides of your Aadhaar card. " +
+      "All four corners must be visible and the text must be readable.",
     uploadInstructions:
-      "1. Place your Aadhaar card on a flat surface.\n" +
-      "2. Ensure good lighting with no shadows.\n" +
-      "3. All four corners must be visible.\n" +
-      "4. The text must be clearly readable.",
+      "1. Place your Aadhaar card on a flat, well-lit surface.\n" +
+      "2. Capture the FRONT side first — your photo, name, and DOB must be visible.\n" +
+      "3. Then capture the BACK side — your address must be clearly readable.\n" +
+      "4. Avoid shadows, glare, or blurred edges.",
     hasNumberField: true,
     numberFieldLabel: "Aadhaar Number",
     numberFieldPlaceholder: "Enter your 12-digit Aadhaar number",
     numberFieldValidationRegex: "^\\d{12}$",
     numberFieldValidationMessage: "Aadhaar number must be exactly 12 digits.",
-    acceptedFileTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif"],
+    acceptedFileTypes: [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+      "image/heic",
+      "image/heif",
+    ],
     maxFileSizeMB: 5,
-    isMultiPage: false,
+    isMultiPage: true,   // renders front + back upload slots
     isRequired: true,
     icon: "id-card",
     displayOrder: 10,
-  },
-
-  // ── Aadhaar Back ───────────────────────────────────────────────────────────
-  // isMultiPage: false — same reason as aadhaar_front above.
-  {
-    key: "aadhaar_back",
-    label: "Aadhaar Card (Back)",
-    description: "Back side of your Aadhaar card showing your address.",
-    helpText:
-      "Upload a clear photo of the back of your Aadhaar card. " +
-      "Your address must be clearly visible.",
-    uploadInstructions:
-      "1. Place the back of your Aadhaar card on a flat surface.\n" +
-      "2. Ensure the address text is sharp and readable.\n" +
-      "3. Avoid glare or shadows.",
-    hasNumberField: false,
-    acceptedFileTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif"],
-    maxFileSizeMB: 5,
-    isMultiPage: false,
-    isRequired: true,
-    icon: "id-card",
-    displayOrder: 1,
+    visibleToCategories:   [],  // shown to ALL categories
+    requiredForCategories: [],  // required for ALL categories
   },
 
   // ── PAN Card ───────────────────────────────────────────────────────────────
@@ -91,13 +89,23 @@ const SEED_DATA = [
     numberFieldLabel: "PAN Number",
     numberFieldPlaceholder: "E.g. ABCDE1234F",
     numberFieldValidationRegex: "^[A-Z]{5}[0-9]{4}[A-Z]{1}$",
-    numberFieldValidationMessage: "PAN must be in format ABCDE1234F (5 letters, 4 digits, 1 letter).",
-    acceptedFileTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif"],
+    numberFieldValidationMessage:
+      "PAN must be in format ABCDE1234F (5 letters, 4 digits, 1 letter).",
+    acceptedFileTypes: [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+      "image/heic",
+      "image/heif",
+    ],
     maxFileSizeMB: 5,
     isMultiPage: false,
-    isRequired: false,   // optional in the existing system
+    isRequired: false,   // optional globally
     icon: "credit-card",
-    displayOrder: 2,
+    displayOrder: 20,
+    visibleToCategories:   [],  // shown to ALL categories
+    requiredForCategories: [],  // optional for all (isRequired: false handles this)
   },
 
   // ── Selfie ─────────────────────────────────────────────────────────────────
@@ -114,12 +122,65 @@ const SEED_DATA = [
       "3. Remove sunglasses, hats, or anything covering your face.\n" +
       "4. Make sure your full face is in the frame.",
     hasNumberField: false,
-    acceptedFileTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif"],
+    acceptedFileTypes: [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+      "image/heic",
+      "image/heif",
+    ],
     maxFileSizeMB: 5,
     isMultiPage: false,
     isRequired: true,
     icon: "camera",
-    displayOrder: 3,
+    displayOrder: 30,
+    visibleToCategories:   [],  // shown to ALL categories
+    requiredForCategories: [],  // required for ALL categories
+  },
+
+  // ── Driving License ────────────────────────────────────────────────────────
+  // visibleToCategories: [Driver, Mechanic]
+  //   → Only partners in these two categories will see this document.
+  //   → Electricians and all other categories won't see it at all.
+  //
+  // requiredForCategories: [Driver]
+  //   → Drivers MUST upload it to submit for verification.
+  //   → Mechanics see it but it shows as Optional for them.
+  {
+    key: "driving_license",
+    label: "Driving License",
+    description: "Valid driving license issued by the RTO.",
+    helpText:
+      "Upload a clear photo of the front of your driving license. " +
+      "Your name, license number, and validity date must be visible.",
+    uploadInstructions:
+      "1. Place your driving license on a flat surface.\n" +
+      "2. Ensure the license number and your name are clearly readable.\n" +
+      "3. The validity / expiry date must be visible.\n" +
+      "4. Avoid shadows or glare.",
+    hasNumberField: true,
+    numberFieldLabel: "License Number",
+    numberFieldPlaceholder: "E.g. DL-0420110012345",
+    numberFieldValidationRegex: "",   // formats vary by state — skip regex
+    numberFieldValidationMessage: "",
+    acceptedFileTypes: [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+      "image/heic",
+      "image/heif",
+    ],
+    maxFileSizeMB: 5,
+    isMultiPage: false,
+    isRequired: true,
+    icon: "car",
+    displayOrder: 40,
+    // Visible ONLY to Driver and Mechanic categories
+    visibleToCategories: [CAT_DRIVER, CAT_MECHANIC],
+    // Required for Drivers. Mechanics see it as Optional (isRequired override).
+    requiredForCategories: [CAT_DRIVER],
   },
 ];
 
@@ -133,20 +194,19 @@ const seed = async () => {
 
   for (const data of SEED_DATA) {
     const result = await DocumentType.findOneAndUpdate(
-      { key: data.key },           // match by key
-      { $set: data },              // update all fields
+      { key: data.key },  // match by key
+      { $set: data },     // update all fields
       {
-        upsert: true,              // create if not found
+        upsert: true,
         new: true,
         runValidators: true,
         setDefaultsOnInsert: true,
       }
     );
 
-    // Mongoose sets this on upsert — if the doc was just created, updatedAt ≈ createdAt
+    // Detect create vs update: createdAt ≈ updatedAt on a fresh upsert
     const wasCreated =
       result.createdAt.getTime() === result.updatedAt.getTime() ||
-      // Fallback: if it was created within the last 2 seconds
       Date.now() - result.createdAt.getTime() < 2000;
 
     if (wasCreated) {

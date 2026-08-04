@@ -40,6 +40,7 @@ const PATCHABLE_FIELDS = [
   "maxFileSizeMB",
   "isMultiPage",
   "isRequired",
+  "visibleToCategories",
   "requiredForCategories",
   "icon",
   "displayOrder",
@@ -99,6 +100,7 @@ export const createDocumentType = async (req, res) => {
       maxFileSizeMB,
       isMultiPage,
       isRequired,
+      visibleToCategories,
       requiredForCategories,
       icon,
       displayOrder,
@@ -162,6 +164,7 @@ export const createDocumentType = async (req, res) => {
       maxFileSizeMB:                maxFileSizeMB ?? 5,
       isMultiPage:                  isMultiPage ?? false,
       isRequired:                   isRequired ?? true,
+      visibleToCategories:          visibleToCategories || [],
       requiredForCategories:        requiredForCategories || [],
       icon:                         icon?.trim() || "",
       displayOrder:                 displayOrder ?? 0,
@@ -216,6 +219,8 @@ export const listDocumentTypes = async (req, res) => {
       .sort({ displayOrder: 1, createdAt: 1 })
       .populate("createdBy", "name email")
       .populate("updatedBy", "name email")
+      .populate("visibleToCategories", "name icon")
+      .populate("requiredForCategories", "name icon")
       .lean();
 
     return res.status(200).json({
@@ -238,6 +243,7 @@ export const getDocumentTypeById = async (req, res) => {
     const docType = await DocumentType.findById(req.params.id)
       .populate("createdBy", "name email")
       .populate("updatedBy", "name email")
+      .populate("visibleToCategories", "name icon")
       .populate("requiredForCategories", "name icon")
       .lean();
 

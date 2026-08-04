@@ -11,14 +11,23 @@ import cloudinary from "../config/cloudinary.js";
  * getRelevantDocumentTypes(partnerCategories)
  *
  * Returns all active DocumentTypes that apply to this partner.
- * Logic:
- *   - requiredForCategories is empty  → applies to ALL partners
- *   - requiredForCategories is set    → applies only if partner's categories
- *                                       intersect with the list
  *
- * We fetch all active types in one query, then filter in memory.
- * At scale (hundreds of doc types) this could be pushed to a $or aggregation,
- * but for typical use (<50 doc types) this is fast and readable.
+ * Two-stage filter:
+ *
+ * Stage 1 — Visibility (visibleToCategories):
+ *   - Empty array = shown to ALL partners (global document)
+ *   - Populated   = shown ONLY if partner has at least one matching category
+ *   Example: Driving License with visibleToCategories: [driverCatId]
+ *            → only appears for partners in the driver category
+ *
+ * Stage 2 — Requirement (requiredForCategories):
+ *   Applied AFTER visibility. Controls whether the document is required
+ *   or optional for the filtered set of partners.
+ *   - Empty array = required for ALL partners who can see it
+ *   - Populated   = required only for partners in those categories
+ *                   (others see it but as optional)
+ *   Example: GST Certificate visible to all, but requiredForCategories: [commercial]
+ *            → commercial partners must upload it; others see it as optional
  *
  * @param {ObjectId[]} partnerCategories - partner.categories array
  * @returns {DocumentType[]}
@@ -32,14 +41,20 @@ const getRelevantDocumentTypes = async (partnerCategories) => {
   const partnerCatStrings = (partnerCategories || []).map((c) => c.toString());
 
   return allActive.filter((docType) => {
-    // Empty array = global requirement, applies to everyone
-    if (!docType.requiredForCategories || docType.requiredForCategories.length === 0) {
-      return true;
+    // ── Stage 1: Visibility check ─────────────────────────────────────────
+    // If visibleToCategories is populated, partner must belong to at least one
+    // of those categories to see this document at all.
+    if (docType.visibleToCategories && docType.visibleToCategories.length > 0) {
+      const isVisible = docType.visibleToCategories.some((catId) =>
+        partnerCatStrings.includes(catId.toString())
+      );
+      if (!isVisible) return false; // completely hidden from this partner
     }
-    // Category-specific: include only if partner has at least one matching category
-    return docType.requiredForCategories.some((catId) =>
-      partnerCatStrings.includes(catId.toString())
-    );
+
+    // ── Stage 2: Document passes visibility — include it ──────────────────
+    // The isRequired flag + requiredForCategories will be evaluated separately
+    // in syncSessionStatus / progress calculation. Here we just decide visibility.
+    return true;
   });
 };
 
@@ -239,18 +254,19 @@ export const getVerificationStatus = async (req, res) => {
 
     // ── 4. Build the document list ─────────────────────────────────────────
     const documents = [];
+    const partnerCatStrings = (partner.categories || []).map((c) => c.toString());
 
     for (const docType of relevantDocTypes) {
       if (docType.isMultiPage) {
         for (const side of ["front", "back"]) {
           const uploadKey = `${docType._id.toString()}_${side}`;
           const upload    = uploadMap.get(uploadKey) || null;
-          documents.push(buildDocumentObject(docType, upload, side));
+          documents.push(buildDocumentObject(docType, upload, side, partnerCatStrings));
         }
       } else {
         const uploadKey = `${docType._id.toString()}_single`;
         const upload    = uploadMap.get(uploadKey) || null;
-        documents.push(buildDocumentObject(docType, upload, "single"));
+        documents.push(buildDocumentObject(docType, upload, "single", partnerCatStrings));
       }
     }
 
@@ -365,7 +381,7 @@ const buildBanner = (overallStatus, sessionStatus, summary) => {
 };
 
 /**
- * buildDocumentObject(docType, upload, side)
+ * buildDocumentObject(docType, upload, side, partnerCatStrings)
  *
  * The definitive UI contract for a single document card.
  * Every field the frontend needs to render a document card is present here.
@@ -394,8 +410,23 @@ const buildBanner = (overallStatus, sessionStatus, summary) => {
  *   requiredLabel — chip text: "Required" or "Optional"
  *
  *   version — null if first upload, "v2" / "v3" for re-uploads
+ *
+ * @param {object}   docType           - DocumentType lean object
+ * @param {object}   upload            - PartnerDocument lean object or null
+ * @param {string}   side              - "single" | "front" | "back"
+ * @param {string[]} partnerCatStrings - partner category IDs as strings
  */
-const buildDocumentObject = (docType, upload, side) => {
+const buildDocumentObject = (docType, upload, side, partnerCatStrings = []) => {
+  // ── Resolve effective isRequired ────────────────────────────────────────
+  // docType.isRequired is the base flag.
+  // If requiredForCategories is populated, override isRequired based on
+  // whether the partner belongs to one of those categories.
+  let effectiveIsRequired = docType.isRequired;
+  if (docType.requiredForCategories && docType.requiredForCategories.length > 0) {
+    effectiveIsRequired = docType.requiredForCategories.some((catId) =>
+      partnerCatStrings.includes(catId.toString())
+    );
+  }
   // ── Compute uploadStatus ────────────────────────────────────────────────
   let uploadStatus = "missing";
   if (upload) {
@@ -465,8 +496,8 @@ const buildDocumentObject = (docType, upload, side) => {
     sampleImageUrl:     docType.sampleImage?.url  || null,
 
     // ── Requirement chip ──────────────────────────────────────────────────
-    isRequired:    docType.isRequired,
-    requiredLabel: docType.isRequired ? "Required" : "Optional",
+    isRequired:    effectiveIsRequired,
+    requiredLabel: effectiveIsRequired ? "Required" : "Optional",
 
     // ── Upload constraints (shown in upload sheet / info drawer) ──────────
     isMultiPage:   docType.isMultiPage,
