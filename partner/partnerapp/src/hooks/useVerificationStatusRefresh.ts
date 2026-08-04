@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 
 import { usePartnerStatus } from "@/hooks/usePartnerStatus";
 import { VERIFICATION_STATUS } from "@/constants/verificationStatus";
+import { ACCOUNT_STATUS } from "@/constants/accountStatus";
 import { ROUTES } from "@/constants/routes";
 
 type Options = {
@@ -23,9 +24,19 @@ export function useVerificationStatusRefresh(options: Options = {}) {
     refetchInterval: pollIntervalMs,
   });
 
+  const accountStatus = query.data?.accountStatus;
   const status = query.data?.verification.status;
 
   useEffect(() => {
+    if (!query.data) return;
+
+    // Account status takes priority — if blocked or suspended, go to root
+    // so VerificationGate re-evaluates and renders the correct inline screen.
+    if (accountStatus === ACCOUNT_STATUS.BLOCKED || accountStatus === ACCOUNT_STATUS.SUSPENDED) {
+      router.replace(ROUTES.ROOT as any);
+      return;
+    }
+
     if (!status) return;
 
     switch (status) {
@@ -50,7 +61,7 @@ export function useVerificationStatusRefresh(options: Options = {}) {
       // causing VerificationGate to immediately send them back here.
       // AuthGate / index.tsx handles the NOT_SUBMITTED case at the root level.
     }
-  }, [status, router, screen]);
+  }, [status, accountStatus, query.data, router, screen]);
 
   const refresh = useCallback(async () => {
     await query.refetch();

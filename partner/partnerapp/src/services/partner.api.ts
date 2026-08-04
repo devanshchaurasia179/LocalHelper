@@ -77,19 +77,76 @@ export function normalizePartnerProfile(raw: unknown): PartnerProfile {
 }
 
 /**
+ * Resolves a 403 accountStatus response into a clean PartnerProfile so that
+ * VerificationGate and the status screens can read `data` directly rather
+ * than receiving an error.
+ */
+function resolveAccountStatusError(
+  data: Record<string, unknown>
+): PartnerProfile | null {
+  const { accountStatus, statusReason } = data as {
+    accountStatus?: string;
+    statusReason?: string | null;
+  };
+  if (!accountStatus) return null;
+  const resolvedStatus =
+    isAccountStatus(accountStatus) ? accountStatus : ACCOUNT_STATUS.ACTIVE;
+  return {
+    name: "",
+    verification: {
+      status: VERIFICATION_STATUS.VERIFIED,
+      rejectionReason: null,
+    },
+    accountStatus: resolvedStatus,
+    statusReason: (statusReason ?? null) as string | null,
+  };
+}
+
+/**
  * GET /partner/me — primary verification status endpoint.
  * Falls back to /partner/auth/me when /partner/me is not yet deployed.
+ *
+ * A 403 with accountStatus means blocked/suspended — resolved cleanly as a
+ * valid PartnerProfile so VerificationGate reads `data`, not `error`.
  */
 export async function fetchPartnerMe(): Promise<PartnerProfile> {
   try {
     const res = await api.get("/partner/me");
     return normalizePartnerProfile(res.data);
   } catch (err: unknown) {
-    const status = (err as { response?: { status?: number } })?.response?.status;
-    if (status === 404) {
-      const res = await api.get("/partner/auth/me");
-      return normalizePartnerProfile(res.data);
+    const axiosErr = err as { response?: { status?: number; data?: Record<string, unknown> } };
+    const status = axiosErr?.response?.status;
+
+    // 403 with accountStatus → blocked or suspended; resolve cleanly so
+    // VerificationGate and the status screens can read `data` directly.
+    if (status === 403 && axiosErr.response?.data?.accountStatus) {
+      const resolved = resolveAccountStatusError(axiosErr.response.data);
+      if (resolved) return resolved;
     }
+
+    // 404 → fall back to the legacy endpoint (/partner/auth/me).
+    // The legacy endpoint also goes through protectPartner middleware, so it
+    // can return 403 for blocked/suspended partners — handle that too.
+    if (status === 404) {
+      try {
+        const res = await api.get("/partner/auth/me");
+        return normalizePartnerProfile(res.data);
+      } catch (fallbackErr: unknown) {
+        const fbAxiosErr = fallbackErr as {
+          response?: { status?: number; data?: Record<string, unknown> };
+        };
+        const fbStatus = fbAxiosErr?.response?.status;
+
+        // 403 from the legacy endpoint → same blocked/suspended handling
+        if (fbStatus === 403 && fbAxiosErr.response?.data?.accountStatus) {
+          const resolved = resolveAccountStatusError(fbAxiosErr.response.data);
+          if (resolved) return resolved;
+        }
+
+        throw fallbackErr;
+      }
+    }
+
     throw err;
   }
 }
