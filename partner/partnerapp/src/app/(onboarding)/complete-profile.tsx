@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -22,8 +22,10 @@ import axios from "axios";
 
 import { useCompleteProfile } from "@/hooks/useCompleteProfile";
 import { useAuth } from "@/providers/AuthProvider";
+import { useOnboarding } from "@/contexts/OnboardingContext";
 import { ROUTES } from "@/constants/routes";
 import { colors, spacing, radii, fonts } from "@/constants/theme";
+import { api } from "@/constants/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -271,37 +273,125 @@ function FieldLabel({ label, required }: { label: string; required?: boolean }) 
 export default function CompleteProfileScreen() {
   const { patchPartner } = useAuth();
   const { complete, loading, error, clearError } = useCompleteProfile();
+  const { profile, setProfile } = useOnboarding();
 
   const [step, setStep] = useState<Step>(0);
 
-  // Step 0 — Personal Info
-  const [fullName, setFullName] = useState("");
-  const [gender, setGender] = useState<string | null>(null);
-  const [dateOfBirth, setDateOfBirth] = useState<Date | null>(null);
+  // Step 0 — Personal Info (seeded from shared context)
+  const [fullName, setFullNameLocal] = useState(profile.fullName);
+  const [gender, setGenderLocal] = useState<string | null>(profile.gender);
+  const [dateOfBirth, setDateOfBirthLocal] = useState<Date | null>(profile.dateOfBirth);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
-  // Step 1 — Address
-  const [house, setHouse] = useState("");
-  const [street, setStreet] = useState("");
-  const [locality, setLocality] = useState("");
-  const [city, setCity] = useState("");
-  const [state, setState] = useState("");
-  const [pincode, setPincode] = useState("");
-  const [showStateList, setShowStateList] = useState(false);
-  const [addressFilled, setAddressFilled] = useState(false);
+  // Wrappers that write through to context
+  const setFullName = (v: string) => { setFullNameLocal(v); setProfile({ fullName: v }); };
+  const setGender = (v: string | null) => { setGenderLocal(v); setProfile({ gender: v }); };
+  const setDateOfBirth = (v: Date | null) => { setDateOfBirthLocal(v); setProfile({ dateOfBirth: v }); };
 
-  // Step 2 — Service Location
-  const [locationCoords, setLocationCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  // Step 1 — Address (seeded from shared context)
+  const [house, setHouseLocal] = useState(profile.house);
+  const [street, setStreetLocal] = useState(profile.street);
+  const [locality, setLocalityLocal] = useState(profile.locality);
+  const [city, setCityLocal] = useState(profile.city);
+  const [state, setStateLocal] = useState(profile.state);
+  const [pincode, setPincodeLocal] = useState(profile.pincode);
+  const [showStateList, setShowStateList] = useState(false);
+  const [addressFilled, setAddressFilled] = useState(
+    profile.house.length > 0 || profile.street.length > 0 || profile.city.length > 0
+  );
+
+  const setHouse = (v: string) => { setHouseLocal(v); setProfile({ house: v }); };
+  const setStreet = (v: string) => { setStreetLocal(v); setProfile({ street: v }); };
+  const setLocality = (v: string) => { setLocalityLocal(v); setProfile({ locality: v }); };
+  const setCity = (v: string) => { setCityLocal(v); setProfile({ city: v }); };
+  const setState = (v: string) => { setStateLocal(v); setProfile({ state: v }); };
+  const setPincode = (v: string) => { setPincodeLocal(v); setProfile({ pincode: v }); };
+
+  // Step 2 — Service Location (seeded from shared context)
+  const [locationCoords, setLocationCoordsLocal] = useState<{ latitude: number; longitude: number } | null>(profile.locationCoords);
   const [locationLoading, setLocationLoading] = useState(false);
-  const [locationStatus, setLocationStatus] = useState<"idle" | "granted" | "denied">("idle");
-  const [locationAddress, setLocationAddress] = useState<string | null>(null);
-  const [serviceRadius, setServiceRadius] = useState(10); // km
-  const [mapRegion, setMapRegion] = useState<Region>({
-    latitude: 20.5937,
-    longitude: 78.9629,
-    latitudeDelta: 20,
-    longitudeDelta: 20,
-  });
+  const [locationStatus, setLocationStatus] = useState<"idle" | "granted" | "denied">(
+    profile.locationCoords ? "granted" : "idle"
+  );
+  const [locationAddress, setLocationAddressLocal] = useState<string | null>(profile.locationAddress);
+  const [serviceRadius, setServiceRadiusLocal] = useState(profile.serviceRadius);
+  const [mapRegion, setMapRegion] = useState<Region>(
+    profile.locationCoords
+      ? { ...profile.locationCoords, latitudeDelta: 0.01, longitudeDelta: 0.01 }
+      : { latitude: 20.5937, longitude: 78.9629, latitudeDelta: 20, longitudeDelta: 20 }
+  );
+
+  const setLocationCoords = (v: { latitude: number; longitude: number } | null) => {
+    setLocationCoordsLocal(v);
+    setProfile({ locationCoords: v });
+  };
+  const setLocationAddress = (v: string | null) => {
+    setLocationAddressLocal(v);
+    setProfile({ locationAddress: v });
+  };
+  const setServiceRadius = (v: number) => {
+    setServiceRadiusLocal(v);
+    setProfile({ serviceRadius: v });
+  };
+
+  // ── Prefill from server when navigating back to an already-completed profile
+  // Only fires when context is still at defaults (e.g. fresh mount via replace).
+  useEffect(() => {
+    if (profile.fullName.length > 0) return; // context already has data, skip
+    api.get<{
+      profile: {
+        fullName: string;
+        gender: string | null;
+        dateOfBirth: string | null;
+        address: { house?: string; street?: string; locality?: string; city: string; state: string; pincode: string } | null;
+        location: { latitude: number; longitude: number } | null;
+        serviceRadius: number;
+      };
+    }>("/partner/auth/profile")
+      .then(({ data }) => {
+        const p = data.profile;
+        const dob = p.dateOfBirth ? new Date(p.dateOfBirth) : null;
+        const coords = p.location ?? null;
+
+        // Batch-update context
+        setProfile({
+          fullName:      p.fullName ?? "",
+          gender:        p.gender ?? null,
+          dateOfBirth:   dob,
+          house:         p.address?.house    ?? "",
+          street:        p.address?.street   ?? "",
+          locality:      p.address?.locality ?? "",
+          city:          p.address?.city     ?? "",
+          state:         p.address?.state    ?? "",
+          pincode:       p.address?.pincode  ?? "",
+          locationCoords: coords,
+          locationAddress: null,
+          serviceRadius: p.serviceRadius ?? 10,
+        });
+
+        // Sync local state so the currently-rendered fields update immediately
+        setFullNameLocal(p.fullName ?? "");
+        setGenderLocal(p.gender ?? null);
+        setDateOfBirthLocal(dob);
+        setHouseLocal(p.address?.house    ?? "");
+        setStreetLocal(p.address?.street  ?? "");
+        setLocalityLocal(p.address?.locality ?? "");
+        setCityLocal(p.address?.city  ?? "");
+        setStateLocal(p.address?.state ?? "");
+        setPincodeLocal(p.address?.pincode ?? "");
+        if (p.address?.city || p.address?.street) setAddressFilled(true);
+        if (coords) {
+          setLocationCoordsLocal(coords);
+          setLocationStatus("granted");
+          setMapRegion({ ...coords, latitudeDelta: 0.01, longitudeDelta: 0.01 });
+        }
+        setServiceRadiusLocal(p.serviceRadius ?? 10);
+      })
+      .catch(() => {
+        // silently ignore — partner can fill manually
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Validation
   const step0Valid = fullName.trim().length >= 2 && gender !== null && dateOfBirth !== null;
@@ -413,7 +503,7 @@ export default function CompleteProfileScreen() {
     });
     if (success) {
       patchPartner({ isProfile: true });
-      router.replace(ROUTES.ONBOARDING.SERVICE as any);
+      router.push(ROUTES.ONBOARDING.SERVICE as any);
     }
   }, [complete, fullName, gender, dateOfBirth, house, street, locality, city, state, pincode, locationCoords, serviceRadius, patchPartner]);
 
@@ -520,7 +610,7 @@ export default function CompleteProfileScreen() {
                   Type a street, area or landmark to auto-fill the form
                 </Text>
                 <PlacesInput
-                  placeholder="e.g. MG Road, Koramangala…"
+                  placeholder="e.g. Lawrence Road, Amritsar…"
                   iconName="search-outline"
                   onSelect={handleAddressSelect}
                 />
@@ -641,7 +731,7 @@ export default function CompleteProfileScreen() {
                   Search your primary work area or tap the map to pin it
                 </Text>
                 <PlacesInput
-                  placeholder="e.g. Koramangala, Bangalore"
+                  placeholder="e.g. Ranjit Avenue, Amritsar"
                   iconName="location-outline"
                   onSelect={handleLocationSelect}
                 />

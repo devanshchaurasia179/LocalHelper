@@ -39,13 +39,11 @@ import {
   Text,
   View,
 } from "react-native";
-
 // Maximum photos that can be picked at once for a single document slot
 const MAX_MULTI_PHOTOS = 5;
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import Animated, { FadeIn } from "react-native-reanimated";
-import * as ImagePicker from "expo-image-picker";
+import Animated, { FadeIn } from "react-native-reanimated";import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import Toast from "react-native-toast-message";
 
@@ -117,7 +115,7 @@ export default function UploadDocumentsScreen() {
   const pickFile = useCallback(
     async (
       doc: VerificationDocument
-    ): Promise<Array<{ uri: string; mimeType: string }> | null> => {
+    ): Promise<Array<{ uri: string; mimeType: string; fileSize?: number }> | null> => {
       // ── Check whether PDF is accepted for this document ─────────────────
       const acceptsPdf = doc.acceptedTypes.includes("application/pdf");
 
@@ -144,6 +142,7 @@ export default function UploadDocumentsScreen() {
         return [{
           uri: result.assets[0].uri,
           mimeType: result.assets[0].mimeType ?? "image/jpeg",
+          fileSize: result.assets[0].fileSize,
         }];
       }
 
@@ -175,6 +174,7 @@ export default function UploadDocumentsScreen() {
       return result.assets.map((asset) => ({
         uri: asset.uri,
         mimeType: asset.mimeType ?? "image/jpeg",
+        fileSize: asset.fileSize,
       }));
     },
     []
@@ -208,6 +208,22 @@ export default function UploadDocumentsScreen() {
       // ── 2. Pick file(s) ───────────────────────────────────────────────────
       const files = await pickFile(doc);
       if (!files || files.length === 0) return; // user cancelled
+
+      // ── 2a. Validate file sizes (max 4.5 MB per file) ─────────────────────
+      const MAX_FILE_SIZE_BYTES = 4.5 * 1024 * 1024; // 4.5 MB
+      const oversizedCount = files.filter(
+        (f) => f.fileSize !== undefined && f.fileSize > MAX_FILE_SIZE_BYTES
+      ).length;
+
+      if (oversizedCount > 0) {
+        Alert.alert(
+          "File Too Large",
+          oversizedCount === 1
+            ? "The selected file exceeds the 4.5 MB limit. Please choose a smaller file."
+            : `${oversizedCount} selected files exceed the 4.5 MB limit. Please choose smaller files.`
+        );
+        return;
+      }
 
       // ── 3. Show pending strip immediately after selection ─────────────────
       setPendingUris((prev) => ({ ...prev, [slotKey]: files.map((f) => f.uri) }));
@@ -399,6 +415,22 @@ export default function UploadDocumentsScreen() {
         <View style={styles.triMidRight} pointerEvents="none" />
         <View style={styles.triMidLeft} pointerEvents="none" />
         <View style={styles.triBottomRight} pointerEvents="none" />
+        {/* Back button */}
+        <Pressable
+          style={styles.heroBackBtn}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace(ROUTES.ONBOARDING.SERVICE as any);
+            }
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={8}
+        >
+          <Ionicons name="chevron-back" size={20} color="rgba(255,255,255,0.9)" />
+        </Pressable>
         <Text style={styles.appName}>LocalHelpers Partner</Text>
         <Text style={styles.heroTitle}>Verify your{"\n"}identity</Text>
         <Text style={styles.heroSub}>Step 3 of 3 — Upload KYC documents</Text>
@@ -762,6 +794,18 @@ const styles = StyleSheet.create({
   heroSub: {
     fontFamily: fonts.jostRegular, fontSize: 14,
     color: "rgba(255,255,255,0.65)", marginTop: spacing.xs, lineHeight: 20,
+  },
+  heroBackBtn: {
+    position: "absolute",
+    top: 44,
+    left: spacing.lg,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
   },
 
   // Geometric decorations

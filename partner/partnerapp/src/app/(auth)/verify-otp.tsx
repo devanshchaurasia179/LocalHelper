@@ -164,7 +164,13 @@ export default function VerifyOtpScreen() {
 
           <TouchableOpacity
             style={styles.backBtn}
-            onPress={() => router.back()}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace(ROUTES.AUTH.SEND_OTP as any);
+              }
+            }}
             accessibilityRole="button"
             accessibilityLabel="Go back"
           >

@@ -874,7 +874,18 @@ export const submitVerification = async (req, res) => {
 
     // Load relevant document types for this partner
     const relevantDocTypes = await getRelevantDocumentTypes(partner.categories);
-    const requiredDocTypes  = relevantDocTypes.filter((dt) => dt.isRequired);
+
+    // Compute effective isRequired per-partner (mirrors buildDocumentObject logic).
+    // requiredForCategories overrides the base isRequired flag when populated.
+    const partnerCatStrings = (partner.categories || []).map((c) => c.toString());
+    const requiredDocTypes = relevantDocTypes.filter((dt) => {
+      if (dt.requiredForCategories && dt.requiredForCategories.length > 0) {
+        return dt.requiredForCategories.some((catId) =>
+          partnerCatStrings.includes(catId.toString())
+        );
+      }
+      return dt.isRequired;
+    });
 
     // Load all active uploads
     const uploadMap = await getActiveUploads(req.partnerId);

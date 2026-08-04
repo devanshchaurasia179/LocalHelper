@@ -14,8 +14,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/constants/api";
 import { useAuth } from "@/providers/AuthProvider";
+import { useOnboarding } from "@/contexts/OnboardingContext";
 import { ROUTES } from "@/constants/routes";
 import { colors, spacing, radii, fonts } from "@/constants/theme";
 
@@ -175,18 +177,54 @@ const wdStyles = StyleSheet.create({
 
 export default function AddServiceScreen() {
   const { patchPartner } = useAuth();
+  const { service, setService } = useOnboarding();
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [catLoading, setCatLoading] = useState(true);
 
-  const [selectedCats, setSelectedCats] = useState<string[]>([]);
-  const [skills, setSkills] = useState("");
-  const [experience, setExperience] = useState("");
-  const [selectedLangs, setSelectedLangs] = useState<string[]>(["Hindi", "English"]);
-  const [bio, setBio] = useState("");
-  const [visitingCredits, setVisitingCredits] = useState("");
-  const [emergency, setEmergency] = useState(false);
-  const [workingDays, setWorkingDays] = useState<WorkingDay[]>([]);
+  // Seed all fields from shared context so state is preserved when going back
+  const [selectedCats, setSelectedCatsLocal] = useState<string[]>(service.selectedCats);
+  const [skills, setSkillsLocal] = useState(service.skills);
+  const [experience, setExperienceLocal] = useState(service.experience);
+  const [selectedLangs, setSelectedLangsLocal] = useState<string[]>(service.selectedLangs);
+  const [bio, setBioLocal] = useState(service.bio);
+  const [visitingCredits, setVisitingCreditsLocal] = useState(service.visitingCredits);
+  const [emergency, setEmergencyLocal] = useState(service.emergency);
+  const [workingDays, setWorkingDaysLocal] = useState<WorkingDay[]>(service.workingDays);
+
+  // Wrappers that write through to context
+  const setSelectedCats = (v: string[] | ((p: string[]) => string[])) => {
+    setSelectedCatsLocal((prev) => {
+      const next = typeof v === "function" ? v(prev) : v;
+      setService({ selectedCats: next });
+      return next;
+    });
+  };
+  const setSkills = (v: string) => { setSkillsLocal(v); setService({ skills: v }); };
+  const setExperience = (v: string) => { setExperienceLocal(v); setService({ experience: v }); };
+  const setSelectedLangs = (v: string[] | ((p: string[]) => string[])) => {
+    setSelectedLangsLocal((prev) => {
+      const next = typeof v === "function" ? v(prev) : v;
+      setService({ selectedLangs: next });
+      return next;
+    });
+  };
+  const setBio = (v: string) => { setBioLocal(v); setService({ bio: v }); };
+  const setVisitingCredits = (v: string) => { setVisitingCreditsLocal(v); setService({ visitingCredits: v }); };
+  const setEmergency = (v: boolean | ((p: boolean) => boolean)) => {
+    setEmergencyLocal((prev) => {
+      const next = typeof v === "function" ? v(prev) : v;
+      setService({ emergency: next });
+      return next;
+    });
+  };
+  const setWorkingDays = (v: WorkingDay[] | ((p: WorkingDay[]) => WorkingDay[])) => {
+    setWorkingDaysLocal((prev) => {
+      const next = typeof v === "function" ? v(prev) : v;
+      setService({ workingDays: next });
+      return next;
+    });
+  };
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -196,6 +234,67 @@ export default function AddServiceScreen() {
       .then((res) => setCategories(res.data.categories ?? []))
       .catch(() => setCategories([]))
       .finally(() => setCatLoading(false));
+  }, []);
+
+  // ── Prefill from server when context is cold (back-navigation or deep link)
+  useEffect(() => {
+    // Skip if context already has data typed by the user this session
+    if (service.selectedCats.length > 0 || service.skills.length > 0) return;
+
+    api.get<{
+      service: {
+        categories: { _id: string }[];
+        skills: string[];
+        experience?: number;
+        languages: string[];
+        bio?: string;
+        visitingCredits: number;
+        emergencyAvailable: boolean;
+        workingDays: WorkingDay[];
+      };
+    }>("/partner/service")
+      .then(({ data }) => {
+        const s = data.service;
+        if (!s) return;
+
+        const cats    = (s.categories ?? []).map((c) => c._id);
+        const skillsStr = (s.skills ?? []).join(", ");
+        const expStr  = s.experience != null ? String(s.experience) : "";
+        const langs   = s.languages ?? [];
+        const bioVal  = s.bio ?? "";
+        const vc      = s.visitingCredits != null ? String(s.visitingCredits) : "";
+        const emerg   = s.emergencyAvailable ?? false;
+        const wdays   = s.workingDays ?? [];
+
+        // Only prefill if the server actually has saved data
+        if (cats.length === 0 && skillsStr.length === 0) return;
+
+        // Sync context
+        setService({
+          selectedCats:    cats,
+          skills:          skillsStr,
+          experience:      expStr,
+          selectedLangs:   langs,
+          bio:             bioVal,
+          visitingCredits: vc,
+          emergency:       emerg,
+          workingDays:     wdays,
+        });
+
+        // Sync local state so the currently-rendered fields update immediately
+        setSelectedCatsLocal(cats);
+        setSkillsLocal(skillsStr);
+        setExperienceLocal(expStr);
+        setSelectedLangsLocal(langs);
+        setBioLocal(bioVal);
+        setVisitingCreditsLocal(vc);
+        setEmergencyLocal(emerg);
+        setWorkingDaysLocal(wdays);
+      })
+      .catch(() => {
+        // silently ignore — partner can fill manually
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleCat = (id: string) =>
@@ -244,7 +343,7 @@ export default function AddServiceScreen() {
         workingDays: workingDays.length > 0 ? workingDays : undefined,
       });
       patchPartner({ isService: true });
-      router.replace(ROUTES.ONBOARDING.DOCUMENTS as any);
+      router.push(ROUTES.ONBOARDING.DOCUMENTS as any);
     } catch (err: any) {
       setError(err?.response?.data?.message ?? "Something went wrong. Please try again.");
     } finally {
@@ -264,6 +363,22 @@ export default function AddServiceScreen() {
           <View style={styles.triMidRight} pointerEvents="none" />
           <View style={styles.triMidLeft} pointerEvents="none" />
           <View style={styles.triBottomRight} pointerEvents="none" />
+          {/* Back button */}
+          <Pressable
+            style={styles.heroBackBtn}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace(ROUTES.ONBOARDING.PROFILE as any);
+              }
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            hitSlop={8}
+          >
+            <Ionicons name="chevron-back" size={20} color="rgba(255,255,255,0.9)" />
+          </Pressable>
           <Text style={styles.appName}>LocalHelpers Partner</Text>
           <Text style={styles.heroTitle}>Set up your{"\n"}service</Text>
           <Text style={styles.heroSub}>Step 2 of 3 — What do you offer?</Text>
@@ -511,6 +626,18 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl + 16,
     overflow: "hidden",
     justifyContent: "flex-end",
+  },
+  heroBackBtn: {
+    position: "absolute",
+    top: 56,
+    left: spacing.lg,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
   },
   appName: {
     fontFamily: fonts.jostSemiBold, fontSize: 13, color: "rgba(255,255,255,0.7)",
