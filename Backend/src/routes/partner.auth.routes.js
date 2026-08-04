@@ -3,6 +3,7 @@ import {
   sendOtp,
   verifyOtp,
   completeProfile,
+  getProfile,
   logout,
   getMe,
 } from "../controllers/partner.auth.controller.js";
@@ -17,6 +18,7 @@ router.post("/logout", logout); // No auth check — just clears the cookie
 
 // Protected routes (requires valid partner_token cookie)
 router.get("/me", protectPartner, getMe);
+router.get("/profile", protectPartner, getProfile);
 router.put("/complete-profile", protectPartner, completeProfile);
 
 export default router;

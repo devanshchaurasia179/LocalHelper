@@ -237,6 +237,46 @@ export const completeProfile = async (req, res) => {
   }
 };
 
+// ─── Get Profile (for editing / back-navigation pre-fill) ───────────────────
+/**
+ * GET /api/partner/auth/profile
+ * Headers: Cookie partner_token=<jwt>
+ *
+ * Returns the partner's editable profile fields so the complete-profile
+ * screen can pre-fill when navigating back to edit.
+ */
+export const getProfile = async (req, res) => {
+  try {
+    const partner = await Partner.findById(req.partnerId).select(
+      "fullName gender dateOfBirth address serviceLocation serviceRadius"
+    );
+
+    if (!partner) {
+      return res.status(404).json({ message: "Partner not found." });
+    }
+
+    // Extract lat/lng from GeoJSON Point for the frontend
+    const coords = partner.serviceLocation?.coordinates;
+    const location = coords
+      ? { longitude: coords[0], latitude: coords[1] }
+      : null;
+
+    return res.status(200).json({
+      profile: {
+        fullName:      partner.fullName ?? "",
+        gender:        partner.gender ?? null,
+        dateOfBirth:   partner.dateOfBirth ?? null,
+        address:       partner.address ?? null,
+        location,
+        serviceRadius: partner.serviceRadius ?? 10,
+      },
+    });
+  } catch (error) {
+    console.error("getProfile error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
 // ─── Me (restore session) ────────────────────────────────────────────────────
 /**
  * GET /api/partner/auth/me
