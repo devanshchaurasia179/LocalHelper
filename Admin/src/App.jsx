@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { AuthProvider } from '@/contexts/AuthContext'
 import ProtectedRoute from '@/routes/ProtectedRoute'
 import DashboardLayout from '@/components/layout/DashboardLayout'
@@ -8,12 +8,18 @@ import LoginPage                from '@/pages/LoginPage'
 import DashboardPage            from '@/pages/DashboardPage'
 import PartnersPage             from '@/pages/PartnersPage'
 import PartnerDetailPage        from '@/pages/PartnerDetailPage'
-import VerificationPage         from '@/pages/VerificationPage'
-import VerificationDetailPage   from '@/pages/VerificationDetailPage'
 import DocumentManagementPage   from '@/pages/DocumentManagementPage'
 import ServicesPage             from '@/pages/ServicesPage'
 import PlaceholderPage          from '@/pages/PlaceholderPage'
 import NotFoundPage             from '@/pages/NotFoundPage'
+
+/**
+ * Redirects /verification/:partnerId → /partners/:partnerId
+ */
+const RedirectToPartner = () => {
+  const { partnerId } = useParams()
+  return <Navigate to={`/partners/${partnerId}`} replace />
+}
 
 /**
  * App — root component.
@@ -23,9 +29,9 @@ import NotFoundPage             from '@/pages/NotFoundPage'
  *   /                                → redirect to /dashboard
  *   /dashboard                       → DashboardPage           (protected)
  *   /partners                        → PartnersPage            (protected)
- *   /partners/:id                    → PartnerDetailPage       (protected)
- *   /verification                    → VerificationPage        (protected) — pending queue
- *   /verification/:partnerId         → VerificationDetailPage  (protected) — per-partner review
+ *   /partners/:id                    → PartnerDetailPage       (protected) — full detail + doc review
+ *   /verification                    → redirects to /partners
+ *   /verification/:partnerId         → redirects to /partners/:partnerId
  *   /documents                       → DocumentManagementPage  (protected) — document type CRUD
  *   /customers, /bookings...         → PlaceholderPage         (protected)
  *   *                                → 404
@@ -50,8 +56,8 @@ const App = () => (
             <Route path="/dashboard"                element={<DashboardPage />} />
             <Route path="/partners"                 element={<PartnersPage />} />
             <Route path="/partners/:id"             element={<PartnerDetailPage />} />
-            <Route path="/verification"             element={<VerificationPage />} />
-            <Route path="/verification/:partnerId"  element={<VerificationDetailPage />} />
+            <Route path="/verification"             element={<Navigate to="/partners" replace />} />
+            <Route path="/verification/:partnerId"  element={<RedirectToPartner />} />
             <Route path="/documents"                element={<DocumentManagementPage />} />
             <Route path="/customers"    element={<PlaceholderPage title="Customers" />} />
             <Route path="/bookings"     element={<PlaceholderPage title="Bookings" />} />

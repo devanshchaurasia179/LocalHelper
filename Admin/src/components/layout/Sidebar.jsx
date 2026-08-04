@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard,
   Users,
-  ShieldCheck,
   UserCheck,
   CalendarDays,
   Wrench,
@@ -25,7 +24,6 @@ import toast from 'react-hot-toast'
 const NAV_ITEMS = [
   { label: 'Dashboard',          to: '/dashboard',  icon: LayoutDashboard },
   { label: 'Partners',           to: '/partners',   icon: Users },
-  { label: 'Verification',       to: '/verification', icon: ShieldCheck },
   { label: 'Document Management', to: '/documents', icon: FileStack },
   { label: 'Customers',          to: '/customers',  icon: UserCheck },
   { label: 'Bookings',           to: '/bookings',   icon: CalendarDays },

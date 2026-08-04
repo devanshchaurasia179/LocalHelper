@@ -288,7 +288,7 @@ export const getProfile = async (req, res) => {
 export const getMe = async (req, res) => {
   try {
     const partner = await Partner.findById(req.partnerId).select(
-      "_id phone fullName verification.phoneVerified verificationStatus rejectionReason isProfile isService isDocument categories"
+      "_id phone fullName verification.phoneVerified verificationStatus rejectionReason isProfile isService isDocument categories accountStatus statusReason"
     );
 
     if (!partner) {
@@ -363,6 +363,8 @@ export const getMe = async (req, res) => {
         isProfile: partner.isProfile,
         isService: partner.isService,
         isDocument: effectiveIsDocument,
+        accountStatus: partner.accountStatus ?? "Active",
+        statusReason: partner.statusReason ?? null,
       },
     });
   } catch (error) {
