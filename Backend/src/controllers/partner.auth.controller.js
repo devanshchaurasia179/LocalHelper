@@ -34,8 +34,7 @@ export const sendOtp = async (req, res) => {
     // Find existing partner or create a minimal doc with just the phone
     let partner = await Partner.findOne({ phone });
     if (!partner) {
-      partner = new Partner({ phone, fullName: "Pending" });
-      // fullName is required in schema; placeholder until profile step
+      partner = new Partner({ phone });
     }
 
     // Generate OTP
@@ -108,7 +107,7 @@ export const verifyOtp = async (req, res) => {
     // Determine if this partner still needs to complete profile
     const isProfileComplete = !!(
       partner.fullName &&
-      partner.fullName !== "Pending" &&
+      partner.fullName.trim().length > 0 &&
       partner.gender &&
       partner.dateOfBirth
     );
@@ -129,7 +128,7 @@ export const verifyOtp = async (req, res) => {
       partner: {
         id: partner._id,
         phone: partner.phone,
-        fullName: partner.fullName !== "Pending" ? partner.fullName : null,
+        fullName: partner.fullName?.trim().length > 0 ? partner.fullName : null,
         phoneVerified: partner.verification.phoneVerified,
         verificationStatus: partner.verificationStatus,
         isProfile: partner.isProfile,
@@ -356,7 +355,7 @@ export const getMe = async (req, res) => {
       partner: {
         id: partner._id,
         phone: partner.phone,
-        fullName: partner.fullName !== "Pending" ? partner.fullName : null,
+        fullName: partner.fullName?.trim().length > 0 ? partner.fullName : null,
         phoneVerified: partner.verification.phoneVerified,
         verificationStatus: effectiveVerificationStatus,
         rejectionReason: partner.rejectionReason ?? null,

@@ -2,8 +2,8 @@
 const profileFields = {
   fullName: {
     type: String,
-    required: true,
     trim: true,
+    default: "",
   },
   gender: {
     type: String,
