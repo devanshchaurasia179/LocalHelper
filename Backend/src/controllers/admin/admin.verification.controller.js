@@ -605,6 +605,26 @@ export const forceApproveVerification = async (req, res) => {
 
     await session.save();
 
+    // Bulk-approve all non-Superseded, non-Rejected documents so the
+    // individual document cards reflect the partner's approved state.
+    const now = new Date();
+    await PartnerDocument.updateMany(
+      {
+        partnerId,
+        status: { $nin: ["Superseded", "Rejected", "Approved"] },
+      },
+      {
+        $set: {
+          status:          "Approved",
+          approvedBy:      req.admin._id,
+          approvedAt:      now,
+          rejectionReason: null,
+          rejectedBy:      null,
+          rejectedAt:      null,
+        },
+      }
+    );
+
     // Sync partner
     partner.verificationStatus = "Approved";
     partner.rejectionReason    = undefined;
