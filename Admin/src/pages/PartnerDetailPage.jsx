@@ -232,7 +232,7 @@ const PartnerDetailPage = () => {
     partner.address?.pincode,
   ].filter(Boolean).join(', ')
 
-  const canForceApprove = session?.overallStatus !== 'Approved'
+  const canForceApprove = true   // always allow; backend handles idempotency
   const canForceReject  = session?.overallStatus !== 'Rejected'
 
   return (

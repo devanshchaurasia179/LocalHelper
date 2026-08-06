@@ -567,7 +567,9 @@ export const forceApproveVerification = async (req, res) => {
     }
 
     if (partner.verificationStatus === "Approved") {
-      return res.status(400).json({ message: "Partner is already approved." });
+      // Still allow force-approve even if already approved — this lets admins
+      // bulk-approve any remaining rejected/pending documents on an approved partner.
+      // We skip the early return and fall through to the updateMany below.
     }
 
     // Must have at least one non-Superseded upload
@@ -605,13 +607,14 @@ export const forceApproveVerification = async (req, res) => {
 
     await session.save();
 
-    // Bulk-approve all non-Superseded, non-Rejected documents so the
-    // individual document cards reflect the partner's approved state.
+    // Bulk-approve ALL non-Superseded documents regardless of their current
+    // status (Under Review, Pending, Rejected) so every document card
+    // reflects the partner's approved state after a force-approve.
     const now = new Date();
     await PartnerDocument.updateMany(
       {
         partnerId,
-        status: { $nin: ["Superseded", "Rejected", "Approved"] },
+        status: { $ne: "Superseded" },
       },
       {
         $set: {
