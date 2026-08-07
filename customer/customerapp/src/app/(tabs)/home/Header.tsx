@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import axios from 'axios';
 import { colors, spacing, radii, typography, fonts } from './theme';
 import { useAuth } from '@/providers/AuthProvider';
 
@@ -54,7 +55,163 @@ const EMPTY_FORM = {
 
 type FormMode = 'add' | 'edit';
 
-// ─── Helper: silently get GPS coords ─────────────────────────────────────────
+// ─── Places helpers (same pattern as onboarding/index.tsx) ───────────────────
+
+const MAPS_KEY: string = process.env.EXPO_PUBLIC_MAPS_KEY ?? '';
+
+type PlaceSuggestion = {
+  place_id: string;
+  description: string;
+  structured_formatting: { main_text: string; secondary_text: string };
+};
+
+type AddressComponent = {
+  long_name: string;
+  short_name: string;
+  types: string[];
+};
+
+function newSessionToken() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+async function fetchSuggestions(
+  input: string,
+  sessionToken: string,
+): Promise<PlaceSuggestion[]> {
+  const { data } = await axios.get(
+    'https://maps.googleapis.com/maps/api/place/autocomplete/json',
+    {
+      params: {
+        input,
+        key: MAPS_KEY,
+        language: 'en',
+        components: 'country:in',
+        sessiontoken: sessionToken,
+      },
+    },
+  );
+  if (__DEV__ && data.status !== 'OK')
+    console.warn('[Places]', data.status, data.error_message);
+  return data.status === 'OK' ? data.predictions : [];
+}
+
+async function fetchPlaceDetails(
+  placeId: string,
+  sessionToken: string,
+): Promise<{ components: AddressComponent[] } | null> {
+  const { data } = await axios.get(
+    'https://maps.googleapis.com/maps/api/place/details/json',
+    {
+      params: {
+        place_id: placeId,
+        fields: 'address_components',
+        key: MAPS_KEY,
+        sessiontoken: sessionToken,
+      },
+    },
+  );
+  if (data.status !== 'OK') return null;
+  return { components: data.result.address_components ?? [] };
+}
+
+function getComponent(
+  components: AddressComponent[],
+  type: string,
+  form: 'long_name' | 'short_name' = 'long_name',
+): string {
+  return components.find((c) => c.types.includes(type))?.[form] ?? '';
+}
+
+// ─── PlacesInput (inline, no external library) ────────────────────────────────
+
+type PlacesInputProps = {
+  placeholder: string;
+  onSelect: (s: PlaceSuggestion) => void;
+};
+
+function PlacesInput({ placeholder, onSelect }: PlacesInputProps) {
+  const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [fetching, setFetching] = useState(false);
+  const token = useRef(newSessionToken());
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleChange = useCallback((text: string) => {
+    setQuery(text);
+    if (timer.current) clearTimeout(timer.current);
+    if (text.trim().length < 3) { setSuggestions([]); return; }
+    timer.current = setTimeout(async () => {
+      setFetching(true);
+      try { setSuggestions(await fetchSuggestions(text.trim(), token.current)); }
+      catch { setSuggestions([]); }
+      finally { setFetching(false); }
+    }, 350);
+  }, []);
+
+  const handlePick = useCallback((item: PlaceSuggestion) => {
+    setQuery(item.description);
+    setSuggestions([]);
+    token.current = newSessionToken();
+    onSelect(item);
+  }, [onSelect]);
+
+  const clear = useCallback(() => { setQuery(''); setSuggestions([]); }, []);
+
+  return (
+    <View>
+      <View style={acStyles.inputRow}>
+        <Ionicons name="search-outline" size={16} color={colors.textSecondary} style={acStyles.icon} />
+        <TextInput
+          style={acStyles.input}
+          value={query}
+          onChangeText={handleChange}
+          placeholder={placeholder}
+          placeholderTextColor={colors.textSecondary}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
+          accessibilityLabel={placeholder}
+        />
+        {fetching
+          ? <ActivityIndicator size="small" color={colors.primary} style={acStyles.endIcon} />
+          : query.length > 0
+            ? (
+              <Pressable onPress={clear} hitSlop={8} style={acStyles.endIcon}>
+                <Ionicons name="close-circle" size={16} color={colors.textSecondary} />
+              </Pressable>
+            )
+            : null}
+      </View>
+      {suggestions.length > 0 && (
+        <View style={acStyles.suggestionList}>
+          {suggestions.map((item, i) => (
+            <View key={item.place_id}>
+              {i > 0 && <View style={acStyles.sep} />}
+              <Pressable
+                style={({ pressed }) => [acStyles.suggestionRow, pressed && acStyles.rowPressed]}
+                onPress={() => handlePick(item)}
+                accessibilityRole="button"
+              >
+                <Ionicons name="location-outline" size={14} color={colors.primary} style={{ marginTop: 2, flexShrink: 0 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={acStyles.mainText} numberOfLines={1}>
+                    {item.structured_formatting.main_text}
+                  </Text>
+                  <Text style={acStyles.subText} numberOfLines={1}>
+                    {item.structured_formatting.secondary_text}
+                  </Text>
+                </View>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ─── Helper: GPS coords ───────────────────────────────────────────────────────
 
 async function getCoordsSilently(): Promise<{ latitude: number; longitude: number } | null> {
   try {
@@ -84,13 +241,15 @@ export default function Header({
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [autoFilled, setAutoFilled] = useState(false);
+  const [detectingGps, setDetectingGps] = useState(false);
 
   const selected = addresses[selectedIndex];
   const primaryLine = selected
     ? selected.locality?.trim() || selected.city
     : 'Set your location';
 
-  // ── Handlers ────────────────────────────────────────────────────────────────
+  // ── Address form handlers ────────────────────────────────────────────────
 
   const handleSelect = (index: number) => {
     onSelectAddress(index);
@@ -101,6 +260,7 @@ export default function Header({
     setForm(EMPTY_FORM);
     setFormMode('add');
     setEditingAddressId(null);
+    setAutoFilled(false);
     setPickerVisible(false);
     setFormVisible(true);
   };
@@ -117,9 +277,62 @@ export default function Header({
     });
     setFormMode('edit');
     setEditingAddressId(addr._id ?? null);
+    setAutoFilled(false);
     setPickerVisible(false);
     setFormVisible(true);
   };
+
+  // ── Places search → auto-fill form ──────────────────────────────────────────
+
+  const handleAddressSelect = useCallback(async (suggestion: PlaceSuggestion) => {
+    try {
+      const details = await fetchPlaceDetails(suggestion.place_id, newSessionToken());
+      if (!details) return;
+      const c = details.components;
+      setForm((prev) => ({
+        ...prev,
+        street:   [getComponent(c, 'street_number'), getComponent(c, 'route')].filter(Boolean).join(' '),
+        locality: getComponent(c, 'sublocality_level_1') || getComponent(c, 'sublocality'),
+        city:     getComponent(c, 'locality') || getComponent(c, 'administrative_area_level_2'),
+        state:    getComponent(c, 'administrative_area_level_1'),
+        pincode:  getComponent(c, 'postal_code'),
+      }));
+      setAutoFilled(true);
+    } catch {
+      Alert.alert('Error', 'Could not fetch address details. Please fill in manually.');
+    }
+  }, []);
+
+  // ── GPS auto-detect → reverse-geocode → fill form ───────────────────────────
+
+  const handleDetectLocation = useCallback(async () => {
+    setDetectingGps(true);
+    try {
+      const coords = await getCoordsSilently();
+      if (!coords) {
+        Alert.alert('Permission denied', 'Location permission was not granted.');
+        return;
+      }
+      const [addr] = await Location.reverseGeocodeAsync(coords);
+      if (addr) {
+        setForm((prev) => ({
+          ...prev,
+          street:   addr.street  ?? prev.street,
+          locality: addr.district ?? addr.subregion ?? prev.locality,
+          city:     addr.city    ?? prev.city,
+          state:    addr.region  ?? prev.state,
+          pincode:  addr.postalCode ?? prev.pincode,
+        }));
+        setAutoFilled(true);
+      }
+    } catch {
+      Alert.alert('Location Error', 'Could not detect your location.');
+    } finally {
+      setDetectingGps(false);
+    }
+  }, []);
+
+  // ── Save ─────────────────────────────────────────────────────────────────────
 
   const handleSave = async () => {
     if (!form.city.trim() || !form.state.trim() || !form.pincode.trim()) {
@@ -133,10 +346,7 @@ export default function Header({
 
     try {
       setSaving(true);
-
-      // Silently grab GPS — no prompt shown to user, ignored if unavailable
       const location = await getCoordsSilently();
-
       const addressPayload = {
         label:    form.label.trim()    || 'Home',
         house:    form.house.trim(),
@@ -151,7 +361,6 @@ export default function Header({
         await updateAddress(editingAddressId, addressPayload, location ?? undefined);
       } else {
         await addAddress(addressPayload);
-        // Auto-select the newly added address
         onSelectAddress(addresses.length);
       }
 
@@ -170,9 +379,8 @@ export default function Header({
 
   return (
     <View style={styles.container}>
-      {/* ── Left: location tap ─────────────────────────────────────── */}
+      {/* ── Left: location tap ──────────────────────────────────────────── */}
       <View style={styles.left}>
-
         <TouchableOpacity
           style={styles.locationRow}
           onPress={() => setPickerVisible(true)}
@@ -182,65 +390,39 @@ export default function Header({
           <View style={styles.locationText}>
             <Text style={styles.locationLabel}>Your Location</Text>
             <View style={styles.locationValueRow}>
-              <Text style={styles.primaryLocation} numberOfLines={1}>
-                {primaryLine}
-              </Text>
+              <Text style={styles.primaryLocation} numberOfLines={1}>{primaryLine}</Text>
               <Ionicons name="chevron-down" size={14} color={colors.white} />
             </View>
           </View>
         </TouchableOpacity>
       </View>
 
-      {/* ── Right: notification bell ────────────────────────────────────── */}
-      <TouchableOpacity
-        style={styles.bellButton}
-        onPress={onNotificationPress}
-        activeOpacity={0.7}
-      >
+      {/* ── Right: notification bell ─────────────────────────────────────── */}
+      <TouchableOpacity style={styles.bellButton} onPress={onNotificationPress} activeOpacity={0.7}>
         <Ionicons name="notifications-outline" size={20} color={colors.white} />
         {hasNotification && <View style={styles.dot} />}
       </TouchableOpacity>
 
-      {/* ════════════════════════════════════════════════════════════════════
+      {/* ══════════════════════════════════════════════════════════════════
           ADDRESS PICKER MODAL
-      ════════════════════════════════════════════════════════════════════ */}
-      <Modal
-        visible={pickerVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setPickerVisible(false)}
-      >
+      ══════════════════════════════════════════════════════════════════ */}
+      <Modal visible={pickerVisible} transparent animationType="slide" onRequestClose={() => setPickerVisible(false)}>
         <Pressable style={styles.backdrop} onPress={() => setPickerVisible(false)}>
-          {/* stop inner taps from closing */}
           <Pressable style={styles.sheet} onPress={() => {}}>
-            {/* drag handle */}
             <View style={styles.handle} />
-
             <Text style={styles.sheetTitle}>Choose a location</Text>
-
             <FlatList
               data={addresses}
               keyExtractor={(_, i) => String(i)}
               ItemSeparatorComponent={() => <View style={styles.separator} />}
-              ListEmptyComponent={
-                <Text style={styles.emptyText}>No saved addresses yet.</Text>
-              }
+              ListEmptyComponent={<Text style={styles.emptyText}>No saved addresses yet.</Text>}
               renderItem={({ item, index }) => {
                 const isActive = index === selectedIndex;
-                const icon =
-                  item.label?.toLowerCase().includes('office') ? 'briefcase' : 'home';
+                const icon = item.label?.toLowerCase().includes('office') ? 'briefcase' : 'home';
                 return (
-                  <TouchableOpacity
-                    style={styles.addressItem}
-                    onPress={() => handleSelect(index)}
-                    activeOpacity={0.7}
-                  >
+                  <TouchableOpacity style={styles.addressItem} onPress={() => handleSelect(index)} activeOpacity={0.7}>
                     <View style={[styles.addrIcon, isActive && styles.addrIconActive]}>
-                      <Ionicons
-                        name={icon}
-                        size={16}
-                        color={isActive ? colors.white : colors.textSecondary}
-                      />
+                      <Ionicons name={icon} size={16} color={isActive ? colors.white : colors.textSecondary} />
                     </View>
                     <View style={styles.addrDetails}>
                       <Text style={[styles.addrLabel, isActive && styles.addrLabelActive]}>
@@ -248,14 +430,10 @@ export default function Header({
                       </Text>
                       <Text style={styles.addrFull} numberOfLines={2}>
                         {[item.house, item.street, item.locality, item.city, item.state, item.pincode]
-                          .filter(Boolean)
-                          .join(', ')}
+                          .filter(Boolean).join(', ')}
                       </Text>
                     </View>
-                    {isActive && (
-                      <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
-                    )}
-                    {/* Edit pencil */}
+                    {isActive && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
                     <TouchableOpacity
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                       onPress={() => openEditForm(item)}
@@ -268,8 +446,6 @@ export default function Header({
                 );
               }}
             />
-
-            {/* Add location button */}
             <TouchableOpacity style={styles.addBtn} onPress={openAddForm} activeOpacity={0.8}>
               <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
               <Text style={styles.addBtnText}>Add location</Text>
@@ -278,22 +454,13 @@ export default function Header({
         </Pressable>
       </Modal>
 
-      {/* ════════════════════════════════════════════════════════════════════
+      {/* ══════════════════════════════════════════════════════════════════
           ADD / EDIT LOCATION FORM MODAL
-      ════════════════════════════════════════════════════════════════════ */}
-      <Modal
-        visible={formVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setFormVisible(false)}
-      >
-        <KeyboardAvoidingView
-          style={styles.backdrop}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
+      ══════════════════════════════════════════════════════════════════ */}
+      <Modal visible={formVisible} transparent animationType="slide" onRequestClose={() => setFormVisible(false)}>
+        <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <Pressable style={styles.backdrop} onPress={() => setFormVisible(false)}>
             <Pressable style={[styles.sheet, styles.formSheet]} onPress={() => {}}>
-              {/* drag handle */}
               <View style={styles.handle} />
 
               {/* Header row */}
@@ -307,8 +474,40 @@ export default function Header({
               </View>
 
               <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+
+                {/* ── Search bar + GPS detect ──────────────────────────── */}
+                <Text style={styles.fieldLabel}>Search address</Text>
+                <Text style={styles.fieldHint}>Type a street, area or landmark to auto-fill</Text>
+                <PlacesInput
+                  placeholder="e.g. MG Road, Bangalore…"
+                  onSelect={handleAddressSelect}
+                />
+
+                {/* GPS detect button */}
+                <TouchableOpacity
+                  style={styles.detectBtn}
+                  onPress={handleDetectLocation}
+                  disabled={detectingGps}
+                  activeOpacity={0.8}
+                >
+                  {detectingGps
+                    ? <ActivityIndicator size="small" color={colors.primary} />
+                    : <Ionicons name="locate" size={15} color={colors.primary} />}
+                  <Text style={styles.detectBtnText}>
+                    {detectingGps ? 'Detecting…' : 'Use my current location'}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Auto-filled badge */}
+                {autoFilled && (
+                  <View style={styles.autoFilledBadge}>
+                    <Ionicons name="checkmark-circle" size={14} color="#15803D" />
+                    <Text style={styles.autoFilledText}>Auto-filled — edit below if needed</Text>
+                  </View>
+                )}
+
                 {/* Label quick-pick */}
-                <Text style={styles.fieldLabel}>Label</Text>
+                <Text style={[styles.fieldLabel, { marginTop: spacing.sm }]}>Label</Text>
                 <View style={styles.labelRow}>
                   {['Home', 'Office', 'Other'].map((l) => (
                     <TouchableOpacity
@@ -316,9 +515,7 @@ export default function Header({
                       style={[styles.labelChip, form.label === l && styles.labelChipActive]}
                       onPress={() => set('label')(l)}
                     >
-                      <Text style={[styles.labelChipText, form.label === l && styles.labelChipTextActive]}>
-                        {l}
-                      </Text>
+                      <Text style={[styles.labelChipText, form.label === l && styles.labelChipTextActive]}>{l}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -343,13 +540,11 @@ export default function Header({
                   disabled={saving}
                   activeOpacity={0.85}
                 >
-                  {saving ? (
-                    <ActivityIndicator color={colors.white} size="small" />
-                  ) : (
-                    <Text style={styles.saveBtnText}>
-                      {formMode === 'edit' ? 'Update location' : 'Save location'}
-                    </Text>
-                  )}
+                  {saving
+                    ? <ActivityIndicator color={colors.white} size="small" />
+                    : <Text style={styles.saveBtnText}>
+                        {formMode === 'edit' ? 'Update location' : 'Save location'}
+                      </Text>}
                 </TouchableOpacity>
               </ScrollView>
             </Pressable>
@@ -396,8 +591,56 @@ function FormField({
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
+const acStyles = StyleSheet.create({
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: radii.sm,
+    borderWidth: 1.5,
+    borderColor: colors.navInactive + '66',
+    paddingHorizontal: spacing.md,
+    height: 46,
+  },
+  icon: { marginRight: spacing.xs },
+  input: {
+    flex: 1,
+    fontFamily: fonts.jostRegular,
+    fontSize: 15,
+    color: colors.textPrimary,
+    paddingVertical: 0,
+  },
+  endIcon: { marginLeft: spacing.xs },
+  suggestionList: {
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: colors.navInactive + '55',
+    borderBottomLeftRadius: radii.sm,
+    borderBottomRightRadius: radii.sm,
+    overflow: 'hidden',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    zIndex: 99,
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+  },
+  rowPressed: { backgroundColor: colors.surface },
+  mainText: { fontFamily: fonts.jostMedium, fontSize: 13, color: colors.textPrimary },
+  subText: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary, marginTop: 1 },
+  sep: { height: 1, backgroundColor: colors.navInactive + '33', marginHorizontal: spacing.md },
+});
+
 const styles = StyleSheet.create({
-  // header row
+  // ── header row ──────────────────────────────────────────────────────────────
   container: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -411,11 +654,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     flex: 1,
     marginRight: spacing.sm,
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: radii.pill,
   },
   locationRow: {
     flexDirection: 'row',
@@ -436,10 +674,6 @@ const styles = StyleSheet.create({
   primaryLocation: {
     ...typography.locationValue,
     maxWidth: '90%',
-  },
-  secondaryLocation: {
-    ...typography.greeting,
-    marginTop: 1,
   },
   bellButton: {
     width: 44,
@@ -463,7 +697,7 @@ const styles = StyleSheet.create({
     borderColor: '#f5f5f5',
   },
 
-  // shared modal pieces
+  // ── shared modal pieces ──────────────────────────────────────────────────────
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
@@ -478,7 +712,7 @@ const styles = StyleSheet.create({
     maxHeight: '65%',
   },
   formSheet: {
-    maxHeight: '90%',
+    maxHeight: '92%',
     paddingHorizontal: spacing.md,
   },
   handle: {
@@ -506,7 +740,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
   },
 
-  // address items
+  // ── address items ────────────────────────────────────────────────────────────
   addressItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -524,17 +758,11 @@ const styles = StyleSheet.create({
   },
   addrIconActive: { backgroundColor: colors.primary },
   addrDetails: { flex: 1 },
-  addrLabel: {
-    ...typography.name,
-    fontSize: 14,
-  },
+  addrLabel: { ...typography.name, fontSize: 14 },
   addrLabelActive: { color: colors.primary },
-  addrFull: {
-    ...typography.caption,
-    marginTop: 2,
-  },
+  addrFull: { ...typography.caption, marginTop: 2 },
 
-  // add button at bottom of picker
+  // ── add button ───────────────────────────────────────────────────────────────
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -551,16 +779,61 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
 
-  // form header
+  // ── form header ──────────────────────────────────────────────────────────────
   formHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 0,
     marginBottom: spacing.sm,
   },
 
-  // label quick-pick chips
+  // ── search / detect section ──────────────────────────────────────────────────
+  fieldHint: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs + 2,
+    lineHeight: 16,
+  },
+  detectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.sm,
+    borderWidth: 1.5,
+    borderColor: colors.primary + '55',
+    backgroundColor: colors.primary + '0D',
+    alignSelf: 'flex-start',
+  },
+  detectBtnText: {
+    fontFamily: fonts.jostSemiBold,
+    fontSize: 13,
+    color: colors.primary,
+  },
+  autoFilledBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#DCFCE7',
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+    marginBottom: spacing.xs,
+  },
+  autoFilledText: {
+    fontFamily: fonts.jostMedium,
+    fontSize: 12,
+    color: '#15803D',
+    flex: 1,
+  },
+
+  // ── label chips ──────────────────────────────────────────────────────────────
   labelRow: {
     flexDirection: 'row',
     gap: spacing.sm,
@@ -578,21 +851,15 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     backgroundColor: colors.primary + '18',
   },
-  labelChipText: {
-    ...typography.caption,
-    fontSize: 13,
-  },
-  labelChipTextActive: {
-    color: colors.primary,
-    fontFamily: fonts.jostSemiBold,
-  },
+  labelChipText: { ...typography.caption, fontSize: 13 },
+  labelChipTextActive: { color: colors.primary, fontFamily: fonts.jostSemiBold },
 
-  // form fields
+  // ── form fields ──────────────────────────────────────────────────────────────
   fieldWrap: { marginBottom: spacing.md },
   fieldLabel: {
-    ...typography.label,
     fontFamily: fonts.jostMedium,
-    fontWeight: undefined,
+    fontSize: 11,
+    color: colors.textSecondary,
     marginBottom: 6,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -607,7 +874,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
 
-  // save button
+  // ── save button ──────────────────────────────────────────────────────────────
   saveBtn: {
     backgroundColor: colors.primary,
     borderRadius: radii.md,
