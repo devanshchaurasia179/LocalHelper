@@ -1,6 +1,6 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Eye,
   CheckCircle2,
   XCircle,
   Clock,
@@ -12,21 +12,23 @@ import {
   HardDrive,
   User,
   Images,
+  Eye,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import Button from '@/components/ui/Button'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { formatDateTime, formatDate } from '@/utils/formatters'
+import DocumentDetailModal from './DocumentDetailModal'
 
 /**
  * DocumentCard — renders a single partner document for admin review.
  *
- * Everything is driven by the `document` prop from the backend response.
- * Zero hardcoding of document types — no "if (key === 'aadhaar')" logic.
+ * Clicking the card / thumbnail opens DocumentDetailModal which shows
+ * the image(s) alongside all metadata and approve / reject actions.
  *
  * Props:
  *   document        — document object from GET /api/admin/verification/:partnerId
- *   onPreview(doc)  — open fullscreen preview
+ *   onPreview(doc)  — kept for compatibility (PartnerDetailPage passes this)
  *   onApprove(doc)  — trigger approve flow
  *   onReject(doc)   — trigger reject flow
  *   disabled        — true while any mutation is in-flight
@@ -83,16 +85,16 @@ const isPdfUrl = (format, url) => {
   return url?.split('?')[0].split('.').pop()?.toLowerCase() === 'pdf'
 }
 
-const DocumentCard = ({ document, onPreview, onApprove, onReject, disabled = false }) => {
-  const statusCfg = STATUS_CONFIG[document.status] || DEFAULT_STATUS
+const DocumentCard = ({ document, onApprove, onReject, disabled = false }) => {
+  const [detailOpen, setDetailOpen] = useState(false)
+
+  const statusCfg  = STATUS_CONFIG[document.status] || DEFAULT_STATUS
   const StatusIcon = statusCfg.icon
 
   const canApprove = document.status !== 'Approved' && document.status !== 'Pending'
   const canReject  = document.status !== 'Rejected' && document.status !== 'Pending'
 
-  // Collect all uploaded photo URLs for this document slot.
-  // previewUrls (array) takes priority over the legacy single previewUrl.
-  const allUrls = document.previewUrls?.length
+  const allUrls    = document.previewUrls?.length
     ? document.previewUrls
     : document.previewUrl
       ? [document.previewUrl]
@@ -103,194 +105,205 @@ const DocumentCard = ({ document, onPreview, onApprove, onReject, disabled = fal
   const isPdf      = isPdfUrl(document.fileFormat, primaryUrl)
 
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-      className="bg-white rounded-2xl border border-slate-100 shadow-card overflow-hidden"
-    >
-      {/* ── Header band ──────────────────────────────────────────────── */}
-      <div className={cn('px-5 py-3.5 border-b flex items-center justify-between gap-3', statusCfg.headerBg)}>
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-white shadow-sm flex items-center justify-center flex-shrink-0">
-            <StatusIcon className={cn('w-4 h-4', statusCfg.iconColor)} aria-hidden="true" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-slate-800 truncate">
-              {document.title}
-            </p>
-            <p className="text-xs text-slate-500 truncate">
-              {document.isRequired ? 'Required' : 'Optional'}
-              {document.reuploadCount > 0 && (
-                <span className="ml-2 text-amber-600 font-medium">
-                  · Re-uploaded {document.reuploadCount}×
-                </span>
-              )}
-            </p>
-          </div>
-        </div>
-        <StatusBadge label={statusCfg.label} variant={statusCfg.variant} />
-      </div>
-
-      {/* ── Preview thumbnail ─────────────────────────────────────────── */}
-      <div
-        className="relative group cursor-pointer bg-slate-50 overflow-hidden"
-        style={{ height: 180 }}
-        onClick={() => onPreview(document)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => e.key === 'Enter' && onPreview(document)}
-        aria-label={`Preview ${document.title}`}
+    <>
+      <motion.div
+        layout
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+        className="bg-white rounded-2xl border border-slate-100 shadow-card overflow-hidden"
       >
-        {primaryUrl ? (
-          <>
-            {isPdf ? (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-400">
-                <FileText className="w-10 h-10" />
-                <p className="text-xs font-medium">PDF Document</p>
-              </div>
-            ) : (
-              <img
-                src={primaryUrl}
-                alt={document.title}
-                className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-105"
-              />
-            )}
-
-            {/* Multi-photo count badge */}
-            {photoCount > 1 && (
-              <div className="absolute top-2 left-2 flex items-center gap-1 bg-slate-900/70 text-white text-xs font-semibold px-2 py-1 rounded-lg backdrop-blur-sm pointer-events-none">
-                <Images className="w-3 h-3" />
-                <span>{photoCount} photos</span>
-              </div>
-            )}
-
-            {/* Hover overlay */}
-            <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/40 transition-all duration-200 flex items-center justify-center">
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                <div className="bg-white/95 rounded-xl px-3 py-2 flex items-center gap-2 shadow-lg">
-                  <Eye className="w-4 h-4 text-slate-700" />
-                  <span className="text-xs font-semibold text-slate-700">
-                    {photoCount > 1 ? `View ${photoCount} photos` : 'Preview'}
+        {/* ── Header band ──────────────────────────────────────────────── */}
+        <div className={cn('px-5 py-3.5 border-b flex items-center justify-between gap-3', statusCfg.headerBg)}>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-white shadow-sm flex items-center justify-center flex-shrink-0">
+              <StatusIcon className={cn('w-4 h-4', statusCfg.iconColor)} aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-800 truncate">
+                {document.title}
+              </p>
+              <p className="text-xs text-slate-500 truncate">
+                {document.isRequired ? 'Required' : 'Optional'}
+                {document.reuploadCount > 0 && (
+                  <span className="ml-2 text-amber-600 font-medium">
+                    · Re-uploaded {document.reuploadCount}×
                   </span>
+                )}
+              </p>
+            </div>
+          </div>
+          <StatusBadge label={statusCfg.label} variant={statusCfg.variant} />
+        </div>
+
+        {/* ── Preview thumbnail — click to open detail modal ────────────── */}
+        <div
+          className="relative group cursor-pointer bg-slate-50 overflow-hidden"
+          style={{ height: 180 }}
+          onClick={() => setDetailOpen(true)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === 'Enter' && setDetailOpen(true)}
+          aria-label={`Open details for ${document.title}`}
+        >
+          {primaryUrl ? (
+            <>
+              {isPdf ? (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-400">
+                  <FileText className="w-10 h-10" />
+                  <p className="text-xs font-medium">PDF Document</p>
+                </div>
+              ) : (
+                <img
+                  src={primaryUrl}
+                  alt={document.title}
+                  className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-105"
+                />
+              )}
+
+              {/* Multi-photo count badge */}
+              {photoCount > 1 && (
+                <div className="absolute top-2 left-2 flex items-center gap-1 bg-slate-900/70 text-white text-xs font-semibold px-2 py-1 rounded-lg backdrop-blur-sm pointer-events-none">
+                  <Images className="w-3 h-3" />
+                  <span>{photoCount} photos</span>
+                </div>
+              )}
+
+              {/* Hover overlay */}
+              <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/40 transition-all duration-200 flex items-center justify-center">
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                  <div className="bg-white/95 rounded-xl px-3 py-2 flex items-center gap-2 shadow-lg">
+                    <Eye className="w-4 h-4 text-slate-700" />
+                    <span className="text-xs font-semibold text-slate-700">
+                      View details
+                    </span>
+                  </div>
                 </div>
               </div>
+            </>
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-300">
+              <FileText className="w-10 h-10" />
+              <p className="text-xs">No preview available</p>
             </div>
-          </>
-        ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-300">
-            <FileText className="w-10 h-10" />
-            <p className="text-xs">No preview available</p>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
 
-      {/* ── Metadata ──────────────────────────────────────────────────── */}
-      <div className="px-5 py-4 space-y-2.5">
-        {/* Document number (Aadhaar, PAN, etc.) */}
-        {document.numberValue && (
-          <MetaRow
-            icon={Hash}
-            label={document.numberFieldLabel || `${document.title} Number`}
-            value={document.numberValue}
-          />
-        )}
+        {/* ── Metadata summary ──────────────────────────────────────────── */}
+        <div className="px-5 py-4 space-y-2.5">
+          {/* Document number (Aadhaar, PAN, etc.) */}
+          {document.numberValue && (
+            <MetaRow
+              icon={Hash}
+              label={document.numberFieldLabel || `${document.title} Number`}
+              value={document.numberValue}
+            />
+          )}
 
-        {/* Upload time */}
-        {document.uploadedAt && (
-          <MetaRow
-            icon={Calendar}
-            label="Uploaded"
-            value={formatDateTime(document.uploadedAt)}
-          />
-        )}
+          {/* Upload time */}
+          {document.uploadedAt && (
+            <MetaRow
+              icon={Calendar}
+              label="Uploaded"
+              value={formatDateTime(document.uploadedAt)}
+            />
+          )}
 
-        {/* File size */}
-        {document.fileBytes && (
-          <MetaRow
-            icon={HardDrive}
-            label="File size"
-            value={formatFileSize(document.fileBytes)}
-          />
-        )}
+          {/* File size */}
+          {document.fileBytes && (
+            <MetaRow
+              icon={HardDrive}
+              label="File size"
+              value={formatFileSize(document.fileBytes)}
+            />
+          )}
 
-        {/* Version */}
-        {document.version > 1 && (
-          <MetaRow
-            icon={RefreshCw}
-            label="Version"
-            value={`v${document.version}`}
-          />
-        )}
+          {/* Version */}
+          {document.version > 1 && (
+            <MetaRow
+              icon={RefreshCw}
+              label="Version"
+              value={`v${document.version}`}
+            />
+          )}
 
-        {/* Approved by */}
-        {document.status === 'Approved' && document.approvedBy && (
-          <MetaRow
-            icon={User}
-            label="Approved by"
-            value={`${document.approvedBy} · ${formatDate(document.approvedAt)}`}
-            className="text-emerald-700"
-          />
-        )}
+          {/* Approved by */}
+          {document.status === 'Approved' && document.approvedBy && (
+            <MetaRow
+              icon={User}
+              label="Approved by"
+              value={`${document.approvedBy} · ${formatDate(document.approvedAt)}`}
+              className="text-emerald-700"
+            />
+          )}
 
-        {/* Rejected by */}
-        {document.status === 'Rejected' && document.rejectedBy && (
-          <MetaRow
-            icon={User}
-            label="Rejected by"
-            value={`${document.rejectedBy} · ${formatDate(document.rejectedAt)}`}
-            className="text-red-600"
-          />
-        )}
+          {/* Rejected by */}
+          {document.status === 'Rejected' && document.rejectedBy && (
+            <MetaRow
+              icon={User}
+              label="Rejected by"
+              value={`${document.rejectedBy} · ${formatDate(document.rejectedAt)}`}
+              className="text-red-600"
+            />
+          )}
 
-        {/* Rejection reason */}
-        {document.rejectionReason && (
-          <div className="mt-1 p-2.5 bg-red-50 rounded-xl border border-red-100">
-            <p className="text-xs font-semibold text-red-600 mb-0.5">Rejection Reason</p>
-            <p className="text-xs text-red-700 leading-relaxed">{document.rejectionReason}</p>
-          </div>
-        )}
-      </div>
+          {/* Rejection reason */}
+          {document.rejectionReason && (
+            <div className="mt-1 p-2.5 bg-red-50 rounded-xl border border-red-100">
+              <p className="text-xs font-semibold text-red-600 mb-0.5">Rejection Reason</p>
+              <p className="text-xs text-red-700 leading-relaxed">{document.rejectionReason}</p>
+            </div>
+          )}
+        </div>
 
-      {/* ── Actions ───────────────────────────────────────────────────── */}
-      <div className="px-5 pb-5 flex items-center gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          leftIcon={<Eye className="w-3.5 h-3.5" />}
-          onClick={() => onPreview(document)}
-          className="flex-1"
-        >
-          Preview
-        </Button>
-        {canApprove && (
+        {/* ── Actions ───────────────────────────────────────────────────── */}
+        <div className="px-5 pb-5 flex items-center gap-2">
           <Button
-            variant="success"
+            variant="ghost"
             size="sm"
-            leftIcon={<CheckCircle2 className="w-3.5 h-3.5" />}
-            onClick={() => onApprove(document)}
-            disabled={disabled}
+            leftIcon={<Eye className="w-3.5 h-3.5" />}
+            onClick={() => setDetailOpen(true)}
             className="flex-1"
           >
-            Approve
+            View Details
           </Button>
-        )}
-        {/* Show Reject for Under Review AND allow revoking an Approved doc */}
-        {(canReject || document.status === 'Approved') && (
-          <Button
-            variant="danger"
-            size="sm"
-            leftIcon={<XCircle className="w-3.5 h-3.5" />}
-            onClick={() => onReject(document)}
-            disabled={disabled}
-            className="flex-1"
-          >
-            Reject
-          </Button>
-        )}
-      </div>
-    </motion.div>
+          {canApprove && (
+            <Button
+              variant="success"
+              size="sm"
+              leftIcon={<CheckCircle2 className="w-3.5 h-3.5" />}
+              onClick={() => onApprove(document)}
+              disabled={disabled}
+              className="flex-1"
+            >
+              Approve
+            </Button>
+          )}
+          {(canReject || document.status === 'Approved') && (
+            <Button
+              variant="danger"
+              size="sm"
+              leftIcon={<XCircle className="w-3.5 h-3.5" />}
+              onClick={() => onReject(document)}
+              disabled={disabled}
+              className="flex-1"
+            >
+              Reject
+            </Button>
+          )}
+        </div>
+      </motion.div>
+
+      {/* ── Detail modal ─────────────────────────────────────────────────── */}
+      <DocumentDetailModal
+        isOpen={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        document={document}
+        onApprove={onApprove}
+        onReject={onReject}
+        disabled={disabled}
+      />
+    </>
   )
 }
 

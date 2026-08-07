@@ -35,7 +35,6 @@ import Skeleton from '@/components/ui/Skeleton'
 import RejectModal from '@/components/ui/RejectModal'
 import ReasonModal from '@/components/ui/ReasonModal'
 import ConfirmModal from '@/components/ui/ConfirmModal'
-import DocumentPreviewModal from '@/components/ui/DocumentPreviewModal'
 import DocumentCard from '@/components/verification/DocumentCard'
 import {
   formatDate,
@@ -102,11 +101,6 @@ const PartnerDetailPage = () => {
   // Active document being actioned (reject flow)
   const [activeDocument, setActiveDocument] = useState(null)
 
-  // Document preview modal
-  const [previewOpen, setPreviewOpen]   = useState(false)
-  const [previewDocs, setPreviewDocs]   = useState([])
-  const [previewIndex, setPreviewIndex] = useState(0)
-
   // ── Data fetch ─────────────────────────────────────────────────────
   const { data, isLoading, isError } = useQuery({
     queryKey: ['partner', id],
@@ -156,29 +150,6 @@ const PartnerDetailPage = () => {
     onForceApprove:   () => closeModal('forceApprove'),
     onForceReject:    () => closeModal('forceReject'),
   })
-
-  // ── Doc preview handler ────────────────────────────────────────────
-  const handlePreview = useCallback((doc) => {
-    const entries = []
-    let startIndex = 0
-    let found = false
-    for (const d of documents) {
-      const urls = d.previewUrls?.length ? d.previewUrls : d.previewUrl ? [d.previewUrl] : []
-      if (!urls.length) continue
-      if (d.documentId === doc.documentId && !found) { startIndex = entries.length; found = true }
-      urls.forEach((url, idx) => {
-        entries.push({
-          documentId: d.documentId,
-          previewUrl: url,
-          fileFormat: d.fileFormat || null,
-          title: urls.length > 1 ? `${d.title} (${idx + 1}/${urls.length})` : d.title,
-        })
-      })
-    }
-    setPreviewDocs(entries)
-    setPreviewIndex(Math.max(0, startIndex))
-    setPreviewOpen(true)
-  }, [documents])
 
   const handleDocApprove = useCallback((doc) => {
     approveDocumentMutation.mutate({ documentId: doc.documentId, note: '' })
@@ -484,7 +455,7 @@ const PartnerDetailPage = () => {
                     <h3 className="text-sm font-semibold text-slate-800">KYC Documents</h3>
                     {documents.length > 0 && (
                       <p className="text-xs text-slate-400 mt-0.5">
-                        {documents.length} document{documents.length !== 1 ? 's' : ''} · click any card to preview
+                        {documents.length} document{documents.length !== 1 ? 's' : ''} · click any card for details
                       </p>
                     )}
                   </div>
@@ -512,7 +483,6 @@ const PartnerDetailPage = () => {
                       <DocumentCard
                         key={doc.documentId}
                         document={doc}
-                        onPreview={handlePreview}
                         onApprove={handleDocApprove}
                         onReject={handleDocReject}
                         disabled={isVerPending}
@@ -526,15 +496,6 @@ const PartnerDetailPage = () => {
           </div>
         </div>
       </motion.div>
-
-      {/* ── Document preview modal ─────────────────────────────────── */}
-      <DocumentPreviewModal
-        isOpen={previewOpen}
-        onClose={() => setPreviewOpen(false)}
-        documents={previewDocs}
-        currentIndex={previewIndex}
-        onIndexChange={setPreviewIndex}
-      />
 
       {/* ── Force approve verification ─────────────────────────────── */}
       <ConfirmModal
