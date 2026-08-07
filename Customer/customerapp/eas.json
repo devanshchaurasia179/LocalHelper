@@ -7,7 +7,10 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "MAPS_KEY": "AIzaSyB6Ol9ZmBqQL3yzCRhdiZRSTh7Id3Z22BQ"
+      }
     },
     "preview": {
       "distribution": "internal"
