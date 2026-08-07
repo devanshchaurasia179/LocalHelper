@@ -190,7 +190,11 @@ const DocumentCard = ({ document, onPreview, onApprove, onReject, disabled = fal
       <div className="px-5 py-4 space-y-2.5">
         {/* Document number (Aadhaar, PAN, etc.) */}
         {document.numberValue && (
-          <MetaRow icon={Hash} label="Number" value={document.numberValue} />
+          <MetaRow
+            icon={Hash}
+            label={document.numberFieldLabel || `${document.title} Number`}
+            value={document.numberValue}
+          />
         )}
 
         {/* Upload time */}

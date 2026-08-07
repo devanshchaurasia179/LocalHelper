@@ -267,7 +267,8 @@ export const getPartnerVerificationDetail = async (req, res) => {
         status:        upload.status,         // raw: "Under Review" | "Approved" | "Rejected"
         previewUrl:    upload.cloudinaryFiles?.[0]?.url || null, // primary photo
         previewUrls:   upload.cloudinaryFiles?.map((f) => f.url) || [], // all photos
-        numberValue:   upload.numberValue     || null,
+        numberValue:      upload.numberValue       || null,
+        numberFieldLabel: docType.numberFieldLabel || null,
         uploadedAt:    upload.uploadedAt,
         version:       upload.version,
         reuploadCount, // how many times this slot was previously uploaded
