@@ -2,19 +2,17 @@
  * nearbyCache.ts
  *
  * In-memory cache shared between the Dashboard and the category screen.
- * - Avoids duplicate GPS calls (the single biggest source of delay)
+ * - Avoids duplicate fetches within the stale window
  * - Allows the category screen to show pre-filtered partners immediately
  *   instead of waiting for a fresh network round-trip
+ *
+ * NOTE: We deliberately do NOT cache GPS coordinates here.
+ * Nearby results are always based on the customer's selected address
+ * (stored as currentLocation on the backend), not the device's live position.
  */
 
 import type { NearbyPartner } from '@/api/nearby.api';
 
-interface LocationCoords {
-  lat: number;
-  lng: number;
-}
-
-let _coords: LocationCoords | null = null;
 let _partners: NearbyPartner[] = [];
 let _fetchedAt: number = 0;
 
@@ -22,16 +20,6 @@ let _fetchedAt: number = 0;
 const STALE_MS = 60_000; // 1 minute
 
 export const nearbyCache = {
-  /** Save the GPS coords after a successful location read */
-  setCoords(coords: LocationCoords) {
-    _coords = coords;
-  },
-
-  /** Return the last known coords, or null if not yet set */
-  getCoords(): LocationCoords | null {
-    return _coords;
-  },
-
   /** Save the full partner list fetched from the API */
   setPartners(partners: NearbyPartner[]) {
     _partners = partners;
@@ -53,5 +41,14 @@ export const nearbyCache = {
     return _partners.filter((p) =>
       p.categories.some((c) => c._id === categoryId)
     );
+  },
+
+  /**
+   * Bust the cache after a location change (address switch / update).
+   * Forces the next fetch to hit the backend, which will use the
+   * updated currentLocation.
+   */
+  invalidate() {
+    _fetchedAt = 0;
   },
 };

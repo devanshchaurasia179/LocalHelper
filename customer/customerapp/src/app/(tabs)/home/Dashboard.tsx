@@ -142,6 +142,7 @@ export default function Dashboard() {
             selectedIndex={selectedAddressIndex}
             onSelectAddress={setSelectedAddressIndex}
             onNotificationPress={() => console.log('Open notifications')}
+            onLocationChange={(coords) => refresh(coords)}
           />
           <View style={styles.titleBlock}>
             <Text style={styles.titleGreeting}>Hello, {firstName} </Text>

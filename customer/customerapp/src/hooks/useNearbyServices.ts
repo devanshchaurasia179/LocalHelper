@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect } from "react";
-import * as Location from "expo-location";
 import { fetchNearbyServices } from "@/api/nearby.api";
 import type { NearbyPartner } from "@/api/nearby.api";
 import { nearbyCache } from "@/cache/nearbyCache";
@@ -11,7 +10,7 @@ export interface UseNearbyServicesResult {
   loading: boolean;
   refreshing: boolean;
   error: string | null;
-  refresh: () => Promise<void>;
+  refresh: (coords?: { lat: number; lng: number }) => Promise<void>;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -19,10 +18,13 @@ export interface UseNearbyServicesResult {
 /**
  * useNearbyServices
  *
- * 1. Requests foreground location permission on mount.
- * 2. Passes live lat/lng to the backend when available.
- * 3. Falls back gracefully — backend uses the customer's saved
- *    currentLocation if coordinates are not sent.
+ * Does NOT send live GPS coordinates to the backend.
+ * The backend always uses the customer's saved currentLocation
+ * (set when they select or save an address in the Header).
+ *
+ * This ensures nearby results are always relative to the
+ * address the customer explicitly chose, not the device's
+ * physical position.
  */
 export function useNearbyServices(): UseNearbyServicesResult {
   // Seed from cache so categories appear instantly on re-mount
@@ -34,27 +36,13 @@ export function useNearbyServices(): UseNearbyServicesResult {
 
   // ── Core fetch ──────────────────────────────────────────────────────────────
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (coords?: { lat: number; lng: number }) => {
     try {
       setError(null);
-
-      // Use cached coords if available — skip GPS entirely
-      let coords: { lat: number; lng: number } | undefined = nearbyCache.getCoords() ?? undefined;
-
-      if (!coords) {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === "granted") {
-          const position = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          coords = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          };
-          nearbyCache.setCoords(coords);
-        }
-      }
-
+      // Pass coords directly when available (e.g. after address change) so we
+      // don't race against the DB write that updates currentLocation.
+      // When no coords are given (initial load / pull-to-refresh without a
+      // location change) the backend falls back to currentLocation in the DB.
       const res = await fetchNearbyServices(coords);
       nearbyCache.setPartners(res.data.services);
       setServices(res.data.services);
@@ -76,11 +64,11 @@ export function useNearbyServices(): UseNearbyServicesResult {
     load().finally(() => setLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Pull-to-refresh ────────────────────────────────────────────────────────
+  // ── Pull-to-refresh / post-location-change refresh ────────────────────────
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (coords?: { lat: number; lng: number }) => {
     setRefreshing(true);
-    await load();
+    await load(coords);
     setRefreshing(false);
   }, [load]);
 

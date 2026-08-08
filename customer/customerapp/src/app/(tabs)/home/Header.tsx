@@ -19,6 +19,7 @@ import * as Location from 'expo-location';
 import axios from 'axios';
 import { colors, spacing, radii, typography, fonts } from './theme';
 import { useAuth } from '@/providers/AuthProvider';
+import { nearbyCache } from '@/cache/nearbyCache';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -43,6 +44,8 @@ interface HeaderProps {
   onSelectAddress: (index: number) => void;
   hasNotification?: boolean;
   onNotificationPress?: () => void;
+  /** Called after the active address changes so the home screen can refetch nearby services */
+  onLocationChange?: (coords?: { lat: number; lng: number }) => void;
 }
 
 // ─── Empty form state ─────────────────────────────────────────────────────────
@@ -103,20 +106,24 @@ async function fetchSuggestions(
 async function fetchPlaceDetails(
   placeId: string,
   sessionToken: string,
-): Promise<{ components: AddressComponent[] } | null> {
+): Promise<{ components: AddressComponent[]; coords: { latitude: number; longitude: number } | null } | null> {
   const { data } = await axios.get(
     'https://maps.googleapis.com/maps/api/place/details/json',
     {
       params: {
         place_id: placeId,
-        fields: 'address_components',
+        fields: 'address_components,geometry',
         key: MAPS_KEY,
         sessiontoken: sessionToken,
       },
     },
   );
   if (data.status !== 'OK') return null;
-  return { components: data.result.address_components ?? [] };
+  const loc = data.result.geometry?.location;
+  return {
+    components: data.result.address_components ?? [],
+    coords: loc ? { latitude: loc.lat, longitude: loc.lng } : null,
+  };
 }
 
 function getComponent(
@@ -257,6 +264,7 @@ export default function Header({
   onSelectAddress,
   hasNotification = true,
   onNotificationPress,
+  onLocationChange,
 }: HeaderProps) {
   const { addAddress, updateAddress } = useAuth();
 
@@ -268,6 +276,9 @@ export default function Header({
   const [saving, setSaving] = useState(false);
   const [autoFilled, setAutoFilled] = useState(false);
   const [detectingGps, setDetectingGps] = useState(false);
+  // Coordinates from the last place search or GPS detect — used on save
+  // so we store coords of the *searched location*, not the device's GPS.
+  const pendingCoords = useRef<{ latitude: number; longitude: number } | null>(null);
 
   const selected = addresses[selectedIndex];
   const primaryLine = selected
@@ -280,8 +291,6 @@ export default function Header({
     onSelectAddress(index);
     setPickerVisible(false);
 
-    // Sync currentLocation on the backend for the selected address.
-    // Priority: stored address coords → live GPS → geocode the address text.
     const addr = addresses[index];
     if (!addr?._id) return;
 
@@ -303,8 +312,15 @@ export default function Header({
       if (coords) {
         await updateAddress(addr._id, addr, coords);
       }
+
+      // Bust the cache and trigger a refetch — pass the resolved coords directly
+      // to the nearby fetch so we don't race the DB write for currentLocation.
+      nearbyCache.invalidate();
+      onLocationChange?.(
+        coords ? { lat: coords.latitude, lng: coords.longitude } : undefined,
+      );
     } catch {
-      // Non-critical — UI is already updated; location sync failure is silent
+      // Non-critical — UI already updated; silent on failure
     }
   };
 
@@ -313,6 +329,7 @@ export default function Header({
     setFormMode('add');
     setEditingAddressId(null);
     setAutoFilled(false);
+    pendingCoords.current = null;
     setPickerVisible(false);
     setFormVisible(true);
   };
@@ -330,6 +347,7 @@ export default function Header({
     setFormMode('edit');
     setEditingAddressId(addr._id ?? null);
     setAutoFilled(false);
+    pendingCoords.current = null;
     setPickerVisible(false);
     setFormVisible(true);
   };
@@ -349,6 +367,12 @@ export default function Header({
         state:    getComponent(c, 'administrative_area_level_1'),
         pincode:  getComponent(c, 'postal_code'),
       }));
+      // Store the place's own coordinates — these are used on save so we
+      // get Amritsar's coords when the user searched for Amritsar, not their
+      // current GPS position (which might be Jalandhar).
+      if (details.coords) {
+        pendingCoords.current = details.coords;
+      }
       setAutoFilled(true);
     } catch {
       Alert.alert('Error', 'Could not fetch address details. Please fill in manually.');
@@ -365,6 +389,8 @@ export default function Header({
         Alert.alert('Permission denied', 'Location permission was not granted.');
         return;
       }
+      // Store GPS coords so handleSave uses the detected location, not a stale place search.
+      pendingCoords.current = coords;
       const [addr] = await Location.reverseGeocodeAsync(coords);
       if (addr) {
         setForm((prev) => ({
@@ -398,7 +424,7 @@ export default function Header({
 
     try {
       setSaving(true);
-      const location = await getCoordsSilently();
+
       const addressPayload = {
         label:    form.label.trim()    || 'Home',
         house:    form.house.trim(),
@@ -409,12 +435,27 @@ export default function Header({
         pincode:  form.pincode.trim(),
       };
 
+      // Priority:
+      //   1. Coords from the place search or GPS detect (stored in pendingCoords)
+      //   2. Geocode the typed address text as a last resort
+      // We intentionally do NOT fall back to live GPS here — if the user
+      // typed "Amritsar" while sitting in Jalandhar we want Amritsar's coords.
+      const location =
+        pendingCoords.current ?? (await geocodeAddress(addressPayload));
+
       if (formMode === 'edit' && editingAddressId) {
         await updateAddress(editingAddressId, addressPayload, location ?? undefined);
       } else {
         await addAddress(addressPayload, location ?? undefined);
         onSelectAddress(addresses.length);
       }
+
+      // Bust the nearby cache and trigger a refetch with the saved address coords
+      // directly — avoids racing the DB write for currentLocation.
+      nearbyCache.invalidate();
+      onLocationChange?.(
+        location ? { lat: location.latitude, lng: location.longitude } : undefined,
+      );
 
       setFormVisible(false);
     } catch (err: any) {
