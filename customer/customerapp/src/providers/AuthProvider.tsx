@@ -24,6 +24,10 @@ export type Customer = {
     city: string;
     state: string;
     pincode: string;
+    location?: {
+      type: "Point";
+      coordinates: [number, number]; // [longitude, latitude]
+    };
   }[];
   phoneVerified: boolean;
   isOnboarded: boolean;

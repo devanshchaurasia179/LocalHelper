@@ -31,6 +31,10 @@ export interface Address {
   city: string;
   state: string;
   pincode: string;
+  location?: {
+    type: 'Point';
+    coordinates: [number, number]; // [longitude, latitude]
+  };
 }
 
 interface HeaderProps {
@@ -276,13 +280,26 @@ export default function Header({
     onSelectAddress(index);
     setPickerVisible(false);
 
-    // Silently update currentLocation on the backend to match the selected address.
-    // GPS is the fast/accurate path; geocoding the address text is the fallback.
+    // Sync currentLocation on the backend for the selected address.
+    // Priority: stored address coords → live GPS → geocode the address text.
     const addr = addresses[index];
     if (!addr?._id) return;
 
     try {
-      const coords = (await getCoordsSilently()) ?? (await geocodeAddress(addr));
+      let coords: { latitude: number; longitude: number } | null = null;
+
+      // 1️⃣ Use coordinates already stored on the address subdocument
+      if (addr.location?.coordinates?.length === 2) {
+        const [lng, lat] = addr.location.coordinates;
+        coords = { latitude: lat, longitude: lng };
+      }
+
+      // 2️⃣ Fall back to live GPS
+      if (!coords) coords = await getCoordsSilently();
+
+      // 3️⃣ Last resort: geocode the address text fields
+      if (!coords) coords = await geocodeAddress(addr);
+
       if (coords) {
         await updateAddress(addr._id, addr, coords);
       }

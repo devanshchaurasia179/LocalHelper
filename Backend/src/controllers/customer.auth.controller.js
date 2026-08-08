@@ -186,6 +186,14 @@ export const completeProfile = async (req, res) => {
       pincode:  address.pincode.trim(),
     };
 
+    // ── Store GPS coords inside the address subdocument ───────────────────
+    if (location?.latitude && location?.longitude) {
+      newAddress.location = {
+        type: "Point",
+        coordinates: [location.longitude, location.latitude],
+      };
+    }
+
     if (customer.addresses.length === 0) {
       customer.addresses.push(newAddress);
     } else {
@@ -193,8 +201,7 @@ export const completeProfile = async (req, res) => {
       customer.addresses[0] = newAddress;
     }
 
-    // ── Store GPS coords as GeoJSON Point (used for proximity matching) ──
-    // GeoJSON requires [longitude, latitude] order
+    // ── Also update top-level currentLocation (used for proximity matching) ──
     if (location?.latitude && location?.longitude) {
       customer.currentLocation = {
         type: "Point",
@@ -347,9 +354,17 @@ export const addAddress = async (req, res) => {
       pincode:  pincode.trim(),
     };
 
+    // ── Store GPS coords inside the address subdocument ───────────────────
+    if (location?.latitude && location?.longitude) {
+      newAddress.location = {
+        type: "Point",
+        coordinates: [location.longitude, location.latitude],
+      };
+    }
+
     customer.addresses.push(newAddress);
 
-    // Silently store GPS coordinates if provided — used for proximity matching
+    // Also update the top-level currentLocation — used for proximity matching
     if (location?.latitude && location?.longitude) {
       customer.currentLocation = {
         type: "Point",
@@ -411,7 +426,15 @@ export const updateAddress = async (req, res) => {
     addr.state    = state.trim();
     addr.pincode  = pincode.trim();
 
-    // Silently store GPS coordinates if provided — no error if missing
+    // ── Store GPS coords inside the address subdocument ───────────────────
+    if (location?.latitude && location?.longitude) {
+      addr.location = {
+        type: "Point",
+        coordinates: [location.longitude, location.latitude],
+      };
+    }
+
+    // Also update the top-level currentLocation — used for proximity matching
     if (location?.latitude && location?.longitude) {
       customer.currentLocation = {
         type: "Point",

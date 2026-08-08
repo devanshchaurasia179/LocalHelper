@@ -42,6 +42,19 @@ const profileFields = {
       city: String,
       state: String,
       pincode: String,
+
+      // GeoJSON Point for this specific address — set when the user saves/selects it.
+      // Kept absent (no default) until coordinates are known, to avoid a
+      // { type: "Point" } stub with no coordinates which MongoDB would reject.
+      location: {
+        type: {
+          type: String,
+          enum: ["Point"],
+        },
+        coordinates: {
+          type: [Number], // [longitude, latitude]
+        },
+      },
     },
   ],
 };
