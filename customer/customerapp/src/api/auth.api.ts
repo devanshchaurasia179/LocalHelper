@@ -39,15 +39,22 @@ export const updateProfileApi = (data: UpdateProfilePayload) =>
   api.patch<UpdateProfileResponse>("/customer/auth/update-profile", data);
 
 // ─── Add Address ──────────────────────────────────────────────────────────────
-export const addAddress = (address: {
-  label?: string;
-  house?: string;
-  street?: string;
-  locality?: string;
-  city: string;
-  state: string;
-  pincode: string;
-}) => api.post("/customer/auth/add-address", address);
+export const addAddress = (
+  address: {
+    label?: string;
+    house?: string;
+    street?: string;
+    locality?: string;
+    city: string;
+    state: string;
+    pincode: string;
+  },
+  location?: { latitude: number; longitude: number }
+) =>
+  api.post("/customer/auth/add-address", {
+    ...address,
+    ...(location ? { location } : {}),
+  });
 
 // ─── Update Address ───────────────────────────────────────────────────────────
 // PATCH /api/customer/auth/update-address/:addressId  (requires cookie)

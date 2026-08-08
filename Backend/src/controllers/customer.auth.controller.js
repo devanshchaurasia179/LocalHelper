@@ -320,7 +320,7 @@ export const updateProfile = async (req, res) => {
  */
 export const addAddress = async (req, res) => {
   try {
-    const { label, house, street, locality, city, state, pincode } = req.body;
+    const { label, house, street, locality, city, state, pincode, location } = req.body;
 
     if (!city || !state || !pincode) {
       return res.status(400).json({
@@ -348,6 +348,15 @@ export const addAddress = async (req, res) => {
     };
 
     customer.addresses.push(newAddress);
+
+    // Silently store GPS coordinates if provided — used for proximity matching
+    if (location?.latitude && location?.longitude) {
+      customer.currentLocation = {
+        type: "Point",
+        coordinates: [location.longitude, location.latitude],
+      };
+    }
+
     await customer.save();
 
     return res.status(201).json({

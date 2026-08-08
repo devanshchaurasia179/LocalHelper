@@ -51,8 +51,6 @@ export const getNearbyServices = async (req, res) => {
           Partner.countDocuments({
             "serviceLocation.coordinates.0": { $exists: true },
             verificationStatus: "Approved",
-            isOnline: true,
-            isAvailable: true,
           }),
         ]);
 

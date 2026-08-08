@@ -224,6 +224,27 @@ async function getCoordsSilently(): Promise<{ latitude: number; longitude: numbe
   }
 }
 
+// ─── Helper: geocode an address string → lat/lng ─────────────────────────────
+
+async function geocodeAddress(
+  addr: Address,
+): Promise<{ latitude: number; longitude: number } | null> {
+  try {
+    const query = [addr.house, addr.street, addr.locality, addr.city, addr.state, addr.pincode]
+      .filter(Boolean)
+      .join(', ');
+    const { data } = await axios.get(
+      'https://maps.googleapis.com/maps/api/geocode/json',
+      { params: { address: query, key: MAPS_KEY, region: 'in' } },
+    );
+    if (data.status !== 'OK' || !data.results?.length) return null;
+    const { lat, lng } = data.results[0].geometry.location;
+    return { latitude: lat, longitude: lng };
+  } catch {
+    return null;
+  }
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Header({
@@ -251,9 +272,23 @@ export default function Header({
 
   // ── Address form handlers ────────────────────────────────────────────────
 
-  const handleSelect = (index: number) => {
+  const handleSelect = async (index: number) => {
     onSelectAddress(index);
     setPickerVisible(false);
+
+    // Silently update currentLocation on the backend to match the selected address.
+    // GPS is the fast/accurate path; geocoding the address text is the fallback.
+    const addr = addresses[index];
+    if (!addr?._id) return;
+
+    try {
+      const coords = (await getCoordsSilently()) ?? (await geocodeAddress(addr));
+      if (coords) {
+        await updateAddress(addr._id, addr, coords);
+      }
+    } catch {
+      // Non-critical — UI is already updated; location sync failure is silent
+    }
   };
 
   const openAddForm = () => {
@@ -360,7 +395,7 @@ export default function Header({
       if (formMode === 'edit' && editingAddressId) {
         await updateAddress(editingAddressId, addressPayload, location ?? undefined);
       } else {
-        await addAddress(addressPayload);
+        await addAddress(addressPayload, location ?? undefined);
         onSelectAddress(addresses.length);
       }
 

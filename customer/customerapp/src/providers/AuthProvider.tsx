@@ -16,6 +16,7 @@ export type Customer = {
   name: string | null;
   gender: string | null;
   addresses: {
+    _id?: string;
     label?: string;
     house?: string;
     street?: string;
@@ -74,7 +75,7 @@ type AuthContextType = {
     city: string;
     state: string;
     pincode: string;
-  }) => Promise<void>;
+  }, location?: { latitude: number; longitude: number }) => Promise<void>;
 
   // Update an existing address by its _id
   updateAddress: (
@@ -237,16 +238,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Add a new address — calls API and appends to local state
   const addAddress = useCallback(
-    async (address: {
-      label?: string;
-      house?: string;
-      street?: string;
-      locality?: string;
-      city: string;
-      state: string;
-      pincode: string;
-    }) => {
-      const res = await addAddressApi(address);
+    async (
+      address: {
+        label?: string;
+        house?: string;
+        street?: string;
+        locality?: string;
+        city: string;
+        state: string;
+        pincode: string;
+      },
+      location?: { latitude: number; longitude: number }
+    ) => {
+      const res = await addAddressApi(address, location);
       setCustomer((prev) =>
         prev ? { ...prev, addresses: res.data.addresses } : prev
       );

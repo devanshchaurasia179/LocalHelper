@@ -9,8 +9,6 @@ import DocumentType from "../verification/DocumentType.js";
  * Filters:
  *   - serviceLocation has coordinates (index element 0 exists)
  *   - verificationStatus === "Approved"
- *   - isOnline  === true
- *   - isAvailable === true
  *   - distanceKm <= partner's own serviceRadius
  *
  * @param {number} longitude
