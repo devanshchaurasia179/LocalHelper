@@ -1,7 +1,6 @@
 import Booking from "../models/partner/partner.booking.js";
 import Partner from "../models/partner/Partner.js";
 import Customer from "../models/customer/Customer.js";
-import DocumentType from "../models/verification/DocumentType.js";
 import PartnerDocument from "../models/verification/PartnerDocument.js";
 
 // ─── CUSTOMER: Create Booking ─────────────────────────────────────────────────
@@ -515,33 +514,47 @@ export const getCustomerBookings = async (req, res) => {
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(Number(limit))
-        .populate("partner",  "fullName phone profilePhoto averageRating visitingCredits")
+        .populate("partner",  "fullName phone profilePhoto selfie averageRating visitingCredits")
         .populate("category", "name"),
       Booking.countDocuments(filter),
     ]);
 
-    // ── Attach selfie URL from partnerdocuments collection ────────────────────
-    const selfieType = await DocumentType.findOne({ key: "selfie" }).select("_id").lean();
+    // ── Attach selfie URL — dual-system lookup ────────────────────────────────
+    // New system: PartnerDocument collection (documentTypeId = selfie type)
+    // Old system: partner.selfie.url (stored directly on Partner via submitKyc)
+    const SELFIE_TYPE_ID = "6a71da429e8965def7e6ba4f";
+
+    const partnerIds = [...new Set(bookings.map((b) => b.partner?._id).filter(Boolean))];
 
     let selfieMap = {};
-    if (selfieType) {
-      const partnerIds = [...new Set(bookings.map((b) => b.partner?._id).filter(Boolean))];
-      if (partnerIds.length > 0) {
-        const selfieDocs = await PartnerDocument.find({
-          partnerId: { $in: partnerIds },
-          documentTypeId: selfieType._id,
-          status: "Approved",
-        })
-          .sort({ version: -1 })
-          .select("partnerId cloudinary.url")
-          .lean();
+    if (partnerIds.length > 0) {
+      // 1. New system: approved PartnerDocument records
+      const selfieDocs = await PartnerDocument.find({
+        partnerId:      { $in: partnerIds },
+        documentTypeId: SELFIE_TYPE_ID,
+        status:         "Approved",
+      })
+        .sort({ version: -1 })
+        .select("partnerId cloudinaryFiles")
+        .lean();
 
-        // Keep only the latest version per partner
-        for (const doc of selfieDocs) {
-          const pid = doc.partnerId.toString();
-          if (!selfieMap[pid]) {
-            selfieMap[pid] = doc.cloudinary?.url;
-          }
+      for (const doc of selfieDocs) {
+        const pid = doc.partnerId.toString();
+        if (!selfieMap[pid]) {
+          // cloudinaryFiles[0].url — use array directly (virtual not available in lean)
+          selfieMap[pid] = doc.cloudinaryFiles?.[0]?.url ?? null;
+        }
+      }
+
+      // 2. Old system: partner.selfie.url — fill gaps for partners not in new system
+      const missingIds = partnerIds.filter((id) => !selfieMap[id?.toString()]);
+      if (missingIds.length > 0) {
+        const oldPartners = await Partner.find({ _id: { $in: missingIds } })
+          .select("selfie profilePhoto")
+          .lean();
+        for (const p of oldPartners) {
+          const pid = p._id.toString();
+          selfieMap[pid] = p.selfie?.url ?? p.profilePhoto ?? null;
         }
       }
     }
@@ -551,6 +564,7 @@ export const getCustomerBookings = async (req, res) => {
       const obj = b.toObject();
       if (obj.partner) {
         obj.partner.selfieUrl = selfieMap[obj.partner._id?.toString()] ?? null;
+        delete obj.partner.selfie; // don't expose raw selfie field
       }
       return obj;
     });
@@ -579,7 +593,7 @@ export const getCustomerBookings = async (req, res) => {
 export const getBookingById = async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id)
-      .populate("partner",  "fullName phone profilePhoto")
+      .populate("partner",  "fullName phone profilePhoto selfie averageRating")
       .populate("customer", "name phone")
       .populate("category", "name");
 
@@ -596,7 +610,30 @@ export const getBookingById = async (req, res) => {
       return res.status(403).json({ message: "Not authorised to view this booking." });
     }
 
-    return res.status(200).json({ booking });
+    // Resolve selfieUrl using the same dual-system priority as getCustomerBookings
+    const SELFIE_TYPE_ID = "6a71da429e8965def7e6ba4f";
+    const partnerId = booking.partner._id;
+
+    const selfieDoc = await PartnerDocument.findOne({
+      partnerId:      partnerId,
+      documentTypeId: SELFIE_TYPE_ID,
+      status:         "Approved",
+    })
+      .sort({ version: -1 })
+      .select("cloudinaryFiles")
+      .lean();
+
+    const obj = booking.toObject();
+    obj.partner.selfieUrl =
+      selfieDoc?.cloudinaryFiles?.[0]?.url          // new system
+      ?? obj.partner.selfie?.url                    // old system
+      ?? obj.partner.profilePhoto                   // profile photo fallback
+      ?? null;
+
+    // Don't expose the raw selfie field to the client
+    delete obj.partner.selfie;
+
+    return res.status(200).json({ booking: obj });
   } catch (error) {
     console.error("getBookingById error:", error);
     return res.status(500).json({ message: "Internal server error." });
