@@ -1,6 +1,5 @@
 import mongoose from "mongoose";
 import Partner from "../partner/Partner.js";
-import DocumentType from "../verification/DocumentType.js";
 
 /**
  * Find partners whose serviceLocation is within their declared serviceRadius
@@ -20,9 +19,10 @@ import DocumentType from "../verification/DocumentType.js";
 export async function findNearbyServices(longitude, latitude, filters = {}) {
   const { categoryId, maxRadius = 50 } = filters;
 
-  // Fetch the selfie DocumentType _id once (cached by Mongoose after first call)
-  const selfieType = await DocumentType.findOne({ key: "selfie" }).select("_id").lean();
-  const selfieTypeId = selfieType?._id;
+  // Profile-picture document type ID (key: "selfie").
+  // Using the known _id directly avoids an extra DocumentType round-trip on
+  // every nearby-services request.
+  const selfieTypeId = new mongoose.Types.ObjectId("6a71da429e8965def7e6ba4f");
 
   const pipeline = [
     // ── Stage 1: geo filter ──────────────────────────────────────────────────
@@ -63,36 +63,42 @@ export async function findNearbyServices(longitude, latitude, filters = {}) {
       },
     },
 
-    // ── Stage 4b: lookup selfie from partnerdocuments ─────────────────────────
-    ...(selfieTypeId
-      ? [
+    // ── Stage 4b: lookup profile picture from partnerdocuments (new system) ──
+    // Falls back to partner.selfie.url (old KYC system) when no PartnerDocument
+    // record exists — covers partners who uploaded via the old submitKyc flow.
+    {
+      $lookup: {
+        from: "partnerdocuments",
+        let: { pid: "$_id" },
+        pipeline: [
           {
-            $lookup: {
-              from: "partnerdocuments",
-              let: { pid: "$_id" },
-              pipeline: [
-                {
-                  $match: {
-                    $expr: { $eq: ["$partnerId", "$$pid"] },
-                    documentTypeId: selfieTypeId,
-                    status: "Approved",
-                  },
-                },
-                { $sort: { version: -1 } },
-                { $limit: 1 },
-                { $project: { _id: 0, url: "$cloudinary.url" } },
-              ],
-              as: "_selfie",
+            $match: {
+              $expr: { $eq: ["$partnerId", "$$pid"] },
+              documentTypeId: selfieTypeId,
+              status: "Approved",
             },
           },
-          {
-            $addFields: {
-              selfieUrl: { $arrayElemAt: ["$_selfie.url", 0] },
-            },
-          },
-          { $project: { _selfie: 0 } },
-        ]
-      : []),
+          { $sort: { version: -1 } },
+          { $limit: 1 },
+          { $project: { _id: 0, url: { $arrayElemAt: ["$cloudinaryFiles.url", 0] } } },
+        ],
+        as: "_selfie",
+      },
+    },
+    {
+      $addFields: {
+        // 1st priority: approved PartnerDocument (new verification system)
+        // 2nd priority: partner.selfie.url (old submitKyc system)
+        // 3rd priority: partner.profilePhoto (profile-setup field)
+        selfieUrl: {
+          $ifNull: [
+            { $arrayElemAt: ["$_selfie.url", 0] },
+            { $ifNull: ["$selfie.url", "$profilePhoto"] },
+          ],
+        },
+      },
+    },
+    { $project: { _selfie: 0 } },
 
     // ── Stage 5: shape response ───────────────────────────────────────────────
     {
@@ -116,6 +122,7 @@ export async function findNearbyServices(longitude, latitude, filters = {}) {
         averageRating: 1,
         totalReviews: 1,
         completedJobs: 1,
+        // selfie and profilePhoto are excluded here — already resolved into selfieUrl
       },
     },
 

@@ -5,16 +5,15 @@
  * - Avoids duplicate fetches within the stale window
  * - Allows the category screen to show pre-filtered partners immediately
  *   instead of waiting for a fresh network round-trip
- *
- * NOTE: We deliberately do NOT cache GPS coordinates here.
- * Nearby results are always based on the customer's selected address
- * (stored as currentLocation on the backend), not the device's live position.
+ * - Stores the coordinates of the selected address so every screen uses
+ *   the same location without an independent GPS round-trip
  */
 
 import type { NearbyPartner } from '@/api/nearby.api';
 
 let _partners: NearbyPartner[] = [];
 let _fetchedAt: number = 0;
+let _coords: { lat: number; lng: number } | null = null;
 
 /** How long (ms) before the cache is considered stale for a background refresh */
 const STALE_MS = 60_000; // 1 minute
@@ -44,9 +43,25 @@ export const nearbyCache = {
   },
 
   /**
+   * Store the coordinates of the selected address.
+   * All screens read this instead of requesting live GPS.
+   */
+  setCoords(coords: { lat: number; lng: number } | null) {
+    _coords = coords;
+  },
+
+  /**
+   * Return the coordinates of the currently selected address,
+   * or null if none has been set yet.
+   */
+  getCoords(): { lat: number; lng: number } | null {
+    return _coords;
+  },
+
+  /**
    * Bust the cache after a location change (address switch / update).
-   * Forces the next fetch to hit the backend, which will use the
-   * updated currentLocation.
+   * Forces the next fetch to hit the backend with the new address coords.
+   * Does NOT clear _coords — the caller passes the new coords explicitly.
    */
   invalidate() {
     _fetchedAt = 0;

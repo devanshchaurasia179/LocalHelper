@@ -18,15 +18,17 @@ export interface UseNearbyServicesResult {
 /**
  * useNearbyServices
  *
- * Does NOT send live GPS coordinates to the backend.
- * The backend always uses the customer's saved currentLocation
- * (set when they select or save an address in the Header).
+ * Accepts optional `initialCoords` — the coordinates of the customer's
+ * currently selected address. When provided, the initial fetch uses those
+ * coordinates directly so nearby results are relative to the chosen address,
+ * not the device's physical GPS position.
  *
- * This ensures nearby results are always relative to the
- * address the customer explicitly chose, not the device's
- * physical position.
+ * On explicit refresh (pull-to-refresh) with no new coords, the backend falls
+ * back to the customer's saved currentLocation.
  */
-export function useNearbyServices(): UseNearbyServicesResult {
+export function useNearbyServices(
+  initialCoords?: { lat: number; lng: number },
+): UseNearbyServicesResult {
   // Seed from cache so categories appear instantly on re-mount
   const [services, setServices] = useState<NearbyPartner[]>(() => nearbyCache.getPartners());
   // Only show loading spinner when there's genuinely nothing to show
@@ -61,7 +63,9 @@ export function useNearbyServices(): UseNearbyServicesResult {
     if (!nearbyCache.isStale() && nearbyCache.getPartners().length > 0) return;
 
     setLoading(nearbyCache.getPartners().length === 0);
-    load().finally(() => setLoading(false));
+    // Pass the selected address coords so the first fetch is relative to the
+    // chosen address, not the device's GPS or a stale DB currentLocation.
+    load(initialCoords).finally(() => setLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Pull-to-refresh / post-location-change refresh ────────────────────────

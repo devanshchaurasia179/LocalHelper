@@ -15,11 +15,11 @@ import {
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import * as Location from 'expo-location';
 
 import { colors, spacing, radii, typography } from './theme';
 import { useBookPartner } from '@/hooks/useBookPartner';
 import type { NearbyPartner } from '@/api/nearby.api';
+import { nearbyCache } from '@/cache/nearbyCache';
 
 // ─── Offline Booking Modal ────────────────────────────────────────────────────
 
@@ -329,7 +329,7 @@ export default function PartnerDetailSheet({
 }: PartnerDetailSheetProps) {
   const { booking, error, book, reset } = useBookPartner();
 
-  // ── Distance (recalculated from live GPS when sheet opens) ─────────────────
+  // ── Distance (calculated from the selected address coords) ───────────────
   const [displayDistanceKm, setDisplayDistanceKm] = useState<number | null>(null);
 
   useEffect(() => {
@@ -338,35 +338,28 @@ export default function PartnerDetailSheet({
       return;
     }
 
-    // Start with the server-computed value immediately so there's no blank
+    // Use the server-computed value as the immediate display value.
+    // This was already calculated from the selected address coords when
+    // the nearby fetch was made — so it's already correct.
     setDisplayDistanceKm(partner.distanceKm);
 
-    // Then try to get a fresh reading from device GPS
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') return;
+    // Optionally refine with a client-side haversine using the cached
+    // selected address coords (avoids any GPS call entirely).
+    const cachedCoords = nearbyCache.getCoords();
+    if (!cachedCoords) return;
 
-        const pos = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
+    const partnerCoords = partner.serviceLocation?.coordinates;
+    if (!partnerCoords || partnerCoords.length < 2) return;
 
-        const partnerCoords = partner.serviceLocation?.coordinates;
-        if (!partnerCoords || partnerCoords.length < 2) return;
-
-        // GeoJSON order: [longitude, latitude]
-        const [partnerLng, partnerLat] = partnerCoords;
-        const km = haversineKm(
-          pos.coords.latitude,
-          pos.coords.longitude,
-          partnerLat,
-          partnerLng,
-        );
-        setDisplayDistanceKm(km);
-      } catch {
-        // Silently fall back to server value
-      }
-    })();
+    // GeoJSON order: [longitude, latitude]
+    const [partnerLng, partnerLat] = partnerCoords;
+    const km = haversineKm(
+      cachedCoords.lat,
+      cachedCoords.lng,
+      partnerLat,
+      partnerLng,
+    );
+    setDisplayDistanceKm(km);
   }, [visible, partner]);
 
   // ── Form state ─────────────────────────────────────────────────────────────

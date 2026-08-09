@@ -10,11 +10,11 @@ import {
   Easing,
   TextInput,
   Platform,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import * as Location from 'expo-location';
 
 import { fetchNearbyServices } from '@/api/nearby.api';
 import type { NearbyPartner } from '@/api/nearby.api';
@@ -167,7 +167,6 @@ export default function CategoryPartnersScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedPartner, setSelectedPartner] = useState<NearbyPartner | null>(null);
-  const [locationDenied, setLocationDenied] = useState(false);
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -182,22 +181,10 @@ export default function CategoryPartnersScreen() {
     try {
       if (!silent) setError(null);
 
-      // Re-use cached coords to avoid a redundant GPS round-trip
-      let coords = nearbyCache.getCoords() ?? undefined;
-
-      if (!coords) {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          setLocationDenied(false);
-          const pos = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          nearbyCache.setCoords(coords);
-        } else {
-          setLocationDenied(true);
-        }
-      }
+      // Always use the selected address coords stored in the shared cache.
+      // This is set by Dashboard whenever the user picks or saves an address.
+      // We never request live GPS here — results must match the chosen address.
+      const coords = nearbyCache.getCoords() ?? undefined;
 
       const [res, bookingsMap] = await Promise.all([
         fetchNearbyServices({ ...coords, categoryId }),
@@ -218,19 +205,35 @@ export default function CategoryPartnersScreen() {
     }
   }, [categoryId]);
 
-  useEffect(() => {
-    if (cachedPartners.length === 0) {
-      // No cache — show skeleton and wait
-      setLoading(true);
-      load().finally(() => setLoading(false));
-    } else {
-      // Cache hit — show data instantly, refresh quietly in background
-      // only if the cache is stale (> 1 minute old)
-      if (nearbyCache.isStale()) {
-        load(true);
+  // Intercept Android hardware back button — always go to home, not the
+  // previous history entry (which could be an intermediate screen).
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        router.replace('/(tabs)/home' as any);
+        return true; // prevents default back behaviour
+      });
+      return () => sub.remove();
+    }, [])
+  );
+
+  // Refresh on every focus so a location change that happened while browsing
+  // the home screen is reflected immediately when the user enters this screen.
+  useFocusEffect(
+    useCallback(() => {
+      const cacheInvalidated = nearbyCache.isStale();
+      const hasCached = cachedPartners.length > 0 && !cacheInvalidated;
+
+      if (!hasCached) {
+        // No valid cache — show skeleton and fetch
+        setLoading(true);
+        load().finally(() => setLoading(false));
+      } else {
+        // Cache is fresh — show data instantly, no spinner needed
+        setPartners(nearbyCache.getPartnersByCategory(categoryId ?? ''));
       }
-    }
-  }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [load, categoryId]) // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -280,7 +283,7 @@ export default function CategoryPartnersScreen() {
         <View style={styles.headerTopRow}>
           <TouchableOpacity
             style={styles.iconBtn}
-            onPress={() => router.back()}
+            onPress={() => router.replace('/(tabs)/home' as any)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
             accessibilityLabel="Go back"
@@ -357,15 +360,6 @@ export default function CategoryPartnersScreen() {
           </View>
         )}
       </Animated.View>
-
-      {locationDenied && !loading && !error && (
-        <View style={styles.locationBanner}>
-          <Ionicons name="location-outline" size={16} color="#92400E" />
-          <Text style={styles.locationBannerText}>
-            Turn on location to see partners sorted by distance.
-          </Text>
-        </View>
-      )}
 
       {/* ── Body ── */}
       {loading ? (
@@ -547,21 +541,6 @@ const styles = StyleSheet.create({
   },
   sortChipTextActive: {
     color: colors.primary,
-  },
-
-  // Location banner
-  locationBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  locationBannerText: {
-    flex: 1,
-    fontSize: 12,
-    color: '#92400E',
   },
 
   // Content

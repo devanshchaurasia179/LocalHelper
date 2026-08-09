@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   ScrollView,
   Text,
@@ -19,6 +19,7 @@ import CategoryGrid, { CategoryGridSkeleton } from './CategoryGrid';
 import { useNearbyServices } from '@/hooks/useNearbyServices';
 import type { NearbyCategory } from '@/api/nearby.api';
 
+import { nearbyCache } from '@/cache/nearbyCache';
 import { NavRoute } from './types';
 import { colors, spacing, radii, typography, fonts } from './theme';
 import { useAuth } from '@/providers/AuthProvider';
@@ -68,7 +69,26 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAddressIndex, setSelectedAddressIndex] = useState(0);
 
-  const { services, loading, refreshing, error, refresh } = useNearbyServices();
+  const addresses: Address[] = (customer?.addresses ?? []) as Address[];
+
+  // Derive coordinates from the currently selected address so the initial
+  // fetch uses the saved address location, not the device's live GPS.
+  const selectedAddressCoords = useMemo(() => {
+    const addr = addresses[selectedAddressIndex];
+    if (addr?.location?.coordinates?.length === 2) {
+      const [lng, lat] = addr.location.coordinates;
+      return { lat, lng };
+    }
+    return undefined;
+  }, [addresses, selectedAddressIndex]);
+
+  // Keep the shared cache in sync whenever the selected address changes so
+  // [categoryId].tsx always has the right coords without its own GPS call.
+  useEffect(() => {
+    nearbyCache.setCoords(selectedAddressCoords ?? null);
+  }, [selectedAddressCoords]);
+
+  const { services, loading, refreshing, error, refresh } = useNearbyServices(selectedAddressCoords);
 
   // Derive unique categories from nearby partners — only categories that
   // actually have at least one available partner nearby are shown.
@@ -99,7 +119,6 @@ export default function Dashboard() {
   }, []);
 
   const firstName = customer?.name?.split(' ')[0] ?? 'there';
-  const addresses: Address[] = (customer?.addresses ?? []) as Address[];
 
   // Filter categories by search query
   const filteredCategories = nearbyCategories.filter((cat) => {
@@ -142,7 +161,12 @@ export default function Dashboard() {
             selectedIndex={selectedAddressIndex}
             onSelectAddress={setSelectedAddressIndex}
             onNotificationPress={() => console.log('Open notifications')}
-            onLocationChange={(coords) => refresh(coords)}
+            onLocationChange={(coords) => {
+              // coords are also written to nearbyCache via the useEffect above;
+              // but write eagerly here too so [categoryId] gets them immediately.
+              nearbyCache.setCoords(coords ?? null);
+              refresh(coords);
+            }}
           />
           <View style={styles.titleBlock}>
             <Text style={styles.titleGreeting}>Hello, {firstName} </Text>
