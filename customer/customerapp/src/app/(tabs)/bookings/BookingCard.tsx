@@ -1,143 +1,172 @@
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { colors, spacing, radii, typography } from '../home/theme';
+import { colors, spacing, radii, typography, fonts } from '../home/theme';
 import type { Booking, BookingStatus } from './bookings.types';
 
-// ─── Status pill config ───────────────────────────────────────────────────────
+// ─── Status config ────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<
   BookingStatus,
-  { label: string; color: string; bg: string; icon: keyof typeof Ionicons.glyphMap }
+  { label: string; color: string; bg: string; border: string; icon: keyof typeof Ionicons.glyphMap }
 > = {
-  pending:     { label: 'Pending',     color: '#B45309', bg: '#FEF3C7', icon: 'time-outline'          },
-  accepted:    { label: 'Accepted',    color: '#1D4ED8', bg: '#DBEAFE', icon: 'checkmark-circle-outline'},
-  in_progress: { label: 'In Progress', color: '#6D28D9', bg: '#EDE9FE', icon: 'construct-outline'       },
-  completed:   { label: 'Completed',   color: '#065F46', bg: '#D1FAE5', icon: 'checkmark-done-outline'  },
-  cancelled:   { label: 'Cancelled',   color: '#991B1B', bg: '#FEE2E2', icon: 'close-circle-outline'    },
+  pending:     { label: 'Pending',     color: '#92400E', bg: '#FFFBEB', border: '#FDE68A', icon: 'time-outline'           },
+  accepted:    { label: 'Accepted',    color: '#1E40AF', bg: '#EFF6FF', border: '#BFDBFE', icon: 'checkmark-circle-outline'},
+  in_progress: { label: 'In Progress', color: '#5B21B6', bg: '#F5F3FF', border: '#DDD6FE', icon: 'construct-outline'      },
+  completed:   { label: 'Completed',   color: '#065F46', bg: '#ECFDF5', border: '#A7F3D0', icon: 'checkmark-done-outline' },
+  cancelled:   { label: 'Cancelled',   color: '#991B1B', bg: '#FFF1F2', border: '#FECDD3', icon: 'close-circle-outline'   },
+};
+
+// status → left-border accent color
+const STATUS_ACCENT: Record<BookingStatus, string> = {
+  pending:     '#F59E0B',
+  accepted:    '#3B82F6',
+  in_progress: '#8B5CF6',
+  completed:   '#10B981',
+  cancelled:   '#EF4444',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
+  return new Date(iso).toLocaleDateString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric',
   });
 }
 
 function formatTime(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  return new Date(iso).toLocaleTimeString('en-IN', {
+    hour: '2-digit', minute: '2-digit', hour12: true,
+  });
 }
 
-// ─── Props ────────────────────────────────────────────────────────────────────
+// ─── Component ────────────────────────────────────────────────────────────────
 
 interface BookingCardProps {
   booking: Booking;
   onPress: (booking: Booking) => void;
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
-
 export default function BookingCard({ booking, onPress }: BookingCardProps) {
   const { status, partner, category, scheduledAt, visitingCredit, isEmergency, review } = booking;
-  const cfg = STATUS_CONFIG[status];
+  const cfg    = STATUS_CONFIG[status];
+  const accent = STATUS_ACCENT[status];
 
-  const avatarUri = partner?.selfieUrl
-    ?? partner?.profilePhoto
-    ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(partner?.fullName ?? 'P')}&background=12493B&color=fff&size=200`;
+  const scale = useRef(new Animated.Value(1)).current;
+  const pressIn  = () => Animated.spring(scale, { toValue: 0.977, useNativeDriver: true, speed: 50, bounciness: 0 }).start();
+  const pressOut = () => Animated.spring(scale, { toValue: 1,     useNativeDriver: true, speed: 25, bounciness: 4 }).start();
+
+  const avatarUri =
+    partner?.selfieUrl ??
+    partner?.profilePhoto ??
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(partner?.fullName ?? 'P')}&background=16493c&color=fff&size=200`;
 
   return (
     <TouchableOpacity
-      style={styles.card}
       onPress={() => onPress(booking)}
-      activeOpacity={0.75}
+      onPressIn={pressIn}
+      onPressOut={pressOut}
+      activeOpacity={1}
       accessibilityRole="button"
-      accessibilityLabel={`Booking with ${partner?.fullName ?? 'partner'}, status ${cfg.label}`}
+      accessibilityLabel={`Booking with ${partner?.fullName ?? 'partner'}, ${cfg.label}`}
     >
-      {/* Partner info row */}
-      <View style={styles.row}>
-        <Image source={{ uri: avatarUri }} style={styles.avatar} contentFit="cover" />
+      <Animated.View style={[styles.card, { transform: [{ scale }] }]}>
+        {/* Left accent bar */}
+        <View style={[styles.accentBar, { backgroundColor: accent }]} />
 
-        <View style={styles.info}>
-          <Text style={styles.partnerName} numberOfLines={1}>
-            {partner?.fullName ?? 'Unknown Partner'}
-          </Text>
-          <Text style={styles.category} numberOfLines={1}>
-            {category?.name ?? 'General Service'}
-          </Text>
-        </View>
+        <View style={styles.inner}>
+          {/* ── Top row: avatar + info + status ── */}
+          <View style={styles.topRow}>
+            <View style={styles.avatarWrap}>
+              <Image source={{ uri: avatarUri }} style={styles.avatar} contentFit="cover" />
+            </View>
 
-        {/* Status pill */}
-        <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
-          <Ionicons name={cfg.icon} size={12} color={cfg.color} />
-          <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
-        </View>
-      </View>
+            <View style={styles.info}>
+              <Text style={styles.partnerName} numberOfLines={1}>
+                {partner?.fullName ?? 'Unknown Partner'}
+              </Text>
+              <Text style={styles.categoryText} numberOfLines={1}>
+                {category?.name ?? 'General Service'}
+              </Text>
+            </View>
 
-      {/* Divider */}
-      <View style={styles.divider} />
-
-      {/* Details row */}
-      <View style={styles.detailsRow}>
-        {/* Scheduled date + time */}
-        <View style={styles.detailItem}>
-          <Ionicons name="calendar-outline" size={13} color={colors.textSecondary} />
-          <Text style={styles.detailText}>{formatDate(scheduledAt)}</Text>
-        </View>
-
-        <View style={styles.detailItem}>
-          <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
-          <Text style={styles.detailText}>{formatTime(scheduledAt)}</Text>
-        </View>
-
-        {/* Visiting credits */}
-        {visitingCredit != null && (
-          <View style={styles.detailItem}>
-            <Ionicons name="wallet-outline" size={13} color={colors.textSecondary} />
-            <Text style={styles.detailText}>₹{visitingCredit}</Text>
+            <View style={[styles.statusBadge, { backgroundColor: cfg.bg, borderColor: cfg.border }]}>
+              <Ionicons name={cfg.icon} size={11} color={cfg.color} />
+              <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+            </View>
           </View>
-        )}
 
-        {/* Emergency badge */}
-        {isEmergency && (
-          <View style={styles.emergencyBadge}>
-            <Ionicons name="flash" size={11} color="#fff" />
-            <Text style={styles.emergencyText}>Emergency</Text>
+          {/* ── Divider ── */}
+          <View style={styles.divider} />
+
+          {/* ── Meta chips row ── */}
+          <View style={styles.metaRow}>
+            <MetaChip icon="calendar-outline" label={formatDate(scheduledAt)} />
+            <MetaChip icon="time-outline"     label={formatTime(scheduledAt)} />
+            {visitingCredit != null && (
+              <MetaChip icon="wallet-outline" label={`₹${visitingCredit}`} highlight />
+            )}
+            {isEmergency && (
+              <View style={styles.emergencyChip}>
+                <Ionicons name="flash" size={10} color="#fff" />
+                <Text style={styles.emergencyText}>Emergency</Text>
+              </View>
+            )}
           </View>
-        )}
-      </View>
 
-      {/* Star rating row for completed + reviewed */}
-      {status === 'completed' && review?.rating && (
-        <View style={styles.reviewRow}>
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Ionicons
-              key={i}
-              name={i < review.rating ? 'star' : 'star-outline'}
-              size={13}
-              color={colors.star}
-            />
-          ))}
-          {review.comment ? (
-            <Text style={styles.reviewComment} numberOfLines={1}>
-              {review.comment}
-            </Text>
+          {/* ── Review section ── */}
+          {status === 'completed' && review?.rating ? (
+            <View style={styles.reviewRow}>
+              <View style={styles.starsSmall}>
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <Ionicons
+                    key={i}
+                    name={i <= review.rating ? 'star' : 'star-outline'}
+                    size={12}
+                    color={colors.star}
+                  />
+                ))}
+              </View>
+              {review.comment ? (
+                <Text style={styles.reviewComment} numberOfLines={1}>
+                  "{review.comment}"
+                </Text>
+              ) : null}
+            </View>
+          ) : status === 'completed' && !review?.rating ? (
+            <View style={styles.nudgeRow}>
+              <Ionicons name="star-half-outline" size={13} color={colors.primary} />
+              <Text style={styles.nudgeText}>Tap to leave a review</Text>
+            </View>
           ) : null}
         </View>
-      )}
 
-      {/* "Leave a review" nudge for completed + not reviewed */}
-      {status === 'completed' && !review?.rating && (
-        <View style={styles.reviewNudge}>
-          <Ionicons name="star-half-outline" size={13} color={colors.primary} />
-          <Text style={styles.reviewNudgeText}>Tap to rate this service</Text>
+        {/* Chevron */}
+        <View style={styles.chevronWrap}>
+          <Ionicons name="chevron-forward" size={16} color={colors.navInactive} />
         </View>
-      )}
+      </Animated.View>
     </TouchableOpacity>
+  );
+}
+
+// ─── MetaChip ─────────────────────────────────────────────────────────────────
+
+function MetaChip({
+  icon,
+  label,
+  highlight = false,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  highlight?: boolean;
+}) {
+  return (
+    <View style={[styles.metaChip, highlight && styles.metaChipHighlight]}>
+      <Ionicons name={icon} size={12} color={highlight ? colors.primary : colors.textSecondary} />
+      <Text style={[styles.metaText, highlight && styles.metaTextHighlight]}>{label}</Text>
+    </View>
   );
 }
 
@@ -145,108 +174,156 @@ export default function BookingCard({ booking, onPress }: BookingCardProps) {
 
 const styles = StyleSheet.create({
   card: {
+    flexDirection: 'row',
     backgroundColor: colors.background,
     borderRadius: radii.md,
-    padding: spacing.md,
     marginBottom: spacing.sm,
+    overflow: 'hidden',
     shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
     elevation: 3,
     borderWidth: 1,
-    borderColor: '#F0F0F5',
+    borderColor: '#EBEBF0',
   },
-  row: {
+  accentBar: {
+    width: 4,
+    borderTopLeftRadius: radii.md,
+    borderBottomLeftRadius: radii.md,
+  },
+  inner: {
+    flex: 1,
+    padding: spacing.md,
+    paddingLeft: spacing.sm + 4,
+    gap: spacing.sm,
+  },
+  topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
   },
-  avatar: {
-    width: 44,
-    height: 44,
+  avatarWrap: {
+    width: 46,
+    height: 46,
     borderRadius: radii.pill,
+    overflow: 'hidden',
     backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: '#F0F0F5',
+  },
+  avatar: {
+    width: '100%',
+    height: '100%',
   },
   info: {
     flex: 1,
-    gap: 2,
+    gap: 3,
   },
   partnerName: {
-    ...typography.name,
+    fontFamily: fonts.jakartaSemiBold,
     fontSize: 14,
+    color: colors.textPrimary,
   },
-  category: {
-    ...typography.caption,
+  categoryText: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 12,
+    color: colors.textSecondary,
   },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: spacing.sm,
+    gap: 4,
+    paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: radii.pill,
+    borderWidth: 1,
   },
   statusText: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontFamily: fonts.jakartaSemiBold,
+    fontSize: 10,
   },
   divider: {
     height: 1,
-    backgroundColor: '#F0F0F5',
-    marginVertical: spacing.sm,
+    backgroundColor: '#F3F3F8',
   },
-  detailsRow: {
+  metaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.sm,
+    gap: spacing.xs,
     alignItems: 'center',
   },
-  detailItem: {
+  metaChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    backgroundColor: colors.surface,
+    borderRadius: radii.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
-  detailText: {
-    ...typography.caption,
-    fontSize: 12,
+  metaChipHighlight: {
+    backgroundColor: '#ECFDF5',
   },
-  emergencyBadge: {
+  metaText: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 11,
+    color: colors.textSecondary,
+  },
+  metaTextHighlight: {
+    fontFamily: fonts.jostSemiBold,
+    color: colors.primary,
+  },
+  emergencyChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
     backgroundColor: '#EF4444',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: radii.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radii.sm,
   },
   emergencyText: {
-    color: '#fff',
+    fontFamily: fonts.jakartaSemiBold,
     fontSize: 10,
-    fontWeight: '700',
+    color: '#fff',
   },
   reviewRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    marginTop: spacing.sm,
+    gap: spacing.xs,
+    backgroundColor: '#FFFBEB',
+    borderRadius: radii.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  starsSmall: {
+    flexDirection: 'row',
+    gap: 2,
   },
   reviewComment: {
-    ...typography.caption,
-    fontSize: 12,
-    marginLeft: spacing.xs,
-    flex: 1,
+    fontFamily: fonts.jostRegular,
+    fontSize: 11,
+    color: colors.textSecondary,
     fontStyle: 'italic',
+    flex: 1,
   },
-  reviewNudge: {
+  nudgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: spacing.sm,
+    gap: 5,
+    backgroundColor: '#ECFDF5',
+    borderRadius: radii.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
-  reviewNudgeText: {
+  nudgeText: {
+    fontFamily: fonts.jostMedium,
+    fontSize: 11,
     color: colors.primary,
-    fontSize: 12,
-    fontWeight: '500',
+  },
+  chevronWrap: {
+    justifyContent: 'center',
+    paddingRight: spacing.sm,
   },
 });
