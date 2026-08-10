@@ -1,0 +1,79 @@
+import mongoose from "mongoose";
+
+// Service, Professional Details, Pricing & Availability fields
+const serviceFields = {
+  // Service Location (2dsphere index applied in main model)
+  // No defaults here — keep the field absent until partner sets it.
+  // A default on the nested "type" field causes Mongoose to create
+  // { type: "Point" } with no coordinates, which MongoDB rejects.
+  serviceLocation: {
+    type: {
+      type: String,
+      enum: ["Point"],
+    },
+    coordinates: {
+      type: [Number], // [longitude, latitude]
+    },
+  },
+  serviceRadius: {
+    type: Number,
+    default: 10, // km
+  },
+
+  // Professional Details
+  categories: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+    },
+  ],
+  subcategories: [
+    {
+      categoryId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Category",
+        required: true,
+      },
+      subcategoryId: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true,
+      },
+    },
+  ],
+  experience: Number,
+  languages: [String],
+  bio: String,
+
+  // Pricing
+  visitingCredits: {
+    type: {
+      type: String,
+      enum: ["perVisit", "perHour", "perDay", "perWeek"],
+      default: "perVisit",
+    },
+    amount: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+  },
+
+
+  // Availability
+  isOnline: {
+    type: Boolean,
+    default: false,
+  },
+  isAvailable: {
+    type: Boolean,
+    default: true,
+  },
+  workingDays: [
+    {
+      _id: false,
+      day: String,
+    },
+  ],
+};
+
+export default serviceFields;
