@@ -30,8 +30,14 @@ export type ProfileDraft = {
   serviceRadius: number;
 };
 
+export type SelectedSubcategory = {
+  categoryId: string;
+  subcategoryId: string;
+};
+
 export type ServiceDraft = {
   selectedCats: string[];
+  selectedSubcats: SelectedSubcategory[];
   experience: string;
   selectedLangs: string[];
   bio: string;
@@ -67,6 +73,7 @@ const DEFAULT_PROFILE: ProfileDraft = {
 
 const DEFAULT_SERVICE: ServiceDraft = {
   selectedCats: [],
+  selectedSubcats: [],
   experience: "",
   selectedLangs: ["Hindi", "English"],
   bio: "",
