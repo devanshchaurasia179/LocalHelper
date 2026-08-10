@@ -1,5 +1,27 @@
 import mongoose from "mongoose";
 
+const subcategorySchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    description: {
+      type: String,
+      trim: true,
+    },
+    icon: {
+      type: String, // URL or icon name
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+  },
+  { timestamps: true }
+);
+
 const categorySchema = new mongoose.Schema(
   {
     name: {
@@ -15,6 +37,7 @@ const categorySchema = new mongoose.Schema(
     icon: {
       type: String, // URL or icon name
     },
+    subcategories: [subcategorySchema],
     isActive: {
       type: Boolean,
       default: true,

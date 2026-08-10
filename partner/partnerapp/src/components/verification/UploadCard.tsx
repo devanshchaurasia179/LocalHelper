@@ -134,7 +134,7 @@ export function UploadCard({
         >
           <DocumentIcon
             name={doc.icon}
-            size={22}
+            size={20}
             color={
               isApproved  ? colors.successDark
               : isRejected ? colors.errorDark
@@ -313,7 +313,7 @@ export function UploadCard({
       {isRejected && doc.rejectionReason ? (
         <Animated.View entering={FadeIn.duration(300)} style={styles.rejectionCard}>
           <View style={styles.rejectionHeader}>
-            <Ionicons name="alert-circle-outline" size={18} color={colors.errorDark} />
+            <Ionicons name="alert-circle-outline" size={16} color={colors.errorDark} />
             <Text style={styles.rejectionLabel}>Rejection Reason</Text>
           </View>
           <Text style={styles.rejectionReason}>{doc.rejectionReason}</Text>
@@ -440,7 +440,7 @@ export function UploadCard({
                   doc.action.type === "add_more" ? "add-circle-outline"  :
                                                    "cloud-upload-outline"
                 }
-                size={18}
+                size={16}
                 color={isApproved ? colors.success : colors.white}
               />
               <Text style={[styles.ctaBtnText, isApproved && styles.ctaBtnTextView]}>
@@ -466,29 +466,29 @@ export function UploadCard({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: radii.lg,
+    borderRadius: radii.md,
     borderWidth: 1.5,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    gap: spacing.sm,
+    padding: spacing.sm + 2,
+    marginBottom: spacing.sm + 2,
+    gap: spacing.xs + 2,
     // Subtle shadow for depth
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
 
   // ── Header ────────────────────────────────────────────────────────────────
   header: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.sm,
+    alignItems: "center",
+    gap: spacing.xs + 2,
   },
   iconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: radii.md,
+    width: 36,
+    height: 36,
+    borderRadius: radii.sm,
     backgroundColor: colors.primary + "10",
     borderWidth: 1,
     borderColor: colors.primary + "20",
@@ -498,38 +498,38 @@ const styles = StyleSheet.create({
   },
   titleBlock: {
     flex: 1,
-    gap: 5,
+    gap: 4,
   },
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
-    gap: spacing.xs,
+    gap: spacing.xs - 2,
   },
   title: {
     fontFamily: fonts.jakartaSemiBold,
-    fontSize: 14,
+    fontSize: 13,
     color: colors.textPrimary,
     flex: 1,
-    lineHeight: 20,
+    lineHeight: 18,
   },
   versionChip: {
     backgroundColor: colors.surfaceAlt,
-    borderRadius: radii.sm,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    borderRadius: radii.sm - 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
   },
   versionText: {
     fontFamily: fonts.jostMedium,
-    fontSize: 10,
+    fontSize: 9,
     color: colors.textSecondary,
     textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: 0.3,
   },
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
+    gap: spacing.xs - 2,
     flexWrap: "wrap",
   },
 
@@ -537,21 +537,21 @@ const styles = StyleSheet.create({
   requiredChip: {
     backgroundColor: colors.errorLight,
     borderRadius: radii.pill,
-    borderWidth: 1,
+    borderWidth: 0.5,
     borderColor: colors.errorBorder,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
+    paddingHorizontal: spacing.xs + 2,
+    paddingVertical: 1,
   },
   requiredText: {
     fontFamily: fonts.jakartaSemiBold,
-    fontSize: 10,
+    fontSize: 9,
     color: colors.errorDark,
     textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: 0.3,
   },
   optionalChip: {
     backgroundColor: colors.surface,
-    borderColor: colors.navInactive + "66",
+    borderColor: colors.navInactive + "44",
   },
   optionalText: {
     color: colors.textSecondary,
@@ -560,16 +560,17 @@ const styles = StyleSheet.create({
   // ── Subtitle ──────────────────────────────────────────────────────────────
   subtitle: {
     fontFamily: fonts.jostRegular,
-    fontSize: 13,
+    fontSize: 12,
     color: colors.textSecondary,
-    lineHeight: 20,
+    lineHeight: 17,
+    marginTop: -2,
   },
 
   // ── Preview image ─────────────────────────────────────────────────────────
   previewWrap: {
-    borderRadius: radii.md,
+    borderRadius: radii.sm,
     overflow: "hidden",
-    height: 150,
+    height: 120,
     position: "relative",
     backgroundColor: colors.surfaceAlt,
   },
@@ -582,16 +583,16 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: "rgba(16, 185, 129, 0.85)",
+    backgroundColor: "rgba(16, 185, 129, 0.90)",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: spacing.xs,
-    paddingVertical: spacing.xs + 2,
+    gap: spacing.xs - 2,
+    paddingVertical: spacing.xs,
   },
   approvedOverlayText: {
     fontFamily: fonts.jakartaSemiBold,
-    fontSize: 13,
+    fontSize: 12,
     color: colors.white,
   },
   reviewOverlay: {
@@ -599,72 +600,72 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: "rgba(245, 158, 11, 0.85)",
+    backgroundColor: "rgba(245, 158, 11, 0.90)",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: spacing.xs,
-    paddingVertical: spacing.xs + 2,
+    gap: spacing.xs - 2,
+    paddingVertical: spacing.xs,
   },
   reviewOverlayText: {
     fontFamily: fonts.jakartaSemiBold,
-    fontSize: 13,
+    fontSize: 12,
     color: "#451A03",
   },
 
   // ── Rejection card ────────────────────────────────────────────────────────
   rejectionCard: {
     backgroundColor: colors.errorLight,
-    borderRadius: radii.md,
+    borderRadius: radii.sm,
     borderWidth: 1,
     borderColor: colors.errorBorder,
-    padding: spacing.sm + 2,
-    gap: spacing.xs,
+    padding: spacing.xs + 4,
+    gap: spacing.xs - 2,
   },
   rejectionHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
+    gap: spacing.xs - 2,
   },
   rejectionLabel: {
     fontFamily: fonts.jakartaSemiBold,
-    fontSize: 12,
+    fontSize: 11,
     color: colors.errorDark,
     textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: 0.3,
   },
   rejectionReason: {
     fontFamily: fonts.jostRegular,
-    fontSize: 13,
+    fontSize: 12,
     color: colors.errorDark,
-    lineHeight: 20,
+    lineHeight: 17,
   },
 
   // ── Number field ──────────────────────────────────────────────────────────
   numberFieldWrap: {
-    gap: spacing.xs,
+    gap: spacing.xs - 2,
   },
   numberFieldLabel: {
     fontFamily: fonts.jostMedium,
-    fontSize: 12,
+    fontSize: 11,
     color: colors.textSecondary,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
   },
   requiredStar: {
     color: colors.error,
   },
   numberInput: {
     fontFamily: fonts.jostRegular,
-    fontSize: 15,
+    fontSize: 14,
     color: colors.textPrimary,
     backgroundColor: colors.surface,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
+    borderRadius: radii.sm - 2,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.xs + 4,
     borderWidth: 1.5,
     borderColor: colors.navInactive + "66",
-    letterSpacing: 1,
+    letterSpacing: 0.8,
   },
   numberInputError: {
     borderColor: colors.error,
@@ -687,76 +688,77 @@ const styles = StyleSheet.create({
   // ── Constraints row ───────────────────────────────────────────────────────
   constraintsRow: {
     flexDirection: "row",
-    gap: spacing.sm,
+    gap: spacing.xs,
     flexWrap: "wrap",
   },
   constraintChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 3,
     backgroundColor: colors.surfaceAlt,
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
+    borderRadius: radii.sm - 2,
+    paddingHorizontal: spacing.xs + 2,
+    paddingVertical: 3,
   },
   constraintText: {
     fontFamily: fonts.jostRegular,
-    fontSize: 11,
+    fontSize: 10,
     color: colors.textSecondary,
   },
 
   // ── Help / instructions ───────────────────────────────────────────────────
   helpSection: {
-    gap: spacing.xs,
+    gap: spacing.xs - 2,
   },
   helpToggle: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
+    gap: spacing.xs - 2,
     alignSelf: "flex-start",
+    paddingVertical: 2,
   },
   helpToggleText: {
     fontFamily: fonts.jostMedium,
-    fontSize: 12,
+    fontSize: 11,
     color: colors.primary,
   },
   helpContent: {
     backgroundColor: colors.primary + "08",
-    borderRadius: radii.sm,
-    borderLeftWidth: 3,
+    borderRadius: radii.sm - 2,
+    borderLeftWidth: 2,
     borderLeftColor: colors.primary + "44",
-    padding: spacing.sm + 2,
-    gap: spacing.xs,
+    padding: spacing.xs + 4,
+    gap: spacing.xs - 2,
   },
   helpText: {
     fontFamily: fonts.jostRegular,
-    fontSize: 13,
+    fontSize: 12,
     color: colors.textSecondary,
-    lineHeight: 20,
+    lineHeight: 17,
   },
   uploadInstructions: {
     fontFamily: fonts.jostRegular,
-    fontSize: 12,
+    fontSize: 11,
     color: colors.textSecondary,
-    lineHeight: 20,
-    marginTop: spacing.xs,
+    lineHeight: 16,
+    marginTop: spacing.xs - 2,
   },
 
   // ── Sample image ──────────────────────────────────────────────────────────
   sampleWrap: {
-    gap: spacing.xs,
+    gap: spacing.xs - 2,
   },
   sampleLabel: {
     fontFamily: fonts.jostMedium,
-    fontSize: 11,
+    fontSize: 10,
     color: colors.textSecondary,
     textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: 0.3,
   },
   sampleImage: {
     width: "100%",
-    height: 100,
-    borderRadius: radii.sm,
+    height: 85,
+    borderRadius: radii.sm - 2,
     backgroundColor: colors.surfaceAlt,
   },
 
@@ -765,11 +767,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: spacing.sm,
+    gap: spacing.xs + 2,
     backgroundColor: colors.primary,
-    borderRadius: radii.md,
-    paddingVertical: spacing.sm + 4,
-    minHeight: 46,
+    borderRadius: radii.sm,
+    paddingVertical: spacing.sm + 2,
+    minHeight: 42,
   },
   ctaBtnView: {
     backgroundColor: colors.successLight,
@@ -790,9 +792,9 @@ const styles = StyleSheet.create({
   },
   ctaBtnText: {
     fontFamily: fonts.jakartaSemiBold,
-    fontSize: 14,
+    fontSize: 13,
     color: colors.white,
-    letterSpacing: 0.2,
+    letterSpacing: 0.15,
   },
   ctaBtnTextView: {
     color: colors.successDark,
@@ -802,41 +804,41 @@ const styles = StyleSheet.create({
   reviewNotice: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
+    gap: spacing.xs - 2,
     justifyContent: "center",
     backgroundColor: "#FFFBEB",
-    borderRadius: radii.sm,
-    paddingVertical: spacing.xs + 2,
-    borderWidth: 1,
+    borderRadius: radii.sm - 2,
+    paddingVertical: spacing.xs,
+    borderWidth: 0.5,
     borderColor: "#FDE68A",
   },
   reviewNoticeText: {
     fontFamily: fonts.jostMedium,
-    fontSize: 12,
+    fontSize: 11,
     color: "#92400E",
   },
 
   // ── Multi-photo pending strip ─────────────────────────────────────────────
   multiPreviewSection: {
-    gap: spacing.xs,
+    gap: spacing.xs - 2,
   },
   multiPreviewLabel: {
     fontFamily: fonts.jostMedium,
-    fontSize: 12,
+    fontSize: 11,
     color: colors.textSecondary,
   },
   multiPreviewStrip: {
     gap: spacing.xs,
-    paddingVertical: 2,
+    paddingVertical: 1,
   },
   multiThumbWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: radii.md,
+    width: 64,
+    height: 64,
+    borderRadius: radii.sm,
     overflow: "hidden",
     position: "relative",
     backgroundColor: colors.surfaceAlt,
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: colors.navInactive + "33",
   },
   multiThumb: {
@@ -855,30 +857,30 @@ const styles = StyleSheet.create({
   },
   multiThumbIndex: {
     position: "absolute",
-    top: 4,
-    left: 4,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: "rgba(0,0,0,0.55)",
+    top: 3,
+    left: 3,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "rgba(0,0,0,0.60)",
     alignItems: "center",
     justifyContent: "center",
   },
   multiThumbIndexText: {
     fontFamily: fonts.jakartaSemiBold,
-    fontSize: 10,
+    fontSize: 9,
     color: colors.white,
   },
 
   // ── Delete button on draft photo thumbnails ───────────────────────────────
   thumbDeleteBtn: {
     position: "absolute",
-    top: 3,
-    right: 3,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: "rgba(220, 38, 38, 0.85)",
+    top: 2,
+    right: 2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "rgba(220, 38, 38, 0.90)",
     alignItems: "center",
     justifyContent: "center",
     zIndex: 10,

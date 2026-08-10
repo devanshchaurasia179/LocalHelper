@@ -208,3 +208,160 @@ export const deleteCategory = async (req, res) => {
     return res.status(500).json({ message: "Internal server error." });
   }
 };
+
+// ─── SUBCATEGORY MANAGEMENT ──────────────────────────────────────────────────
+
+/**
+ * POST /api/admin/categories/:id/subcategories
+ * Body: { name*, description, icon }
+ * Adds a subcategory to the specified category.
+ */
+export const addSubcategory = async (req, res) => {
+  try {
+    const { name, description, icon } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ message: "Subcategory name is required." });
+    }
+
+    const category = await Category.findById(req.params.id);
+
+    if (!category) {
+      return res.status(404).json({ message: "Category not found." });
+    }
+
+    // Check for duplicate subcategory name within this category
+    const duplicate = category.subcategories.find(
+      (sub) => sub.name.toLowerCase() === name.trim().toLowerCase()
+    );
+
+    if (duplicate) {
+      return res.status(409).json({
+        message: "A subcategory with this name already exists in this category.",
+      });
+    }
+
+    category.subcategories.push({
+      name: name.trim(),
+      description: description?.trim() || undefined,
+      icon: icon?.trim() || undefined,
+    });
+
+    await category.save();
+
+    return res.status(201).json({
+      message: "Subcategory added successfully.",
+      category,
+    });
+  } catch (error) {
+    if (error.name === "CastError") {
+      return res.status(400).json({ message: "Invalid category ID." });
+    }
+    console.error("addSubcategory error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+/**
+ * PATCH /api/admin/categories/:id/subcategories/:subId
+ * Body: { name, description, icon, isActive }
+ * Updates a specific subcategory.
+ */
+export const updateSubcategory = async (req, res) => {
+  try {
+    const { name, description, icon, isActive } = req.body;
+
+    const category = await Category.findById(req.params.id);
+
+    if (!category) {
+      return res.status(404).json({ message: "Category not found." });
+    }
+
+    const subcategory = category.subcategories.id(req.params.subId);
+
+    if (!subcategory) {
+      return res.status(404).json({ message: "Subcategory not found." });
+    }
+
+    // Check for duplicate name if name is changing
+    if (name && name.trim() !== subcategory.name) {
+      const duplicate = category.subcategories.find(
+        (sub) =>
+          sub._id.toString() !== req.params.subId &&
+          sub.name.toLowerCase() === name.trim().toLowerCase()
+      );
+
+      if (duplicate) {
+        return res.status(409).json({
+          message: "A subcategory with this name already exists in this category.",
+        });
+      }
+
+      subcategory.name = name.trim();
+    }
+
+    if (description !== undefined) subcategory.description = description?.trim() || "";
+    if (icon !== undefined) subcategory.icon = icon?.trim() || "";
+    if (isActive !== undefined) subcategory.isActive = isActive;
+
+    await category.save();
+
+    return res.status(200).json({
+      message: "Subcategory updated successfully.",
+      category,
+    });
+  } catch (error) {
+    if (error.name === "CastError") {
+      return res.status(400).json({ message: "Invalid ID." });
+    }
+    console.error("updateSubcategory error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+/**
+ * DELETE /api/admin/categories/:id/subcategories/:subId
+ * Deletes a specific subcategory from a category.
+ */
+export const deleteSubcategory = async (req, res) => {
+  try {
+    const category = await Category.findById(req.params.id);
+
+    if (!category) {
+      return res.status(404).json({ message: "Category not found." });
+    }
+
+    const subcategory = category.subcategories.id(req.params.subId);
+
+    if (!subcategory) {
+      return res.status(404).json({ message: "Subcategory not found." });
+    }
+
+    // Check if any partners are using this subcategory
+    const Partner = (await import("../../models/partner/Partner.js")).default;
+    const partnerCount = await Partner.countDocuments({
+      "subcategories.categoryId": req.params.id,
+      "subcategories.subcategoryId": req.params.subId,
+    });
+
+    if (partnerCount > 0) {
+      return res.status(409).json({
+        message: `Cannot delete "${subcategory.name}" — ${partnerCount} partner${partnerCount > 1 ? "s" : ""} ${partnerCount > 1 ? "are" : "is"} using this subcategory.`,
+      });
+    }
+
+    subcategory.deleteOne();
+    await category.save();
+
+    return res.status(200).json({
+      message: "Subcategory deleted successfully.",
+      category,
+    });
+  } catch (error) {
+    if (error.name === "CastError") {
+      return res.status(400).json({ message: "Invalid ID." });
+    }
+    console.error("deleteSubcategory error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};

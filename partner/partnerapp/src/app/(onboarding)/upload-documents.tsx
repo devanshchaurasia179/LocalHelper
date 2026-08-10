@@ -526,7 +526,7 @@ export default function UploadDocumentsScreen() {
                   <>
                     <Ionicons
                       name="shield-checkmark-outline"
-                      size={20}
+                      size={18}
                       color={canSubmit ? colors.white : colors.textSecondary}
                     />
                     <Text style={[styles.submitBtnText, !canSubmit && styles.submitBtnTextDisabled]}>
@@ -587,7 +587,7 @@ function BannerCard({
 
   return (
     <View style={[bannerStyles.wrap, { backgroundColor: c.bg, borderColor: c.border }]}>
-      <Ionicons name={c.icon} size={20} color={c.titleColor} style={{ marginTop: 1 }} />
+      <Ionicons name={c.icon} size={18} color={c.titleColor} style={{ marginTop: 0 }} />
       <View style={bannerStyles.content}>
         <Text style={[bannerStyles.title, { color: c.titleColor }]}>{title}</Text>
         <Text style={[bannerStyles.message, { color: c.msgColor }]}>{message}</Text>
@@ -600,15 +600,15 @@ const bannerStyles = StyleSheet.create({
   wrap: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: spacing.sm,
-    borderRadius: radii.md,
-    borderWidth: 1.5,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
+    gap: spacing.xs + 2,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    padding: spacing.sm + 2,
+    marginBottom: spacing.xs + 2,
   },
-  content: { flex: 1, gap: 3 },
-  title: { fontFamily: fonts.jakartaSemiBold, fontSize: 14 },
-  message: { fontFamily: fonts.jostRegular, fontSize: 13, lineHeight: 19 },
+  content: { flex: 1, gap: 2 },
+  title: { fontFamily: fonts.jakartaSemiBold, fontSize: 13, lineHeight: 17 },
+  message: { fontFamily: fonts.jostRegular, fontSize: 12, lineHeight: 17 },
 });
 
 /** Progress bar: "X of Y required documents uploaded" */
@@ -643,19 +643,19 @@ function ProgressBar({
 }
 
 const progressStyles = StyleSheet.create({
-  wrap: { marginBottom: spacing.md, gap: spacing.xs },
-  labelRow: { flexDirection: "row", justifyContent: "space-between" },
-  label: { fontFamily: fonts.jostMedium, fontSize: 12, color: colors.textSecondary },
-  count:  { fontFamily: fonts.jakartaSemiBold, fontSize: 12, color: colors.primary },
+  wrap: { marginBottom: spacing.sm + 2, gap: spacing.xs - 2 },
+  labelRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  label: { fontFamily: fonts.jostMedium, fontSize: 11, color: colors.textSecondary },
+  count:  { fontFamily: fonts.jakartaSemiBold, fontSize: 11, color: colors.primary },
   track: {
-    height: 6,
-    borderRadius: 3,
+    height: 5,
+    borderRadius: 2.5,
     backgroundColor: colors.surfaceAlt,
     overflow: "hidden",
   },
   fill: {
     height: "100%",
-    borderRadius: 3,
+    borderRadius: 2.5,
     backgroundColor: colors.primary,
   },
   fillComplete: {
@@ -850,8 +850,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radii.lg + 8,
     borderTopRightRadius: radii.lg + 8,
     marginTop: -24,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
+    paddingHorizontal: spacing.md + 2,
+    paddingTop: spacing.xs + 2,
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: -8 },
     shadowOpacity: 0.35,
@@ -859,26 +859,26 @@ const styles = StyleSheet.create({
     elevation: 20,
   },
   handle: {
-    width: 40, height: 4, borderRadius: 2,
-    backgroundColor: "#D1D5DB", alignSelf: "center", marginBottom: spacing.md,
+    width: 36, height: 3.5, borderRadius: 2,
+    backgroundColor: "#D1D5DB", alignSelf: "center", marginBottom: spacing.sm + 2,
   },
-  scroll: { paddingBottom: spacing.xl + 24 },
+  scroll: { paddingBottom: spacing.lg + 20 },
 
   // ── Security notice ────────────────────────────────────────────────────────
   securityBanner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
+    gap: spacing.xs - 2,
     backgroundColor: colors.primary + "08",
-    borderRadius: radii.sm,
-    borderWidth: 1,
+    borderRadius: radii.sm - 2,
+    borderWidth: 0.5,
     borderColor: colors.primary + "22",
-    paddingHorizontal: spacing.sm + 2,
-    paddingVertical: spacing.xs + 2,
-    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.xs + 4,
+    paddingVertical: spacing.xs,
+    marginBottom: spacing.xs + 2,
   },
   securityText: {
-    fontFamily: fonts.jostRegular, fontSize: 12,
+    fontFamily: fonts.jostRegular, fontSize: 11,
     color: colors.primary, flex: 1,
   },
 
@@ -886,33 +886,33 @@ const styles = StyleSheet.create({
   remainingHint: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
+    gap: spacing.xs - 2,
     justifyContent: "center",
-    marginTop: spacing.sm,
+    marginTop: spacing.xs + 4,
   },
   remainingHintText: {
-    fontFamily: fonts.jostRegular, fontSize: 13,
+    fontFamily: fonts.jostRegular, fontSize: 12,
     color: colors.textSecondary,
   },
 
   // ── Submit for Review button ───────────────────────────────────────────────
   submitWrap: {
-    marginTop: spacing.lg,
-    gap: spacing.sm,
+    marginTop: spacing.md + 2,
+    gap: spacing.xs + 2,
   },
   submitBtn: {
     backgroundColor: colors.primary,
-    borderRadius: radii.md,
-    paddingVertical: spacing.md + 2,
+    borderRadius: radii.sm + 2,
+    paddingVertical: spacing.sm + 4,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: spacing.sm,
+    gap: spacing.xs + 4,
     shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.32,
+    shadowRadius: 7,
+    elevation: 5,
   },
   submitBtnDisabled: {
     backgroundColor: colors.surfaceAlt,
@@ -921,15 +921,16 @@ const styles = StyleSheet.create({
   },
   submitBtnText: {
     fontFamily: fonts.jakartaSemiBold,
-    fontSize: 16,
+    fontSize: 15,
     color: colors.white,
+    letterSpacing: 0.15,
   },
   submitBtnTextDisabled: {
     color: colors.textSecondary,
   },
   submitHint: {
     fontFamily: fonts.jostRegular,
-    fontSize: 12,
+    fontSize: 11,
     color: colors.textSecondary,
     textAlign: "center",
   },

@@ -1,5 +1,6 @@
 import Partner from "../models/partner/Partner.js";
 import Booking from "../models/partner/partner.booking.js";
+import Category from "../models/Category.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,10 @@ const validateWorkingDays = (workingDays) => {
  * Body:
  * {
  *   categories        : ["categoryId1", "categoryId2"],
+ *   subcategories     : [
+ *     { categoryId: "catId1", subcategoryId: "subId1" },
+ *     { categoryId: "catId1", subcategoryId: "subId2" }
+ *   ],
  *   experience        : 4,
  *   languages         : ["Hindi", "English"],
  *   bio               : "Short description",
@@ -35,7 +40,7 @@ const validateWorkingDays = (workingDays) => {
  *   ]
  * }
  *
- * Required: categories, visitingCredits, serviceLocation
+ * Required: categories, subcategories, visitingCredits, serviceLocation
  */
 export const setupService = async (req, res) => {
   try {
@@ -52,6 +57,7 @@ export const setupService = async (req, res) => {
 
     const {
       categories,
+      subcategories,
       experience,
       languages,
       bio,
@@ -66,6 +72,29 @@ export const setupService = async (req, res) => {
     if (!categories || !Array.isArray(categories) || categories.length === 0) {
       return res.status(400).json({ message: "At least one category is required." });
     }
+    if (!subcategories || !Array.isArray(subcategories) || subcategories.length === 0) {
+      return res.status(400).json({ message: "At least one subcategory is required." });
+    }
+    
+    // ── Validate subcategories exist in their respective categories ───────
+    for (const sub of subcategories) {
+      if (!sub.categoryId || !sub.subcategoryId) {
+        return res.status(400).json({ message: "Each subcategory must have categoryId and subcategoryId." });
+      }
+      
+      const category = await Category.findById(sub.categoryId);
+      if (!category) {
+        return res.status(400).json({ message: `Category ${sub.categoryId} not found.` });
+      }
+      
+      const subcategoryExists = category.subcategories.id(sub.subcategoryId);
+      if (!subcategoryExists) {
+        return res.status(400).json({ 
+          message: `Subcategory ${sub.subcategoryId} not found in category ${category.name}.` 
+        });
+      }
+    }
+    
     if (visitingCreditsAmount === undefined || visitingCreditsAmount === null) {
       return res.status(400).json({ message: "Visiting credits amount is required." });
     }
@@ -85,15 +114,16 @@ export const setupService = async (req, res) => {
     }
 
     // ── Map & save ────────────────────────────────────────────────────────
-    partner.categories      = categories;
-    partner.experience      = experience      ?? partner.experience;
-    partner.languages       = languages       ?? partner.languages;
-    partner.bio             = bio             ?? partner.bio;
+    partner.categories = categories;
+    partner.subcategories = subcategories;
+    partner.experience = experience ?? partner.experience;
+    partner.languages = languages ?? partner.languages;
+    partner.bio = bio ?? partner.bio;
     partner.visitingCredits = {
       type: visitingCreditsType,
       amount: visitingCreditsAmount,
     };
-    partner.serviceRadius   = serviceRadius   ?? 10;
+    partner.serviceRadius = serviceRadius ?? 10;
 
     if (serviceLocation?.longitude && serviceLocation?.latitude) {
       partner.serviceLocation = {
@@ -112,14 +142,15 @@ export const setupService = async (req, res) => {
     return res.status(200).json({
       message: "Service details saved successfully.",
       service: {
-        categories:         partner.categories,
-        experience:         partner.experience,
-        languages:          partner.languages,
-        bio:                partner.bio,
-        visitingCredits:    partner.visitingCredits,
-        serviceRadius:      partner.serviceRadius,
-        serviceLocation:    partner.serviceLocation,
-        workingDays:        partner.workingDays,
+        categories: partner.categories,
+        subcategories: partner.subcategories,
+        experience: partner.experience,
+        languages: partner.languages,
+        bio: partner.bio,
+        visitingCredits: partner.visitingCredits,
+        serviceRadius: partner.serviceRadius,
+        serviceLocation: partner.serviceLocation,
+        workingDays: partner.workingDays,
       },
     });
   } catch (error) {
@@ -137,15 +168,38 @@ export const getServiceDetails = async (req, res) => {
   try {
     const partner = await Partner.findById(req.partnerId)
       .select(
-        "categories experience languages bio visitingCredits serviceRadius serviceLocation workingDays isAvailable isOnline"
+        "categories subcategories experience languages bio visitingCredits serviceRadius serviceLocation workingDays isAvailable isOnline"
       )
-      .populate("categories", "name");
+      .populate("categories", "name icon");
 
     if (!partner) {
       return res.status(404).json({ message: "Partner not found." });
     }
 
-    return res.status(200).json({ service: partner });
+    // Populate subcategories with their details
+    const populatedSubcategories = [];
+    for (const sub of partner.subcategories || []) {
+      const category = await Category.findById(sub.categoryId);
+      if (category) {
+        const subcategoryDetail = category.subcategories.id(sub.subcategoryId);
+        if (subcategoryDetail) {
+          populatedSubcategories.push({
+            categoryId: sub.categoryId,
+            categoryName: category.name,
+            subcategoryId: sub.subcategoryId,
+            subcategoryName: subcategoryDetail.name,
+            subcategoryIcon: subcategoryDetail.icon,
+          });
+        }
+      }
+    }
+
+    return res.status(200).json({ 
+      service: {
+        ...partner.toObject(),
+        populatedSubcategories,
+      } 
+    });
   } catch (error) {
     console.error("getServiceDetails error:", error);
     return res.status(500).json({ message: "Internal server error." });
@@ -168,14 +222,14 @@ export const updateAvailability = async (req, res) => {
       return res.status(404).json({ message: "Partner not found." });
     }
 
-    if (isOnline    !== undefined) partner.isOnline    = isOnline;
+    if (isOnline !== undefined) partner.isOnline = isOnline;
     if (isAvailable !== undefined) partner.isAvailable = isAvailable;
 
     await partner.save();
 
     return res.status(200).json({
-      message:     "Availability updated.",
-      isOnline:    partner.isOnline,
+      message: "Availability updated.",
+      isOnline: partner.isOnline,
       isAvailable: partner.isAvailable,
     });
   } catch (error) {
@@ -218,7 +272,7 @@ export const updateVisitingCredits = async (req, res) => {
     await partner.save();
 
     return res.status(200).json({
-      message:         "Visiting credits updated.",
+      message: "Visiting credits updated.",
       visitingCredits: partner.visitingCredits,
     });
   } catch (error) {
