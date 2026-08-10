@@ -394,7 +394,20 @@ export default function CompleteProfileScreen() {
   }, []);
 
   // Validation
-  const step0Valid = fullName.trim().length >= 2 && gender !== null && dateOfBirth !== null;
+  /** Returns true if the given date is at least 18 years before today */
+  const isAgeValid = (d: Date): boolean => {
+    const today = new Date();
+    const cutoff = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate());
+    return d <= cutoff;
+  };
+
+  // Latest selectable date is exactly 18 years ago today
+  const maxDob = (() => {
+    const t = new Date();
+    return new Date(t.getFullYear() - 18, t.getMonth(), t.getDate());
+  })();
+
+  const step0Valid = fullName.trim().length >= 2 && gender !== null && dateOfBirth !== null && isAgeValid(dateOfBirth);
   const step1Valid = city.trim().length > 0 && state.trim().length > 0 && /^\d{6}$/.test(pincode);
 
   const handleNext = () => { clearError(); if (step < 2) setStep((s) => (s + 1) as Step); };
@@ -639,13 +652,18 @@ export default function CompleteProfileScreen() {
                     value={dateOfBirth ?? new Date(1995, 0, 1)}
                     mode="date"
                     display={Platform.OS === "ios" ? "spinner" : "default"}
-                    maximumDate={new Date()}
+                    maximumDate={maxDob}
                     minimumDate={new Date(1940, 0, 1)}
                     onChange={(_, selected) => {
                       setShowDatePicker(Platform.OS === "ios");
                       if (selected) setDateOfBirth(selected);
                     }}
                   />
+                )}
+                {dateOfBirth !== null && !isAgeValid(dateOfBirth) && (
+                  <Text style={styles.fieldError}>
+                    You must be at least 18 years old to register as a partner.
+                  </Text>
                 )}
               </View>
             )}

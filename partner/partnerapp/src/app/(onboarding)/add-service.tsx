@@ -358,17 +358,14 @@ function PricingTypeDropdown({
         accessibilityRole="button"
         accessibilityLabel="Select pricing model"
       >
-        <MaterialCommunityIcons
-          name="currency-inr"
-          size={17}
-          color={open ? colors.white : colors.primary}
-        />
         <View style={pd.triggerContent}>
-          <Text style={[pd.triggerLabel, open && pd.triggerLabelOpen]}>{selected.label}</Text>
+          <Text style={[pd.triggerLabel, open && pd.triggerLabelOpen]} numberOfLines={1}>
+            {selected.label}
+          </Text>
         </View>
         <MaterialCommunityIcons
           name={open ? "chevron-up" : "chevron-down"}
-          size={18}
+          size={16}
           color={open ? "rgba(255,255,255,0.8)" : colors.textSecondary}
         />
       </Pressable>
@@ -405,10 +402,10 @@ function PricingTypeDropdown({
 }
 
 const pd = StyleSheet.create({
-  root: { marginTop: 0 },
+  root: { marginTop: 0, position: "relative", zIndex: 10 },
   trigger: {
-    flexDirection: "row", alignItems: "center", gap: spacing.sm,
-    paddingHorizontal: spacing.md,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: spacing.sm,
     height: 48,
     borderRadius: radii.sm, borderWidth: 1.5,
     borderColor: colors.navInactive + "66", backgroundColor: colors.surface,
@@ -418,7 +415,7 @@ const pd = StyleSheet.create({
     borderBottomLeftRadius: 0, borderBottomRightRadius: 0,
   },
   triggerContent: { flex: 1 },
-  triggerLabel: { fontFamily: fonts.jostMedium, fontSize: 14, color: colors.textPrimary },
+  triggerLabel: { fontFamily: fonts.jostMedium, fontSize: 13, color: colors.textPrimary },
   triggerLabelOpen: { color: colors.white },
   triggerHint: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary, marginTop: 1 },
   triggerHintOpen: { color: "rgba(255,255,255,0.7)" },
@@ -426,6 +423,10 @@ const pd = StyleSheet.create({
     borderWidth: 1.5, borderTopWidth: 0, borderColor: colors.primary,
     borderBottomLeftRadius: radii.md, borderBottomRightRadius: radii.md,
     backgroundColor: colors.white, overflow: "hidden",
+    position: "absolute", top: 48, right: 0, width: 200, zIndex: 100,
+    // Shadow so it lifts above surrounding content
+    shadowColor: "#000", shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12, shadowRadius: 8, elevation: 8,
   },
   option: {
     flexDirection: "row", alignItems: "center", gap: spacing.sm,
@@ -743,24 +744,25 @@ export default function AddServiceScreen() {
               <SectionTitle icon="currency-inr" title="Pricing & Availability" />
             </View>
             <View style={[styles.fieldGap, styles.pricingRow]}>
-              {/* Pricing model dropdown — fixed width */}
-              <View style={styles.pricingModelCol}>
-                <FieldLabel label="Model" required />
-                <PricingTypeDropdown
-                  value={visitingCreditsType}
-                  onChange={(t) => { setError(null); setVisitingCreditsTypeLocal(t); }}
-                />
-              </View>
               {/* Fees input — fills remaining space */}
               <View style={styles.pricingFeesCol}>
                 <FieldLabel label="Fees (₹)" required />
                 <TextInput
-                  style={[styles.input, styles.feesInput, visitingCreditsAmount.length > 0 && isNaN(Number(visitingCreditsAmount)) && styles.inputError]}                  placeholder="e.g. 150"
+                  style={[styles.input, styles.feesInput, visitingCreditsAmount.length > 0 && isNaN(Number(visitingCreditsAmount)) && styles.inputError]}
+                  placeholder="e.g. 150"
                   placeholderTextColor={colors.textSecondary}
                   keyboardType="number-pad"
                   value={visitingCreditsAmount}
                   onChangeText={(t) => { setError(null); setVisitingCreditsAmountLocal(t.replace(/\D/g, "")); }}
                   accessibilityLabel="Pricing amount in rupees"
+                />
+              </View>
+              {/* Pricing model dropdown — compact, right side */}
+              <View style={styles.pricingModelCol}>
+                <FieldLabel label="Model" required />
+                <PricingTypeDropdown
+                  value={visitingCreditsType}
+                  onChange={(t) => { setError(null); setVisitingCreditsTypeLocal(t); }}
                 />
               </View>
             </View>
@@ -959,8 +961,8 @@ const styles = StyleSheet.create({
   selectedLangText: { fontFamily: fonts.jostMedium, fontSize: 12, color: colors.white },
 
   // Pricing row
-  pricingRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
-  pricingModelCol: { width: "48%" },
+  pricingRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start", zIndex: 10 },
+  pricingModelCol: { width: 118, zIndex: 10 },
   pricingFeesCol: { flex: 1 },
   feesInput: { height: 48, borderRadius: radii.sm },
 
