@@ -37,8 +37,11 @@ export const sendOtp = async (req, res) => {
       partner = new Partner({ phone });
     }
 
-    // Generate OTP
-    const otp = generateOtp();
+    // Generate OTP — use fixed test OTP for dev number to avoid burning SMS credits
+    const TEST_PHONE = process.env.TEST_PHONE;
+    const TEST_OTP   = process.env.TEST_OTP ?? "123456";
+    const otp = TEST_PHONE && phone === TEST_PHONE ? TEST_OTP : generateOtp();
+
     const salt = await bcrypt.genSalt(10);
     const hash = await bcrypt.hash(otp, salt);
 
@@ -50,8 +53,10 @@ export const sendOtp = async (req, res) => {
 
     await partner.save();
 
-    // Deliver OTP via ApiTxt SMS
-    await sendOtpViaSms(phone, otp);
+    // Skip real SMS for the test number
+    if (!TEST_PHONE || phone !== TEST_PHONE) {
+      await sendOtpViaSms(phone, otp);
+    }
 
     return res.status(200).json({ message: "OTP sent successfully." });
   } catch (error) {
