@@ -19,17 +19,23 @@ export const getCategories = () =>
 
 // ─── Nearby Partners ──────────────────────────────────────────────────────────
 
+export type PricingType = "perVisit" | "perHour" | "perDay" | "perWeek";
+
+export interface VisitingCredits {
+  type: PricingType;
+  amount: number;
+}
+
 export type NearbyPartner = {
   _id: string;
   fullName: string;
   profilePhoto?: string;
   selfieUrl?: string;
   bio?: string;
-  skills?: string[];
   categories: Category[];
   experience?: number;
   languages?: string[];
-  visitingCredits?: number;
+  visitingCredits?: VisitingCredits;
   emergencyAvailable?: boolean;
   isOnline: boolean;
   isAvailable: boolean;

@@ -568,7 +568,12 @@ export default function PartnerDetailSheet({
               <Text style={styles.sectionTitle}>Details</Text>
               <View style={styles.chipRow}>
                 {partner.visitingCredits != null && (
-                  <InfoChip icon="wallet-outline" label={`₹${partner.visitingCredits} visit fee`} />
+                  <InfoChip
+                    icon="wallet-outline"
+                    label={`₹${partner.visitingCredits.amount} / ${
+                      { perVisit: 'visit', perHour: 'hr', perDay: 'day', perWeek: 'week' }[partner.visitingCredits.type]
+                    }`}
+                  />
                 )}
                 {partner.experience != null && partner.experience > 0 && (
                   <InfoChip icon="time-outline" label={`${partner.experience} yr exp`} />
@@ -584,20 +589,6 @@ export default function PartnerDetailSheet({
                 ))}
               </View>
             </View>
-
-            {/* ── Skills ───────────────────────────────────────────────────── */}
-            {partner.skills?.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Skills</Text>
-                <View style={styles.chipRow}>
-                  {partner.skills.map((skill) => (
-                    <View key={skill} style={styles.skillTag}>
-                      <Text style={styles.skillText}>{skill}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            )}
 
             {/* ── Working days ─────────────────────────────────────────────── */}
             {partner.workingDays?.length > 0 && (
@@ -707,8 +698,10 @@ export default function PartnerDetailSheet({
           <View style={styles.footer}>
             {partner.visitingCredits != null && (
               <View style={styles.priceLabel}>
-                <Text style={styles.priceLabelText}>Visiting fee</Text>
-                <Text style={styles.priceValue}>₹{partner.visitingCredits}</Text>
+                <Text style={styles.priceLabelText}>
+                  {{ perVisit: 'Per visit', perHour: 'Per hour', perDay: 'Per day', perWeek: 'Per week' }[partner.visitingCredits.type]}
+                </Text>
+                <Text style={styles.priceValue}>₹{partner.visitingCredits.amount}</Text>
               </View>
             )}
             <TouchableOpacity

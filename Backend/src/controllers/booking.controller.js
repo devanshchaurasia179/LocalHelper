@@ -22,7 +22,7 @@ import PartnerDocument from "../models/verification/PartnerDocument.js";
  */
 export const createBooking = async (req, res) => {
   try {
-    const { partnerId, categoryId, description, scheduledAt, isEmergency } = req.body;
+    const { partnerId, categoryId, description, scheduledAt } = req.body;
 
     if (!partnerId) {
       return res.status(400).json({ message: "partnerId is required." });
@@ -38,7 +38,7 @@ export const createBooking = async (req, res) => {
 
     // Verify partner exists and is available
     const partner = await Partner.findById(partnerId).select(
-      "isOnline isAvailable visitingCredits verificationStatus emergencyAvailable"
+      "isOnline isAvailable visitingCredits verificationStatus"
     );
     if (!partner) {
       return res.status(404).json({ message: "Partner not found." });
@@ -47,21 +47,10 @@ export const createBooking = async (req, res) => {
       return res.status(400).json({ message: "Partner is not approved for bookings." });
     }
     if (!partner.isOnline || !partner.isAvailable) {
-      // Allow emergency bookings if partner has enabled it
-      if (isEmergency && partner.emergencyAvailable) {
-        // Proceed — emergency booking for offline partner is allowed
-      } else if (!partner.emergencyAvailable) {
-        return res.status(400).json({
-          code: "PARTNER_OFFLINE_NO_EMERGENCY",
-          message: "This partner is currently offline and does not accept emergency bookings. Please try again later.",
-        });
-      } else {
-        return res.status(400).json({
-          code: "PARTNER_OFFLINE",
-          message: "Partner is currently offline. You can book an emergency service, but additional charges may apply.",
-          emergencyAvailable: true,
-        });
-      }
+      return res.status(400).json({
+        code: "PARTNER_OFFLINE",
+        message: "This partner is currently offline. Please try again later.",
+      });
     }
 
     // Load customer for address snapshot
@@ -98,8 +87,7 @@ export const createBooking = async (req, res) => {
       category:       categoryId  || undefined,
       description:    description || undefined,
       scheduledAt:    scheduledDate,
-      visitingCredit: partner.visitingCredits,
-      isEmergency:    isEmergency ?? false,
+      visitingCredit: partner.visitingCredits?.amount,
       serviceAddress,
       status:         "pending",
     });
@@ -111,7 +99,6 @@ export const createBooking = async (req, res) => {
         status:         booking.status,
         scheduledAt:    booking.scheduledAt,
         visitingCredit: booking.visitingCredit,
-        isEmergency:    booking.isEmergency,
       },
     });
   } catch (error) {

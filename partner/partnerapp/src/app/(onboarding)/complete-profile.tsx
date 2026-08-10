@@ -402,6 +402,56 @@ export default function CompleteProfileScreen() {
   const formatDate = (d: Date) =>
     d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 
+  // ── Auto-detect location for address (Step 1) ────────────────────────────
+  const [addressDetecting, setAddressDetecting] = useState(false);
+
+  const handleAutoDetectAddress = useCallback(async () => {
+    setAddressDetecting(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission Denied", "Location access is needed to auto-fill your address.");
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = pos.coords;
+
+      // Use Geocoding API to get structured address_components from coords
+      const { data } = await axios.get(
+        "https://maps.googleapis.com/maps/api/geocode/json",
+        { params: { latlng: `${latitude},${longitude}`, key: MAPS_KEY, language: "en" } }
+      );
+
+      if (data.status !== "OK" || !data.results?.length) {
+        Alert.alert("Error", "Could not resolve your location to an address. Please fill in manually.");
+        return;
+      }
+
+      const c: AddressComponent[] = data.results[0].address_components ?? [];
+
+      const streetNumber = getComponent(c, "street_number");
+      const routeName    = getComponent(c, "route");
+      const sublocality  = getComponent(c, "sublocality_level_1") || getComponent(c, "sublocality");
+      const cityName     = getComponent(c, "locality") || getComponent(c, "administrative_area_level_2");
+      const stateName    = getComponent(c, "administrative_area_level_1");
+      const postal       = getComponent(c, "postal_code");
+
+      setStreet([streetNumber, routeName].filter(Boolean).join(" "));
+      setLocality(sublocality);
+      setCity(cityName);
+      setState(
+        INDIAN_STATES.find((s) => s.toLowerCase() === stateName.toLowerCase()) ?? stateName
+      );
+      setPincode(postal);
+      setAddressFilled(true);
+      clearError();
+    } catch {
+      Alert.alert("Error", "Could not detect your address. Please fill in manually.");
+    } finally {
+      setAddressDetecting(false);
+    }
+  }, [clearError]);
+
   // ── Address suggestion picked → fetch details & auto-fill ───────────────
   const handleAddressSelect = useCallback(async (suggestion: PlaceSuggestion) => {
     try {
@@ -609,6 +659,28 @@ export default function CompleteProfileScreen() {
                 <Text style={styles.fieldHint}>
                   Type a street, area or landmark to auto-fill the form
                 </Text>
+
+                {/* GPS auto-detect for address */}
+                <Pressable
+                  style={({ pressed }) => [styles.autoDetectAddressBtn, pressed && { opacity: 0.85 }]}
+                  onPress={handleAutoDetectAddress}
+                  disabled={addressDetecting}
+                  accessibilityRole="button"
+                  accessibilityLabel="Auto-detect my address"
+                >
+                  {addressDetecting ? (
+                    <>
+                      <ActivityIndicator size="small" color={colors.primary} />
+                      <Text style={styles.autoDetectAddressText}>Detecting…</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Ionicons name="locate" size={15} color={colors.primary} />
+                      <Text style={styles.autoDetectAddressText}>Auto-detect my location</Text>
+                    </>
+                  )}
+                </Pressable>
+
                 <PlacesInput
                   placeholder="e.g. Lawrence Road, Amritsar…"
                   iconName="search-outline"
@@ -1142,6 +1214,21 @@ const styles = StyleSheet.create({
     borderColor: colors.primary + "33",
   },
   autoDetectText: { fontFamily: fonts.jostSemiBold, fontSize: 13, color: colors.primary },
+
+  // Auto-detect button for Step 1 address
+  autoDetectAddressBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    alignSelf: "flex-start",
+    backgroundColor: colors.primary + "12",
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1.5,
+    borderColor: colors.primary + "44",
+  },
+  autoDetectAddressText: { fontFamily: fonts.jostSemiBold, fontSize: 13, color: colors.primary },
 
   locationInfoCard: { borderRadius: radii.md, padding: spacing.md, gap: 4, borderWidth: 1.5, borderColor: colors.success + "44", backgroundColor: colors.successLight },
   locationInfoHeader: { flexDirection: "row", alignItems: "center", gap: 6 },

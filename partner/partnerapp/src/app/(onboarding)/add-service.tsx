@@ -24,7 +24,7 @@ import { colors, spacing, radii, fonts } from "@/constants/theme";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Category = { _id: string; name: string; description?: string; icon?: string };
-type WorkingDay = { day: string; startTime: string; endTime: string };
+type WorkingDay = { day: string };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -32,7 +32,7 @@ const ALL_DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday",
 const WEEKDAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday"] as const;
 const WEEKENDS = ["Saturday","Sunday"] as const;
 
-const LANGUAGES = ["Hindi","English","Tamil","Telugu","Kannada","Bengali","Marathi","Gujarati"] as const;
+const LANGUAGES = ["Hindi","English","Tamil","Telugu","Kannada","Bengali","Marathi","Gujarati","Punjabi"] as const;
 
 // ─── Field Label ──────────────────────────────────────────────────────────────
 
@@ -81,96 +81,73 @@ const sectionStyles = StyleSheet.create({
   subtitle: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: 1 },
 });
 
-// ─── Working Day Row ──────────────────────────────────────────────────────────
+// ─── Working Days Grid ────────────────────────────────────────────────────────
 
-function WorkingDayRow({
-  day, entry, onAdd, onRemove, onChange,
+const DAY_ROWS = [
+  ["Monday", "Tuesday", "Wednesday", "Thursday"],
+  ["Friday", "Saturday", "Sunday"],
+] as const;
+
+function WorkingDaysGrid({
+  workingDays, onAdd, onRemove,
 }: {
-  day: string;
-  entry: WorkingDay | undefined;
+  workingDays: WorkingDay[];
   onAdd: (d: string) => void;
   onRemove: (d: string) => void;
-  onChange: (d: string, f: "startTime" | "endTime", v: string) => void;
 }) {
-  const active = !!entry;
   return (
-    <View style={wdStyles.row}>
-      <Pressable
-        style={[wdStyles.dayChip, active && wdStyles.dayChipActive]}
-        onPress={() => active ? onRemove(day) : onAdd(day)}
-        hitSlop={6}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: active }}
-      >
-        {active ? (
-          <MaterialCommunityIcons name="check" size={16} color={colors.white} />
-        ) : (
-          <Text style={wdStyles.dayText}>{day.slice(0, 3)}</Text>
-        )}
-      </Pressable>
-      <Text style={[wdStyles.dayFullName, active && wdStyles.dayFullNameActive]}>{day}</Text>
-      {active && (
-        <View style={wdStyles.timePair}>
-          <TextInput
-            style={wdStyles.timeInput}
-            value={entry!.startTime}
-            onChangeText={(v) => onChange(day, "startTime", v)}
-            placeholder="09:00"
-            placeholderTextColor={colors.textSecondary}
-            keyboardType="numbers-and-punctuation"
-            maxLength={5}
-            allowFontScaling={false}
-            accessibilityLabel={`${day} start time`}
-          />
-          <MaterialCommunityIcons name="arrow-right-thin" size={14} color={colors.textSecondary} />
-          <TextInput
-            style={wdStyles.timeInput}
-            value={entry!.endTime}
-            onChangeText={(v) => onChange(day, "endTime", v)}
-            placeholder="18:00"
-            placeholderTextColor={colors.textSecondary}
-            keyboardType="numbers-and-punctuation"
-            maxLength={5}
-            allowFontScaling={false}
-            accessibilityLabel={`${day} end time`}
-          />
+    <View style={wdStyles.grid}>
+      {DAY_ROWS.map((row, rowIdx) => (
+        <View
+          key={rowIdx}
+          style={[wdStyles.gridRow, rowIdx === 1 && wdStyles.gridRowCentered]}
+        >
+          {row.map((day) => {
+            const active = workingDays.some((d) => d.day === day);
+            return (
+              <Pressable
+                key={day}
+                style={[wdStyles.dayChip, active && wdStyles.dayChipActive]}
+                onPress={() => active ? onRemove(day) : onAdd(day)}
+                hitSlop={4}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: active }}
+              >
+                {active && (
+                  <MaterialCommunityIcons name="check" size={13} color={colors.white} />
+                )}
+                <Text style={[wdStyles.dayText, active && wdStyles.dayTextActive]}>
+                  {day.slice(0, 3)}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
-      )}
+      ))}
     </View>
   );
 }
 
 const wdStyles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.sm },
+  grid: { marginTop: spacing.xs, gap: spacing.xs },
+  gridRow: { flexDirection: "row", gap: spacing.xs },
+  gridRowCentered: { justifyContent: "center" },
   dayChip: {
-    width: 36, height: 36, borderRadius: radii.sm, alignItems: "center", justifyContent: "center",
-    borderWidth: 1.5, borderColor: colors.navInactive, backgroundColor: colors.surface,
-  },
-  dayChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  dayText: { fontFamily: fonts.jostMedium, fontSize: 11, color: colors.textSecondary },
-  dayFullName: {
-    fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, width: 76,
-  },
-  dayFullNameActive: { fontFamily: fonts.jostMedium, color: colors.textPrimary },
-  timePair: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.xs },
-  timeInput: {
     flex: 1,
-    minWidth: 64,
-    minHeight: 40,
+    maxWidth: "25%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: spacing.sm + 2,
     borderRadius: radii.sm,
     borderWidth: 1.5,
-    borderColor: colors.navInactive + "88",
-    paddingHorizontal: spacing.xs,
-    paddingVertical: Platform.OS === "android" ? 4 : 8,
-    fontFamily: fonts.jostRegular,
-    fontSize: 13,
-    lineHeight: Platform.OS === "ios" ? 16 : undefined,
-    color: colors.textPrimary,
+    borderColor: colors.navInactive,
     backgroundColor: colors.surface,
-    textAlign: "center",
-    textAlignVertical: "center",
-    includeFontPadding: false,
   },
+  dayChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  dayText: { fontFamily: fonts.jostMedium, fontSize: 13, color: colors.textSecondary },
+  dayTextActive: { color: colors.white },
 });
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
@@ -184,50 +161,29 @@ export default function AddServiceScreen() {
 
   // Seed all fields from shared context so state is preserved when going back
   const [selectedCats, setSelectedCatsLocal] = useState<string[]>(service.selectedCats);
-  const [skills, setSkillsLocal] = useState(service.skills);
   const [experience, setExperienceLocal] = useState(service.experience);
   const [selectedLangs, setSelectedLangsLocal] = useState<string[]>(service.selectedLangs);
   const [bio, setBioLocal] = useState(service.bio);
-  const [visitingCredits, setVisitingCreditsLocal] = useState(service.visitingCredits);
-  const [emergency, setEmergencyLocal] = useState(service.emergency);
+  const [visitingCreditsType, setVisitingCreditsTypeLocal] = useState<"perVisit" | "perHour" | "perDay" | "perWeek">(service.visitingCreditsType);
+  const [visitingCreditsAmount, setVisitingCreditsAmountLocal] = useState(service.visitingCreditsAmount);
   const [workingDays, setWorkingDaysLocal] = useState<WorkingDay[]>(service.workingDays);
 
-  // Wrappers that write through to context
-  const setSelectedCats = (v: string[] | ((p: string[]) => string[])) => {
-    setSelectedCatsLocal((prev) => {
-      const next = typeof v === "function" ? v(prev) : v;
-      setService({ selectedCats: next });
-      return next;
+  // Sync to context whenever local state changes
+  useEffect(() => {
+    setService({
+      selectedCats,
+      experience,
+      selectedLangs,
+      bio,
+      visitingCreditsType,
+      visitingCreditsAmount,
+      workingDays,
     });
-  };
-  const setSkills = (v: string) => { setSkillsLocal(v); setService({ skills: v }); };
-  const setExperience = (v: string) => { setExperienceLocal(v); setService({ experience: v }); };
-  const setSelectedLangs = (v: string[] | ((p: string[]) => string[])) => {
-    setSelectedLangsLocal((prev) => {
-      const next = typeof v === "function" ? v(prev) : v;
-      setService({ selectedLangs: next });
-      return next;
-    });
-  };
-  const setBio = (v: string) => { setBioLocal(v); setService({ bio: v }); };
-  const setVisitingCredits = (v: string) => { setVisitingCreditsLocal(v); setService({ visitingCredits: v }); };
-  const setEmergency = (v: boolean | ((p: boolean) => boolean)) => {
-    setEmergencyLocal((prev) => {
-      const next = typeof v === "function" ? v(prev) : v;
-      setService({ emergency: next });
-      return next;
-    });
-  };
-  const setWorkingDays = (v: WorkingDay[] | ((p: WorkingDay[]) => WorkingDay[])) => {
-    setWorkingDaysLocal((prev) => {
-      const next = typeof v === "function" ? v(prev) : v;
-      setService({ workingDays: next });
-      return next;
-    });
-  };
+  }, [selectedCats, experience, selectedLangs, bio, visitingCreditsType, visitingCreditsAmount, workingDays, setService]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showLangDropdown, setShowLangDropdown] = useState(false);
 
   useEffect(() => {
     api.get<{ categories: Category[] }>("/categories")
@@ -239,16 +195,15 @@ export default function AddServiceScreen() {
   // ── Prefill from server when context is cold (back-navigation or deep link)
   useEffect(() => {
     // Skip if context already has data typed by the user this session
-    if (service.selectedCats.length > 0 || service.skills.length > 0) return;
+    if (service.selectedCats.length > 0) return;
 
     api.get<{
       service: {
         categories: { _id: string }[];
-        skills: string[];
         experience?: number;
         languages: string[];
         bio?: string;
-        visitingCredits: number;
+        visitingCredits: { type: "perVisit" | "perHour" | "perDay" | "perWeek"; amount: number };
         emergencyAvailable: boolean;
         workingDays: WorkingDay[];
       };
@@ -257,38 +212,35 @@ export default function AddServiceScreen() {
         const s = data.service;
         if (!s) return;
 
-        const cats    = (s.categories ?? []).map((c) => c._id);
-        const skillsStr = (s.skills ?? []).join(", ");
-        const expStr  = s.experience != null ? String(s.experience) : "";
-        const langs   = s.languages ?? [];
-        const bioVal  = s.bio ?? "";
-        const vc      = s.visitingCredits != null ? String(s.visitingCredits) : "";
-        const emerg   = s.emergencyAvailable ?? false;
-        const wdays   = s.workingDays ?? [];
+        const cats  = (s.categories ?? []).map((c) => c._id);
+        const expStr = s.experience != null ? String(s.experience) : "";
+        const langs  = s.languages ?? [];
+        const bioVal = s.bio ?? "";
+        const vcType = s.visitingCredits?.type ?? "perVisit";
+        const vcAmt  = s.visitingCredits?.amount != null ? String(s.visitingCredits.amount) : "";
+        const wdays  = s.workingDays ?? [];
 
         // Only prefill if the server actually has saved data
-        if (cats.length === 0 && skillsStr.length === 0) return;
+        if (cats.length === 0) return;
 
         // Sync context
         setService({
           selectedCats:    cats,
-          skills:          skillsStr,
           experience:      expStr,
           selectedLangs:   langs,
           bio:             bioVal,
-          visitingCredits: vc,
-          emergency:       emerg,
+          visitingCreditsType: vcType,
+          visitingCreditsAmount: vcAmt,
           workingDays:     wdays,
         });
 
         // Sync local state so the currently-rendered fields update immediately
         setSelectedCatsLocal(cats);
-        setSkillsLocal(skillsStr);
         setExperienceLocal(expStr);
         setSelectedLangsLocal(langs);
         setBioLocal(bioVal);
-        setVisitingCreditsLocal(vc);
-        setEmergencyLocal(emerg);
+        setVisitingCreditsTypeLocal(vcType);
+        setVisitingCreditsAmountLocal(vcAmt);
         setWorkingDaysLocal(wdays);
       })
       .catch(() => {
@@ -298,35 +250,29 @@ export default function AddServiceScreen() {
   }, []);
 
   const toggleCat = (id: string) =>
-    setSelectedCats((p) => p.includes(id) ? p.filter((c) => c !== id) : [...p, id]);
+    setSelectedCatsLocal((p) => p.includes(id) ? p.filter((c) => c !== id) : [...p, id]);
 
   const toggleLang = (lang: string) =>
-    setSelectedLangs((p) => p.includes(lang) ? p.filter((l) => l !== lang) : [...p, lang]);
+    setSelectedLangsLocal((p) => p.includes(lang) ? p.filter((l) => l !== lang) : [...p, lang]);
 
   const addDay = (day: string) =>
-    setWorkingDays((p) => [...p, { day, startTime: "09:00", endTime: "18:00" }]);
+    setWorkingDaysLocal((p) => [...p, { day }]);
 
   const removeDay = (day: string) =>
-    setWorkingDays((p) => p.filter((d) => d.day !== day));
-
-  const changeTime = (day: string, field: "startTime" | "endTime", value: string) =>
-    setWorkingDays((p) => p.map((d) => d.day === day ? { ...d, [field]: value } : d));
+    setWorkingDaysLocal((p) => p.filter((d) => d.day !== day));
 
   const applyPreset = (days: readonly string[]) =>
-    setWorkingDays((prev) =>
-      days.map((day) => prev.find((d) => d.day === day) ?? { day, startTime: "09:00", endTime: "18:00" })
+    setWorkingDaysLocal((prev) =>
+      days.map((day) => prev.find((d) => d.day === day) ?? { day })
     );
 
-  const clearDays = () => setWorkingDays([]);
-
-  const parsedSkills = skills.split(",").map((s) => s.trim()).filter(Boolean);
+  const clearDays = () => setWorkingDaysLocal([]);
 
   const isValid =
     selectedCats.length > 0 &&
-    parsedSkills.length > 0 &&
-    visitingCredits.trim().length > 0 &&
-    !isNaN(Number(visitingCredits)) &&
-    Number(visitingCredits) >= 0;
+    visitingCreditsAmount.trim().length > 0 &&
+    !isNaN(Number(visitingCreditsAmount)) &&
+    Number(visitingCreditsAmount) >= 0;
 
   const handleSubmit = useCallback(async () => {
     setError(null);
@@ -334,12 +280,11 @@ export default function AddServiceScreen() {
     try {
       await api.put("/partner/service/setup", {
         categories: selectedCats,
-        skills: parsedSkills,
         experience: experience ? Number(experience) : undefined,
         languages: selectedLangs,
         bio: bio.trim() || undefined,
-        visitingCredits: Number(visitingCredits),
-        emergencyAvailable: emergency,
+        visitingCreditsType: visitingCreditsType,
+        visitingCreditsAmount: Number(visitingCreditsAmount),
         workingDays: workingDays.length > 0 ? workingDays : undefined,
       });
       patchPartner({ isService: true });
@@ -349,7 +294,7 @@ export default function AddServiceScreen() {
     } finally {
       setLoading(false);
     }
-  }, [selectedCats, parsedSkills, experience, selectedLangs, bio, visitingCredits, emergency, workingDays, patchPartner]);
+  }, [selectedCats, experience, selectedLangs, bio, visitingCreditsType, visitingCreditsAmount, workingDays, patchPartner]);
 
   return (
     <SafeAreaView style={styles.safe} edges={["bottom"]}>
@@ -421,21 +366,6 @@ export default function AddServiceScreen() {
               </View>
             )}
 
-            {/* ── Skills ─────────────────────────────────────────────── */}
-            <View style={styles.fieldGap}>
-              <FieldLabel label="Skills" required />
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Pipe fitting, Leak repair, Drain cleaning"
-                placeholderTextColor={colors.textSecondary}
-                value={skills}
-                onChangeText={(t) => { setError(null); setSkills(t); }}
-                returnKeyType="done"
-                accessibilityLabel="Skills (comma separated)"
-              />
-              <Text style={styles.hint}>Separate multiple skills with commas</Text>
-            </View>
-
             {/* ── Experience ─────────────────────────────────────────── */}
             <View style={styles.fieldGap}>
               <FieldLabel label="Years of experience" />
@@ -446,7 +376,7 @@ export default function AddServiceScreen() {
                 keyboardType="number-pad"
                 maxLength={2}
                 value={experience}
-                onChangeText={(t) => setExperience(t.replace(/\D/g, ""))}
+                onChangeText={(t) => setExperienceLocal(t.replace(/\D/g, ""))}
                 accessibilityLabel="Years of experience"
               />
             </View>
@@ -454,22 +384,66 @@ export default function AddServiceScreen() {
             {/* ── Languages ──────────────────────────────────────────── */}
             <View style={styles.fieldGap}>
               <FieldLabel label="Languages spoken" />
-              <View style={styles.langRow}>
-                {LANGUAGES.map((lang) => {
-                  const active = selectedLangs.includes(lang);
-                  return (
-                    <Pressable
-                      key={lang}
-                      style={[styles.langChip, active && styles.langChipActive]}
-                      onPress={() => toggleLang(lang)}
-                      accessibilityRole="checkbox"
-                      accessibilityState={{ checked: active }}
-                    >
-                      <Text style={[styles.langText, active && styles.langTextActive]}>{lang}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+              
+              {/* Dropdown trigger */}
+              <Pressable
+                style={styles.dropdownBtn}
+                onPress={() => setShowLangDropdown(!showLangDropdown)}
+              >
+                <MaterialCommunityIcons name="translate" size={16} color={colors.primary} />
+                <Text style={styles.dropdownBtnText}>
+                  {selectedLangs.length > 0 ? `${selectedLangs.length} selected` : "Select languages"}
+                </Text>
+                <MaterialCommunityIcons
+                  name={showLangDropdown ? "chevron-up" : "chevron-down"}
+                  size={18}
+                  color={colors.textSecondary}
+                />
+              </Pressable>
+
+              {/* Dropdown menu */}
+              {showLangDropdown && (
+                <View style={styles.dropdownMenuWrapper}>
+                  <ScrollView style={styles.dropdownMenu} nestedScrollEnabled scrollEnabled showsVerticalScrollIndicator>
+                    {LANGUAGES.map((lang) => {
+                      const isSelected = selectedLangs.includes(lang);
+                      return (
+                        <Pressable
+                          key={lang}
+                          style={[styles.dropdownItem, isSelected && styles.dropdownItemActive]}
+                          onPress={() => toggleLang(lang)}
+                        >
+                          <View style={[styles.dropdownCheckbox, isSelected && styles.dropdownCheckboxActive]}>
+                            {isSelected && <MaterialCommunityIcons name="check" size={14} color={colors.white} />}
+                          </View>
+                          <Text style={[styles.dropdownItemText, isSelected && styles.dropdownItemTextActive]}>
+                            {lang}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* Selected languages chips */}
+              {selectedLangs.length > 0 && (
+                <View style={styles.selectedLangsWrap}>
+                  {selectedLangs.map((lang) => (
+                    <View key={lang} style={styles.selectedLangChip}>
+                      <Text style={styles.selectedLangText}>{lang}</Text>
+                      <Pressable
+                        onPress={() => setSelectedLangsLocal((p) => p.filter((l) => l !== lang))}
+                        hitSlop={6}
+                      >
+                        <MaterialCommunityIcons name="close" size={14} color={colors.white} />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              )}
+              
+              <Text style={styles.hint}>Add or remove languages to communicate with customers</Text>
             </View>
 
             {/* ── Bio ────────────────────────────────────────────────── */}
@@ -480,7 +454,7 @@ export default function AddServiceScreen() {
                 placeholder="Tell customers a bit about yourself and your work…"
                 placeholderTextColor={colors.textSecondary}
                 value={bio}
-                onChangeText={setBio}
+                onChangeText={setBioLocal}
                 multiline
                 numberOfLines={3}
                 maxLength={300}
@@ -496,48 +470,61 @@ export default function AddServiceScreen() {
             </View>
 
             <View style={styles.fieldGap}>
-              <FieldLabel label="Visiting fee (₹)" required />
+              <FieldLabel label="Pricing model" required />
+              <View style={styles.pricingTypeGrid}>
+                {(['perVisit', 'perHour', 'perDay', 'perWeek'] as const).map((type) => {
+                  const isSelected = visitingCreditsType === type;
+                  const typeLabels = {
+                    perVisit: 'Per Visit',
+                    perHour: 'Per Hour',
+                    perDay: 'Per Day',
+                    perWeek: 'Per Week',
+                  };
+                  return (
+                    <Pressable
+                      key={type}
+                      style={[styles.pricingTypeChip, isSelected && styles.pricingTypeChipActive]}
+                      onPress={() => { setError(null); setVisitingCreditsTypeLocal(type); }}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: isSelected }}
+                    >
+                      {isSelected && (
+                        <MaterialCommunityIcons name="check-circle" size={16} color={colors.white} />
+                      )}
+                      <Text style={[styles.pricingTypeText, isSelected && styles.pricingTypeTextActive]}>
+                        {typeLabels[type]}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.fieldGap}>
+              <FieldLabel label="Fees (₹)" required />
               <TextInput
-                style={[styles.input, visitingCredits.length > 0 && isNaN(Number(visitingCredits)) && styles.inputError]}
+                style={[styles.input, visitingCreditsAmount.length > 0 && isNaN(Number(visitingCreditsAmount)) && styles.inputError]}
                 placeholder="e.g. 150"
                 placeholderTextColor={colors.textSecondary}
                 keyboardType="number-pad"
-                value={visitingCredits}
-                onChangeText={(t) => { setError(null); setVisitingCredits(t.replace(/\D/g, "")); }}
-                accessibilityLabel="Visiting fee in rupees"
+                value={visitingCreditsAmount}
+                onChangeText={(t) => { setError(null); setVisitingCreditsAmountLocal(t.replace(/\D/g, "")); }}
+                accessibilityLabel="Pricing amount in rupees"
               />
-              <Text style={styles.hint}>Amount charged just to visit the customer's location</Text>
+              <Text style={styles.hint}>
+                {visitingCreditsType === 'perVisit' && 'Amount charged per visit to the customer'}
+                {visitingCreditsType === 'perHour' && 'Amount charged per hour of service'}
+                {visitingCreditsType === 'perDay' && 'Amount charged per day'}
+                {visitingCreditsType === 'perWeek' && 'Amount charged per week'}
+              </Text>
             </View>
-
-            {/* ── Emergency toggle ───────────────────────────────────── */}
-            <Pressable
-              style={[styles.toggleRow, emergency && styles.toggleRowActive]}
-              onPress={() => setEmergency((e) => !e)}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: emergency }}
-            >
-              <View style={styles.toggleIconBadge}>
-                <MaterialCommunityIcons
-                  name="lightning-bolt"
-                  size={16}
-                  color={emergency ? colors.primary : colors.textSecondary}
-                />
-              </View>
-              <View style={styles.toggleInfo}>
-                <Text style={styles.toggleTitle}>Emergency available</Text>
-                <Text style={styles.toggleDesc}>Accept urgent same-day requests (may earn more)</Text>
-              </View>
-              <View style={[styles.togglePill, emergency && styles.togglePillOn]}>
-                <View style={[styles.toggleThumb, emergency && styles.toggleThumbOn]} />
-              </View>
-            </Pressable>
 
             {/* ── Working days ───────────────────────────────────────── */}
             <View style={styles.sectionHeader}>
               <SectionTitle
                 icon="calendar-clock-outline"
                 title="Working Schedule"
-                subtitle="Tap a day to toggle, then set hours"
+                subtitle="Select the days you're available"
               />
             </View>
 
@@ -560,16 +547,11 @@ export default function AddServiceScreen() {
             </View>
 
             <View style={styles.fieldGap}>
-              {ALL_DAYS.map((day) => (
-                <WorkingDayRow
-                  key={day}
-                  day={day}
-                  entry={workingDays.find((d) => d.day === day)}
-                  onAdd={addDay}
-                  onRemove={removeDay}
-                  onChange={changeTime}
-                />
-              ))}
+              <WorkingDaysGrid
+                workingDays={workingDays}
+                onAdd={addDay}
+                onRemove={removeDay}
+              />
             </View>
 
             {/* ── Error banner ───────────────────────────────────────── */}
@@ -600,7 +582,7 @@ export default function AddServiceScreen() {
 
             {!isValid && (
               <Text style={styles.validationNote}>
-                Fill in categories, at least one skill and visiting fee to continue.
+                Fill in categories and pricing to continue.
               </Text>
             )}
           </ScrollView>
@@ -740,15 +722,92 @@ const styles = StyleSheet.create({
   catNameActive: { color: colors.white },
 
   // ── Language chips ───────────────────────────────────────────────────────────
-  langRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
-  langChip: {
-    paddingHorizontal: spacing.sm + 2, paddingVertical: spacing.xs + 2,
-    borderRadius: radii.pill, borderWidth: 1.5,
-    borderColor: colors.navInactive, backgroundColor: colors.surface,
+  dropdownBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md - 2,
+    borderWidth: 1.5,
+    borderColor: colors.navInactive + "66",
+    marginTop: spacing.xs,
   },
-  langChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  langText: { fontFamily: fonts.jostMedium, fontSize: 12, color: colors.textSecondary },
-  langTextActive: { color: colors.white },
+  dropdownBtnText: {
+    flex: 1,
+    fontFamily: fonts.jostMedium,
+    fontSize: 14,
+    color: colors.textPrimary,
+  },
+  dropdownMenu: {
+    maxHeight: 280,
+  },
+  dropdownMenuWrapper: {
+    marginTop: spacing.xs,
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    borderColor: colors.navInactive + "66",
+    overflow: "hidden",
+    maxHeight: 280,
+  },
+  dropdownItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.navInactive + "33",
+  },
+  dropdownItemActive: {
+    backgroundColor: colors.primary + "12",
+  },
+  dropdownCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: radii.sm,
+    borderWidth: 1.5,
+    borderColor: colors.navInactive,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.white,
+  },
+  dropdownCheckboxActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  dropdownItemText: {
+    flex: 1,
+    fontFamily: fonts.jostMedium,
+    fontSize: 13,
+    color: colors.textPrimary,
+  },
+  dropdownItemTextActive: {
+    color: colors.primary,
+    fontWeight: "600",
+  },
+  selectedLangsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  selectedLangChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs - 1,
+    backgroundColor: colors.primary,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.xs + 2,
+  },
+  selectedLangText: {
+    fontFamily: fonts.jostMedium,
+    fontSize: 12,
+    color: colors.white,
+  },
 
   // ── Section headers ──────────────────────────────────────────────────────────
   sectionHeader: { marginTop: spacing.lg, marginBottom: spacing.xs },
@@ -766,31 +825,16 @@ const styles = StyleSheet.create({
   },
   presetChipText: { fontFamily: fonts.jostMedium, fontSize: 11, color: colors.textPrimary },
 
-  // ── Emergency toggle ─────────────────────────────────────────────────────────
-  toggleRow: {
-    marginTop: spacing.md, flexDirection: "row", alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.surface, borderRadius: radii.md,
-    padding: spacing.md, borderWidth: 1.5, borderColor: colors.navInactive + "55",
+  // ── Pricing type selector ────────────────────────────────────────────────────
+  pricingTypeGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginTop: spacing.xs },
+  pricingTypeChip: {
+    flex: 1, minWidth: 80, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs,
+    paddingVertical: spacing.sm + 2, borderRadius: radii.md, borderWidth: 1.5,
+    borderColor: colors.navInactive, backgroundColor: colors.surface,
   },
-  toggleRowActive: { borderColor: colors.primary + "66", backgroundColor: colors.primary + "08" },
-  toggleIconBadge: {
-    width: 28, height: 28, borderRadius: radii.sm, alignItems: "center", justifyContent: "center",
-    backgroundColor: colors.white,
-  },
-  toggleInfo: { flex: 1, gap: 2 },
-  toggleTitle: { fontFamily: fonts.jakartaSemiBold, fontSize: 14, color: colors.textPrimary },
-  toggleDesc: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
-  togglePill: {
-    width: 46, height: 26, borderRadius: radii.pill,
-    backgroundColor: colors.navInactive, justifyContent: "center", paddingHorizontal: 3,
-  },
-  togglePillOn: { backgroundColor: colors.primary },
-  toggleThumb: {
-    width: 20, height: 20, borderRadius: radii.pill, backgroundColor: colors.white,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2, elevation: 2,
-  },
-  toggleThumbOn: { alignSelf: "flex-end" },
+  pricingTypeChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  pricingTypeText: { fontFamily: fonts.jostMedium, fontSize: 12, color: colors.textSecondary },
+  pricingTypeTextActive: { color: colors.white },
 
   // ── Error & validation ───────────────────────────────────────────────────────
   errorBanner: {

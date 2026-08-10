@@ -35,7 +35,7 @@ export interface BookingPartner {
   profilePhoto?: string;
   selfieUrl?: string;
   averageRating?: number;
-  visitingCredits?: number;
+  visitingCredits?: { type: "perVisit" | "perHour" | "perDay" | "perWeek"; amount: number };
 }
 
 export interface BookingCategory {

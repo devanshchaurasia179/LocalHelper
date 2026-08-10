@@ -167,7 +167,10 @@ export default function PartnerCard({ partner, onPress, activeBookingStatus = nu
             )}
             {partner.visitingCredits != null && (
               <View style={styles.tag}>
-                <Text style={styles.tagText}>₹{partner.visitingCredits} visit</Text>
+                <Text style={styles.tagText}>
+                  ₹{partner.visitingCredits.amount}{' '}
+                  /{{ perVisit: 'visit', perHour: 'hr', perDay: 'day', perWeek: 'wk' }[partner.visitingCredits.type]}
+                </Text>
               </View>
             )}
             {partner.emergencyAvailable && (
@@ -177,14 +180,6 @@ export default function PartnerCard({ partner, onPress, activeBookingStatus = nu
               </View>
             )}
           </View>
-
-          {/* Skills preview */}
-          {partner.skills?.length > 0 && (
-            <Text style={styles.skills} numberOfLines={1}>
-              {partner.skills.slice(0, 3).join(' · ')}
-              {partner.skills.length > 3 ? ` +${partner.skills.length - 3}` : ''}
-            </Text>
-          )}
         </View>
 
         {/* ── Arrow ── */}
@@ -196,7 +191,7 @@ export default function PartnerCard({ partner, onPress, activeBookingStatus = nu
   );
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────
 
 function getBookingLabel(status: ActiveBookingStatus): string {
   switch (status) {
@@ -489,14 +484,6 @@ const styles = StyleSheet.create({
   },
   statusChipDotOffline: {
     backgroundColor: '#9CA3AF',
-  },
-
-  // Skills
-  skills: {
-    ...typography.caption,
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginTop: 2,
   },
 
   // Arrow

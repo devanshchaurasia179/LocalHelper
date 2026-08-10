@@ -107,7 +107,6 @@ export async function findNearbyServices(longitude, latitude, filters = {}) {
         profilePhoto: 1,
         selfieUrl: 1,
         bio: 1,
-        skills: 1,
         categories: 1,
         experience: 1,
         languages: 1,

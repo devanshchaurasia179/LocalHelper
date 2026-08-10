@@ -27,17 +27,24 @@ const serviceFields = {
       ref: "Category",
     },
   ],
-  skills: [String],
   experience: Number,
   languages: [String],
   bio: String,
 
   // Pricing
-  visitingCredits: Number,
-  emergencyAvailable: {
-    type: Boolean,
-    default: false,
+  visitingCredits: {
+    type: {
+      type: String,
+      enum: ["perVisit", "perHour", "perDay", "perWeek"],
+      default: "perVisit",
+    },
+    amount: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
   },
+
 
   // Availability
   isOnline: {
@@ -52,8 +59,6 @@ const serviceFields = {
     {
       _id: false,
       day: String,
-      startTime: String,
-      endTime: String,
     },
   ],
 };

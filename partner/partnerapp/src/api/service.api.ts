@@ -8,14 +8,20 @@ import { api } from "@/constants/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export type PricingType = "perVisit" | "perHour" | "perDay" | "perWeek";
+
+export interface VisitingCredits {
+  type: PricingType;
+  amount: number;
+}
+
 export interface ServiceDetails {
   _id: string;
   categories: { _id: string; name: string }[];
-  skills: string[];
   experience?: number;
   languages?: string[];
   bio?: string;
-  visitingCredits?: number;
+  visitingCredits?: VisitingCredits;
   emergencyAvailable: boolean;
   serviceRadius: number;
   isOnline: boolean;

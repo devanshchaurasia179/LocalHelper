@@ -12,10 +12,6 @@ const validateWorkingDays = (workingDays) => {
     if (!VALID_DAYS.includes(entry.day)) {
       return `Invalid day "${entry.day}". Must be one of: ${VALID_DAYS.join(", ")}`;
     }
-    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
-    if (!timeRegex.test(entry.startTime) || !timeRegex.test(entry.endTime)) {
-      return `Invalid time format for ${entry.day}. Use HH:MM (24-hour).`;
-    }
   }
   return null;
 };
@@ -28,20 +24,18 @@ const validateWorkingDays = (workingDays) => {
  * Body:
  * {
  *   categories        : ["categoryId1", "categoryId2"],
- *   skills            : ["Plumbing", "Pipe Fitting"],
  *   experience        : 4,
  *   languages         : ["Hindi", "English"],
  *   bio               : "Short description",
  *   visitingCredits   : 150,    // ₹ charged for visiting the customer
- *   emergencyAvailable: true,
  *   serviceRadius     : 15,     // km
  *   serviceLocation   : { longitude: 77.2090, latitude: 28.6139 },
  *   workingDays: [
- *     { day: "Monday", startTime: "09:00", endTime: "18:00" }
+ *     { day: "Monday" }
  *   ]
  * }
  *
- * Required: categories, skills, visitingCredits, serviceLocation
+ * Required: categories, visitingCredits, serviceLocation
  */
 export const setupService = async (req, res) => {
   try {
@@ -58,12 +52,11 @@ export const setupService = async (req, res) => {
 
     const {
       categories,
-      skills,
       experience,
       languages,
       bio,
-      visitingCredits,
-      emergencyAvailable,
+      visitingCreditsType,
+      visitingCreditsAmount,
       serviceRadius,
       serviceLocation,
       workingDays,
@@ -73,14 +66,14 @@ export const setupService = async (req, res) => {
     if (!categories || !Array.isArray(categories) || categories.length === 0) {
       return res.status(400).json({ message: "At least one category is required." });
     }
-    if (!skills || !Array.isArray(skills) || skills.length === 0) {
-      return res.status(400).json({ message: "At least one skill is required." });
+    if (visitingCreditsAmount === undefined || visitingCreditsAmount === null) {
+      return res.status(400).json({ message: "Visiting credits amount is required." });
     }
-    if (visitingCredits === undefined || visitingCredits === null) {
-      return res.status(400).json({ message: "visitingCredits is required." });
+    if (typeof visitingCreditsAmount !== "number" || visitingCreditsAmount < 0) {
+      return res.status(400).json({ message: "Visiting credits amount must be a non-negative number." });
     }
-    if (typeof visitingCredits !== "number" || visitingCredits < 0) {
-      return res.status(400).json({ message: "visitingCredits must be a non-negative number." });
+    if (!visitingCreditsType || !["perVisit", "perHour", "perDay", "perWeek"].includes(visitingCreditsType)) {
+      return res.status(400).json({ message: "Invalid pricing type. Must be one of: perVisit, perHour, perDay, perWeek." });
     }
 
     // ── Validate workingDays if provided ──────────────────────────────────
@@ -93,12 +86,13 @@ export const setupService = async (req, res) => {
 
     // ── Map & save ────────────────────────────────────────────────────────
     partner.categories      = categories;
-    partner.skills          = skills;
     partner.experience      = experience      ?? partner.experience;
     partner.languages       = languages       ?? partner.languages;
     partner.bio             = bio             ?? partner.bio;
-    partner.visitingCredits = visitingCredits;
-    partner.emergencyAvailable = emergencyAvailable ?? false;
+    partner.visitingCredits = {
+      type: visitingCreditsType,
+      amount: visitingCreditsAmount,
+    };
     partner.serviceRadius   = serviceRadius   ?? 10;
 
     if (serviceLocation?.longitude && serviceLocation?.latitude) {
@@ -119,12 +113,10 @@ export const setupService = async (req, res) => {
       message: "Service details saved successfully.",
       service: {
         categories:         partner.categories,
-        skills:             partner.skills,
         experience:         partner.experience,
         languages:          partner.languages,
         bio:                partner.bio,
         visitingCredits:    partner.visitingCredits,
-        emergencyAvailable: partner.emergencyAvailable,
         serviceRadius:      partner.serviceRadius,
         serviceLocation:    partner.serviceLocation,
         workingDays:        partner.workingDays,
@@ -145,7 +137,7 @@ export const getServiceDetails = async (req, res) => {
   try {
     const partner = await Partner.findById(req.partnerId)
       .select(
-        "categories skills experience languages bio visitingCredits emergencyAvailable serviceRadius serviceLocation workingDays isAvailable isOnline"
+        "categories experience languages bio visitingCredits serviceRadius serviceLocation workingDays isAvailable isOnline"
       )
       .populate("categories", "name");
 
@@ -197,18 +189,21 @@ export const updateAvailability = async (req, res) => {
  * PATCH /api/partner/service/visiting-credits
  * 🔒 Requires partner_token cookie
  *
- * Body: { visitingCredits }
+ * Body: { visitingCreditsType, visitingCreditsAmount }
  * Quick update for visiting credits without full service re-submission.
  */
 export const updateVisitingCredits = async (req, res) => {
   try {
-    const { visitingCredits } = req.body;
+    const { visitingCreditsType, visitingCreditsAmount } = req.body;
 
-    if (visitingCredits === undefined || visitingCredits === null) {
-      return res.status(400).json({ message: "visitingCredits is required." });
+    if (visitingCreditsAmount === undefined || visitingCreditsAmount === null) {
+      return res.status(400).json({ message: "Visiting credits amount is required." });
     }
-    if (typeof visitingCredits !== "number" || visitingCredits < 0) {
-      return res.status(400).json({ message: "visitingCredits must be a non-negative number." });
+    if (typeof visitingCreditsAmount !== "number" || visitingCreditsAmount < 0) {
+      return res.status(400).json({ message: "Visiting credits amount must be a non-negative number." });
+    }
+    if (!visitingCreditsType || !["perVisit", "perHour", "perDay", "perWeek"].includes(visitingCreditsType)) {
+      return res.status(400).json({ message: "Invalid pricing type. Must be one of: perVisit, perHour, perDay, perWeek." });
     }
 
     const partner = await Partner.findById(req.partnerId);
@@ -216,7 +211,10 @@ export const updateVisitingCredits = async (req, res) => {
       return res.status(404).json({ message: "Partner not found." });
     }
 
-    partner.visitingCredits = visitingCredits;
+    partner.visitingCredits = {
+      type: visitingCreditsType,
+      amount: visitingCreditsAmount,
+    };
     await partner.save();
 
     return res.status(200).json({

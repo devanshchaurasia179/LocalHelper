@@ -13,7 +13,7 @@ import React, { createContext, useContext, useState } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type WorkingDay = { day: string; startTime: string; endTime: string };
+export type WorkingDay = { day: string };
 
 export type ProfileDraft = {
   fullName: string;
@@ -32,12 +32,11 @@ export type ProfileDraft = {
 
 export type ServiceDraft = {
   selectedCats: string[];
-  skills: string;
   experience: string;
   selectedLangs: string[];
   bio: string;
-  visitingCredits: string;
-  emergency: boolean;
+  visitingCreditsType: "perVisit" | "perHour" | "perDay" | "perWeek";
+  visitingCreditsAmount: string;
   workingDays: WorkingDay[];
 };
 
@@ -68,12 +67,11 @@ const DEFAULT_PROFILE: ProfileDraft = {
 
 const DEFAULT_SERVICE: ServiceDraft = {
   selectedCats: [],
-  skills: "",
   experience: "",
   selectedLangs: ["Hindi", "English"],
   bio: "",
-  visitingCredits: "",
-  emergency: false,
+  visitingCreditsType: "perVisit",
+  visitingCreditsAmount: "",
   workingDays: [],
 };
 

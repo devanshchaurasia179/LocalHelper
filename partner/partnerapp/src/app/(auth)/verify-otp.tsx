@@ -14,6 +14,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 
+import { Ionicons } from "@expo/vector-icons";
+
 import { useAuth } from "@/providers/AuthProvider";
 import { colors, spacing, radii } from "@/constants/theme";
 import { ROUTES } from "@/constants/routes";
@@ -174,7 +176,7 @@ export default function VerifyOtpScreen() {
             accessibilityRole="button"
             accessibilityLabel="Go back"
           >
-            <Text style={styles.backBtnText}>← Back</Text>
+            <Ionicons name="arrow-back" size={20} color={colors.primary} />
           </TouchableOpacity>
 
           <Text style={styles.appName}>LocalHelpers</Text>
@@ -302,10 +304,14 @@ const styles = StyleSheet.create({
   },
   backBtn: {
     position: "absolute", top: spacing.xl, left: spacing.lg,
-    paddingVertical: spacing.xs, paddingHorizontal: spacing.sm,
-    borderRadius: radii.sm, backgroundColor: "rgba(255,255,255,0.15)",
+    width: 40, height: 40,
+    borderRadius: radii.pill,
+    backgroundColor: colors.white,
+    alignItems: "center", justifyContent: "center",
+    shadowColor: colors.primaryDark,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18, shadowRadius: 6, elevation: 4,
   },
-  backBtnText: { fontSize: 14, color: colors.white, fontWeight: "600" },
   appName: {
     fontSize: 13, color: "rgba(255,255,255,0.7)",
     fontWeight: "600", letterSpacing: 2,
@@ -421,7 +427,7 @@ const styles = StyleSheet.create({
   buttonText: { color: colors.white, fontSize: 16, fontWeight: "700", letterSpacing: 0.5 },
 
   resendRow: { alignItems: "center", paddingVertical: spacing.sm },
-  resendCooldown: { fontSize: 14, color: "#D1D5DB" },
-  resendTimer: { fontWeight: "700", color: "#9CA3AF" },
-  resendActive: { fontSize: 14, fontWeight: "700", color: "#86EFAC" },
+  resendCooldown: { fontSize: 14, color: "#9CA3AF" },
+  resendTimer: { fontWeight: "700", color: colors.primary },
+  resendActive: { fontSize: 14, fontWeight: "700", color: colors.primary },
 });
