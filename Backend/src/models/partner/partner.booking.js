@@ -18,6 +18,16 @@ const addressSnapshot = {
   },
 };
 
+// ─── Sub-schema: one-time completion code shared by customer → partner ───────
+// Generated when the partner accepts the booking.
+// The plain code is shown to the customer on their booking screen.
+// The partner enters this code to mark the job complete.
+const completionCodeSchema = {
+  _id:   false,
+  code:  String,   // plain 4-digit code — shown to customer on their screen
+  hash:  String,   // bcrypt hash — used to validate what the partner submits
+};
+
 // ─── Sub-schema: customer review left after job completion ───────────────────
 const reviewSchema = {
   _id: false,
@@ -108,6 +118,10 @@ const bookingSchema = new mongoose.Schema(
 
     // ── Cancellation ─────────────────────────────────────────────────────────
     cancellation: cancellationSchema,
+
+    // ── Completion code ──────────────────────────────────────────────────────
+    // 4-digit code generated on job start; customer reads it out to partner
+    completionCode: completionCodeSchema,
 
     // ── Review ───────────────────────────────────────────────────────────────
     // Left by customer after job is completed

@@ -209,8 +209,8 @@ export default function UploadDocumentsScreen() {
       const files = await pickFile(doc);
       if (!files || files.length === 0) return; // user cancelled
 
-      // ── 2a. Validate file sizes (max 4.5 MB per file) ─────────────────────
-      const MAX_FILE_SIZE_BYTES = 4.5 * 1024 * 1024; // 4.5 MB
+      // ── 2a. Validate file sizes (max 5 MB per file to match backend) ──────
+      const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB to match backend limit
       const oversizedCount = files.filter(
         (f) => f.fileSize !== undefined && f.fileSize > MAX_FILE_SIZE_BYTES
       ).length;
@@ -219,8 +219,8 @@ export default function UploadDocumentsScreen() {
         Alert.alert(
           "File Too Large",
           oversizedCount === 1
-            ? "The selected file exceeds the 4.5 MB limit. Please choose a smaller file."
-            : `${oversizedCount} selected files exceed the 4.5 MB limit. Please choose smaller files.`
+            ? "The selected file exceeds the 5 MB limit. Please choose a smaller file."
+            : `${oversizedCount} selected files exceed the 5 MB limit. Please choose smaller files.`
         );
         return;
       }

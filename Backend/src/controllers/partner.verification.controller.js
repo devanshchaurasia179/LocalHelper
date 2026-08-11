@@ -556,12 +556,24 @@ export const uploadDocument = async (req, res) => {
   try {
     // ── 1. Validate file presence ──────────────────────────────────────────
     if (!req.file) {
+      console.error("uploadDocument: No file in request", {
+        body: req.body,
+        headers: req.headers["content-type"],
+      });
       return res.status(400).json({
         message: "No file provided. Send the file under the field name 'file'.",
       });
     }
 
     const { documentTypeId, side = "single", numberValue } = req.body;
+
+    console.log("uploadDocument request:", {
+      documentTypeId,
+      side,
+      hasNumberValue: !!numberValue,
+      fileSize: req.file.size,
+      mimeType: req.file.mimetype,
+    });
 
     // ── 2. Validate required body fields ──────────────────────────────────
     if (!documentTypeId) {
@@ -641,7 +653,22 @@ export const uploadDocument = async (req, res) => {
       : req.file.mimetype;
 
     const acceptedTypes = docType.acceptedFileTypes;
+    
+    console.log("MIME type validation:", {
+      documentType: docType.label,
+      originalMime: req.file.mimetype,
+      effectiveMime,
+      acceptedTypes,
+      isEffectiveAccepted: acceptedTypes.includes(effectiveMime),
+      isOriginalAccepted: acceptedTypes.includes(req.file.mimetype),
+    });
+    
     if (acceptedTypes.length > 0 && !acceptedTypes.includes(effectiveMime) && !acceptedTypes.includes(req.file.mimetype)) {
+      console.error("MIME type rejected:", {
+        documentType: docType.label,
+        rejectedMime: req.file.mimetype,
+        acceptedTypes,
+      });
       return res.status(400).json({
         message: `Invalid file type. "${docType.label}" accepts: ${acceptedTypes.join(", ")}.`,
       });
@@ -650,6 +677,12 @@ export const uploadDocument = async (req, res) => {
     // ── 7. Validate file size ──────────────────────────────────────────────
     const maxBytes = docType.maxFileSizeMB * 1024 * 1024;
     if (req.file.size > maxBytes) {
+      console.error("File size rejected:", {
+        documentType: docType.label,
+        fileSize: req.file.size,
+        maxBytes,
+        maxMB: docType.maxFileSizeMB,
+      });
       return res.status(400).json({
         message: `File too large. Maximum size for "${docType.label}" is ${docType.maxFileSizeMB} MB.`,
       });
@@ -819,9 +852,21 @@ export const uploadDocument = async (req, res) => {
     });
   } catch (error) {
     if (error.name === "CastError") {
+      console.error("uploadDocument CastError:", {
+        error: error.message,
+        documentTypeId: req.body.documentTypeId,
+      });
       return res.status(400).json({ message: "Invalid documentTypeId." });
     }
-    console.error("uploadDocument error:", error);
+    console.error("uploadDocument error:", {
+      message: error.message,
+      stack: error.stack,
+      body: req.body,
+      file: req.file ? {
+        size: req.file.size,
+        mimetype: req.file.mimetype,
+      } : null,
+    });
     return res.status(500).json({ message: "Internal server error." });
   }
 };

@@ -1,7 +1,12 @@
+import bcrypt from "bcryptjs";
 import Booking from "../models/partner/partner.booking.js";
 import Partner from "../models/partner/Partner.js";
 import Customer from "../models/customer/Customer.js";
 import PartnerDocument from "../models/verification/PartnerDocument.js";
+
+/** Generate a random 4-digit completion code string */
+const generateCompletionCode = () =>
+  String(Math.floor(1000 + Math.random() * 9000));
 
 // ─── CUSTOMER: Create Booking ─────────────────────────────────────────────────
 /**
@@ -129,7 +134,14 @@ export const acceptBooking = async (req, res) => {
       });
     }
 
-    booking.status = "accepted";
+    // Generate a 4-digit completion code — stored hashed, plain code returned
+    // to the customer via their booking detail screen.
+    const code      = generateCompletionCode();
+    const salt      = await bcrypt.genSalt(10);
+    const hash      = await bcrypt.hash(code, salt);
+
+    booking.status         = "accepted";
+    booking.completionCode = { code, hash };
     await booking.save();
 
     return res.status(200).json({
@@ -188,6 +200,14 @@ export const startBooking = async (req, res) => {
  */
 export const completeBooking = async (req, res) => {
   try {
+    const { completionCode } = req.body;
+
+    if (!completionCode) {
+      return res.status(400).json({
+        message: "completionCode is required. Ask the customer for their 4-digit code.",
+      });
+    }
+
     const booking = await Booking.findById(req.params.id);
     if (!booking) {
       return res.status(404).json({ message: "Booking not found." });
@@ -201,16 +221,31 @@ export const completeBooking = async (req, res) => {
       });
     }
 
-    booking.status      = "completed";
-    booking.completedAt = new Date();
+    // ── Validate completion code ─────────────────────────────────────────────
+    if (!booking.completionCode?.hash) {
+      return res.status(400).json({
+        message: "No completion code found for this booking.",
+      });
+    }
+    const isCodeValid = await bcrypt.compare(
+      String(completionCode),
+      booking.completionCode.hash
+    );
+    if (!isCodeValid) {
+      return res.status(400).json({ message: "Invalid completion code." });
+    }
+
+    booking.status         = "completed";
+    booking.completedAt    = new Date();
+    booking.completionCode = undefined; // clear the code — it's single-use
     await booking.save();
 
     // Update partner stats atomically
     await Partner.findByIdAndUpdate(req.partnerId, {
       $inc: {
-        completedJobs:  1,
-        totalEarnings:  booking.visitingCredit ?? 0,
-        walletBalance:  booking.visitingCredit ?? 0,
+        completedJobs: 1,
+        totalEarnings: booking.visitingCredit ?? 0,
+        walletBalance: booking.visitingCredit ?? 0,
       },
     });
 
@@ -547,11 +582,16 @@ export const getCustomerBookings = async (req, res) => {
     }
 
     // Serialize bookings with selfieUrl injected into partner
+    // Also expose completionCode.code to the customer (strip hash)
     const enrichedBookings = bookings.map((b) => {
       const obj = b.toObject();
       if (obj.partner) {
         obj.partner.selfieUrl = selfieMap[obj.partner._id?.toString()] ?? null;
         delete obj.partner.selfie; // don't expose raw selfie field
+      }
+      // Show the plain code to the customer; never expose the hash
+      if (obj.completionCode) {
+        obj.completionCode = { code: obj.completionCode.code ?? null };
       }
       return obj;
     });
@@ -619,6 +659,17 @@ export const getBookingById = async (req, res) => {
 
     // Don't expose the raw selfie field to the client
     delete obj.partner.selfie;
+
+    // Completion code visibility:
+    //   - Customer → sees the plain code (to read out to the partner)
+    //   - Partner  → sees nothing (they enter the code, not read it)
+    if (obj.completionCode) {
+      if (req.customerId && booking.customer._id.toString() === req.customerId) {
+        obj.completionCode = { code: obj.completionCode.code ?? null };
+      } else {
+        delete obj.completionCode;
+      }
+    }
 
     return res.status(200).json({ booking: obj });
   } catch (error) {
