@@ -1,5 +1,5 @@
-import { useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import { useRef, useCallback } from 'react';
+import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { colors, spacing, radii, typography, fonts } from '../home/theme';
@@ -54,8 +54,26 @@ export default function BookingCard({ booking, onPress }: BookingCardProps) {
   const accent = STATUS_ACCENT[status];
 
   const scale = useRef(new Animated.Value(1)).current;
-  const pressIn  = () => Animated.spring(scale, { toValue: 0.977, useNativeDriver: true, speed: 50, bounciness: 0 }).start();
-  const pressOut = () => Animated.spring(scale, { toValue: 1,     useNativeDriver: true, speed: 25, bounciness: 4 }).start();
+
+  const pressIn = useCallback(() => {
+    Animated.timing(scale, {
+      toValue: 0.977,
+      duration: 80,
+      useNativeDriver: true,
+    }).start();
+  }, [scale]);
+
+  const pressOut = useCallback(() => {
+    Animated.timing(scale, {
+      toValue: 1,
+      duration: 100,
+      useNativeDriver: true,
+    }).start();
+  }, [scale]);
+
+  const handlePress = useCallback(() => {
+    onPress(booking);
+  }, [booking, onPress]);
 
   const avatarUri =
     partner?.selfieUrl ??
@@ -63,11 +81,10 @@ export default function BookingCard({ booking, onPress }: BookingCardProps) {
     `https://ui-avatars.com/api/?name=${encodeURIComponent(partner?.fullName ?? 'P')}&background=16493c&color=fff&size=200`;
 
   return (
-    <TouchableOpacity
-      onPress={() => onPress(booking)}
+    <Pressable
+      onPress={handlePress}
       onPressIn={pressIn}
       onPressOut={pressOut}
-      activeOpacity={1}
       accessibilityRole="button"
       accessibilityLabel={`Booking with ${partner?.fullName ?? 'partner'}, ${cfg.label}`}
     >
@@ -115,6 +132,16 @@ export default function BookingCard({ booking, onPress }: BookingCardProps) {
             )}
           </View>
 
+          {/* ── Completion code nudge ── */}
+          {(status === 'accepted' || status === 'in_progress') && booking.completionCode?.code ? (
+            <View style={styles.codeNudgeRow}>
+              <Ionicons name="key-outline" size={13} color="#5B21B6" />
+              <Text style={styles.codeNudgeText}>Your code: </Text>
+              <Text style={styles.codeNudgeValue}>{booking.completionCode.code}</Text>
+              <Text style={styles.codeNudgeHint}> — share with partner</Text>
+            </View>
+          ) : null}
+
           {/* ── Review section ── */}
           {status === 'completed' && review?.rating ? (
             <View style={styles.reviewRow}>
@@ -147,7 +174,7 @@ export default function BookingCard({ booking, onPress }: BookingCardProps) {
           <Ionicons name="chevron-forward" size={16} color={colors.navInactive} />
         </View>
       </Animated.View>
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
@@ -321,6 +348,33 @@ const styles = StyleSheet.create({
     fontFamily: fonts.jostMedium,
     fontSize: 11,
     color: colors.primary,
+  },
+  codeNudgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F3FF',
+    borderRadius: radii.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  codeNudgeText: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 11,
+    color: '#5B21B6',
+  },
+  codeNudgeValue: {
+    fontFamily: fonts.oswaldSemiBold,
+    fontSize: 15,
+    color: '#4C1D95',
+    letterSpacing: 3,
+  },
+  codeNudgeHint: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 10,
+    color: '#7C3AED',
+    opacity: 0.8,
   },
   chevronWrap: {
     justifyContent: 'center',

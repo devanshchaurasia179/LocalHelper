@@ -88,12 +88,14 @@ export function useStartBooking() {
 
 /**
  * Complete an in-progress booking.
+ * Requires the 4-digit completion code obtained from the customer.
  */
 export function useCompleteBooking() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (bookingId: string) => completeBooking(bookingId),
+    mutationFn: ({ bookingId, completionCode }: { bookingId: string; completionCode: string }) =>
+      completeBooking(bookingId, completionCode),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: BOOKINGS_KEY });
     },

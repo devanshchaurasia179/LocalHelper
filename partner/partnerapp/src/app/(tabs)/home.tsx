@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,17 +7,495 @@ import {
   Pressable,
   Switch,
   ActivityIndicator,
+  Modal,
+  TextInput,
+  Animated,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
+import React from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/providers/AuthProvider";
 import { usePartnerStatus } from "@/hooks/usePartnerStatus";
-import { usePendingBookings, useAcceptBooking } from "@/hooks/useBookings";
+import {
+  usePendingBookings,
+  useActiveBookings,
+  useAcceptBooking,
+  useStartBooking,
+  useCompleteBooking,
+  useCancelBooking,
+} from "@/hooks/useBookings";
 import { useServiceStatus, useToggleOnline, useDashboardStats } from "@/hooks/useServiceStatus";
 import { colors, fonts, spacing, radii } from "@/constants/theme";
 import BottomNav from "@/components/navigation/BottomNav";
 import type { Booking } from "@/api/booking.api";
+
+// ─── Completion Code Modal ────────────────────────────────────────────────────
+
+// We need to expose imperative controls to the parent. Use a ref-based approach
+// via a wrapper that exposes showSuccess / showError.
+type CompletionCodeModalHandle = {
+  showError: (msg: string) => void;
+  showSuccess: (onDone: () => void) => void;
+};
+
+function CompletionCodeModalControlled({
+  visible,
+  onClose,
+  onConfirm,
+  isLoading,
+  controlRef,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onConfirm: (code: string) => void;
+  isLoading: boolean;
+  controlRef: React.RefObject<CompletionCodeModalHandle>;
+}) {
+  const [digits, setDigits]       = useState(["", "", "", ""]);
+  const [errorMsg, setErrorMsg]   = useState<string | null>(null);
+  const [succeeded, setSucceeded] = useState(false);
+
+  const inputs = [
+    useRef<React.ElementRef<typeof TextInput>>(null),
+    useRef<React.ElementRef<typeof TextInput>>(null),
+    useRef<React.ElementRef<typeof TextInput>>(null),
+    useRef<React.ElementRef<typeof TextInput>>(null),
+  ];
+  const slideAnim      = useRef(new Animated.Value(60)).current;
+  const fadeAnim       = useRef(new Animated.Value(0)).current;
+  const shakeAnim      = useRef(new Animated.Value(0)).current;
+  const successScale   = useRef(new Animated.Value(0.7)).current;
+  const successOpacity = useRef(new Animated.Value(0)).current;
+
+  // Expose imperative API
+  React.useImperativeHandle(controlRef, () => ({
+    showError: (msg: string) => {
+      setErrorMsg(msg);
+      setDigits(["", "", "", ""]);
+      shakeAnim.setValue(0);
+      Animated.sequence([
+        Animated.timing(shakeAnim, { toValue:  8, duration: 60, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: -8, duration: 60, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue:  6, duration: 50, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: -6, duration: 50, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue:  0, duration: 40, useNativeDriver: true }),
+      ]).start(() => setTimeout(() => inputs[0].current?.focus(), 50));
+    },
+    showSuccess: (onDone: () => void) => {
+      setSucceeded(true);
+      successScale.setValue(0.7);
+      successOpacity.setValue(0);
+      Animated.parallel([
+        Animated.spring(successScale,   { toValue: 1, useNativeDriver: true, damping: 12, stiffness: 120 }),
+        Animated.timing(successOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+      ]).start(() => setTimeout(onDone, 1500));
+    },
+  }));
+
+  useEffect(() => {
+    if (visible) {
+      setDigits(["", "", "", ""]);
+      setErrorMsg(null);
+      setSucceeded(false);
+      slideAnim.setValue(60);
+      fadeAnim.setValue(0);
+      successScale.setValue(0.7);
+      successOpacity.setValue(0);
+      Animated.parallel([
+        Animated.timing(slideAnim, { toValue: 0, duration: 280, useNativeDriver: true }),
+        Animated.timing(fadeAnim,  { toValue: 1, duration: 220, useNativeDriver: true }),
+      ]).start(() => setTimeout(() => inputs[0].current?.focus(), 50));
+    }
+  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleChange = (value: string, index: number) => {
+    setErrorMsg(null);
+    const digit = value.replace(/[^0-9]/g, "").slice(-1);
+    const next = [...digits];
+    next[index] = digit;
+    setDigits(next);
+    if (digit && index < 3) inputs[index + 1].current?.focus();
+  };
+
+  const handleKeyPress = (e: { nativeEvent: { key: string } }, index: number) => {
+    if (e.nativeEvent.key === "Backspace" && !digits[index] && index > 0)
+      inputs[index - 1].current?.focus();
+  };
+
+  const code = digits.join("");
+  const isComplete = code.length === 4;
+
+  return (
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        style={modalStyles.overlay}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <Animated.View style={[StyleSheet.absoluteFill, modalStyles.backdrop, { opacity: fadeAnim }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={!succeeded ? onClose : undefined} />
+        </Animated.View>
+
+        <Animated.View style={[modalStyles.sheet, { transform: [{ translateY: slideAnim }] }]}>
+
+          {/* ── Success overlay (sits on top of the sheet content) ── */}
+          {succeeded && (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                StyleSheet.absoluteFill,
+                modalStyles.successOverlay,
+                { opacity: successOpacity },
+              ]}
+            >
+              <Animated.View style={{ transform: [{ scale: successScale }], alignItems: "center" }}>
+                <View style={modalStyles.successIconWrap}>
+                  <Ionicons name="checkmark-circle" size={72} color={colors.success} />
+                </View>
+                <Text style={modalStyles.successTitle}>Job Complete!</Text>
+                <Text style={modalStyles.successSub}>
+                  The booking has been marked as done.
+                </Text>
+              </Animated.View>
+            </Animated.View>
+          )}
+
+          <View style={modalStyles.handle} />
+          <View style={modalStyles.iconWrap}>
+            <Ionicons name="keypad" size={28} color={colors.primary} />
+          </View>
+          <Text style={modalStyles.title}>Enter Completion Code</Text>
+          <Text style={modalStyles.subtitle}>
+            Ask the customer for their 4-digit code to mark this job complete.
+          </Text>
+
+          {/* OTP boxes — shake on wrong code */}
+          <Animated.View
+            style={[modalStyles.otpRow, { transform: [{ translateX: shakeAnim }] }]}
+          >
+            {digits.map((d, i) => (
+              <TextInput
+                key={i}
+                ref={inputs[i]}
+                style={[
+                  modalStyles.otpBox,
+                  d !== "" && !errorMsg && modalStyles.otpBoxFilled,
+                  errorMsg != null && modalStyles.otpBoxError,
+                ]}
+                value={d}
+                onChangeText={(v) => handleChange(v, i)}
+                onKeyPress={(e) => handleKeyPress(e, i)}
+                keyboardType="number-pad"
+                maxLength={1}
+                selectTextOnFocus
+                accessibilityLabel={`Digit ${i + 1}`}
+              />
+            ))}
+          </Animated.View>
+
+          {/* Inline error banner */}
+          {errorMsg != null ? (
+            <View style={modalStyles.errorBanner}>
+              <Ionicons name="alert-circle" size={14} color={colors.error} />
+              <Text style={modalStyles.errorBannerText}>{errorMsg}</Text>
+            </View>
+          ) : (
+            <View style={modalStyles.errorBannerPlaceholder} />
+          )}
+
+          <View style={modalStyles.actions}>
+            <Pressable
+              style={[modalStyles.confirmBtn, !isComplete && modalStyles.confirmBtnDisabled]}
+              onPress={() => isComplete && onConfirm(code)}
+              disabled={!isComplete || isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator size="small" color={colors.white} />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-done" size={18} color={colors.white} />
+                  <Text style={modalStyles.confirmBtnText}>Complete Job</Text>
+                </>
+              )}
+            </Pressable>
+            <Pressable style={modalStyles.cancelModalBtn} onPress={onClose} disabled={isLoading}>
+              <Text style={modalStyles.cancelModalBtnText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </Animated.View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+const modalStyles = StyleSheet.create({
+  overlay:            { flex: 1, justifyContent: "flex-end" },
+  backdrop:           { backgroundColor: "rgba(0,0,0,0.5)" },
+  sheet: {
+    backgroundColor: colors.background,
+    borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    paddingHorizontal: spacing.lg, paddingBottom: 40, paddingTop: spacing.sm,
+    alignItems: "center",
+    shadowColor: "#000", shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.14, shadowRadius: 16, elevation: 24,
+    overflow: "hidden",
+  },
+  handle:             { width: 40, height: 4, backgroundColor: "#E5E7EB", borderRadius: 2, marginBottom: spacing.lg },
+  iconWrap:           { width: 64, height: 64, borderRadius: 32, backgroundColor: "#ECFDF5", alignItems: "center", justifyContent: "center", marginBottom: spacing.md },
+  title:              { fontFamily: fonts.oswaldBold, fontSize: 22, color: colors.textPrimary, marginBottom: spacing.xs },
+  subtitle:           { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, textAlign: "center", lineHeight: 19, marginBottom: spacing.lg + 4, paddingHorizontal: spacing.sm },
+  otpRow:             { flexDirection: "row", gap: spacing.md, marginBottom: spacing.sm },
+  otpBox:             { width: 62, height: 72, borderRadius: radii.md, borderWidth: 2, borderColor: "#D1D5DB", backgroundColor: colors.surface, textAlign: "center", fontFamily: fonts.oswaldBold, fontSize: 32, color: colors.textPrimary },
+  otpBoxFilled:       { borderColor: colors.primary, backgroundColor: "#ECFDF5", color: colors.primary },
+  otpBoxError:        { borderColor: colors.error, backgroundColor: colors.errorLight, color: colors.error },
+  errorBanner:        { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.errorLight, borderWidth: 1, borderColor: colors.errorBorder, borderRadius: radii.sm, paddingHorizontal: 12, paddingVertical: 8, marginBottom: spacing.md, alignSelf: "stretch" },
+  errorBannerText:    { fontFamily: fonts.jakartaMedium, fontSize: 13, color: colors.errorDark, flex: 1 },
+  errorBannerPlaceholder: { height: 36 + spacing.md },
+  actions:            { width: "100%", gap: spacing.sm },
+  confirmBtn:         { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: colors.primary, borderRadius: radii.pill, paddingVertical: 14 },
+  confirmBtnDisabled: { backgroundColor: "#9CA3AF" },
+  confirmBtnText:     { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.white },
+  cancelModalBtn:     { alignItems: "center", justifyContent: "center", paddingVertical: 12 },
+  cancelModalBtnText: { fontFamily: fonts.jakartaMedium, fontSize: 14, color: colors.textSecondary },
+  // Success overlay
+  successOverlay: {
+    borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    backgroundColor: colors.background,
+    alignItems: "center", justifyContent: "center",
+    zIndex: 10,
+  },
+  successIconWrap: {
+    width: 100, height: 100, borderRadius: 50,
+    backgroundColor: colors.successLight,
+    alignItems: "center", justifyContent: "center",
+    marginBottom: spacing.md,
+  },
+  successTitle: { fontFamily: fonts.oswaldBold, fontSize: 26, color: colors.textPrimary, marginBottom: spacing.xs },
+  successSub:   { fontFamily: fonts.jostRegular, fontSize: 14, color: colors.textSecondary, textAlign: "center", lineHeight: 20 },
+});
+
+// ─── Live Booking Card ────────────────────────────────────────────────────────
+// Shown on the home screen for all non-terminal bookings.
+// Supports: pending (accept/decline), accepted (start/cancel), in_progress (complete w/ OTP)
+
+const STATUS_META: Record<
+  "pending" | "accepted" | "in_progress",
+  { label: string; accent: string; bg: string; border: string; icon: keyof typeof Ionicons.glyphMap }
+> = {
+  pending:     { label: "Awaiting acceptance", accent: "#F59E0B", bg: "#FFFBEB", border: "#FDE68A", icon: "time-outline"      },
+  accepted:    { label: "Accepted",             accent: "#3B82F6", bg: "#EFF6FF", border: "#BFDBFE", icon: "checkmark-circle-outline" },
+  in_progress: { label: "In Progress",          accent: "#8B5CF6", bg: "#F5F3FF", border: "#DDD6FE", icon: "construct-outline" },
+};
+
+function LiveBookingCard({
+  booking,
+  onAccept,
+  onDecline,
+  onStart,
+  onCompletePress,
+  isActioning,
+}: {
+  booking: Booking;
+  onAccept: () => void;
+  onDecline: () => void;
+  onStart: () => void;
+  onCompletePress: () => void;
+  isActioning: boolean;
+}) {
+  const status = booking.status as "pending" | "accepted" | "in_progress";
+  const meta   = STATUS_META[status];
+
+  const scheduledDate = new Date(booking.scheduledAt);
+  const dateStr = scheduledDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  const timeStr = scheduledDate.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+
+  // Subtle pulse for pending cards
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (status !== "pending") return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 0.97, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1,    duration: 700, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [status, pulseAnim]);
+
+  return (
+    <Animated.View
+      style={[
+        liveStyles.card,
+        { borderColor: meta.border, transform: [{ scale: pulseAnim }] },
+        status === "pending" && liveStyles.cardPending,
+      ]}
+    >
+      {/* Left accent strip */}
+      <View style={[liveStyles.strip, { backgroundColor: meta.accent }]} />
+
+      <View style={liveStyles.body}>
+        {/* ── Row 1: status pill + emergency + credit ── */}
+        <View style={liveStyles.topRow}>
+          <View style={[liveStyles.statusPill, { backgroundColor: meta.bg, borderColor: meta.border }]}>
+            <Ionicons name={meta.icon} size={11} color={meta.accent} />
+            <Text style={[liveStyles.statusPillText, { color: meta.accent }]}>{meta.label}</Text>
+          </View>
+          <View style={liveStyles.topRight}>
+            {booking.isEmergency && (
+              <View style={liveStyles.emergencyChip}>
+                <Ionicons name="flash" size={10} color={colors.error} />
+                <Text style={liveStyles.emergencyText}>Urgent</Text>
+              </View>
+            )}
+            {booking.visitingCredit != null && (
+              <View style={liveStyles.creditChip}>
+                <Ionicons name="cash-outline" size={11} color={colors.success} />
+                <Text style={liveStyles.creditText}>₹{booking.visitingCredit}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* ── Row 2: customer + category ── */}
+        <View style={liveStyles.customerRow}>
+          <View style={liveStyles.avatar}>
+            <Ionicons name="person" size={16} color={colors.white} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={liveStyles.customerName} numberOfLines={1}>
+              {booking.customer?.name ?? "Customer"}
+            </Text>
+            {booking.category?.name && (
+              <Text style={liveStyles.categoryText}>{booking.category.name}</Text>
+            )}
+          </View>
+        </View>
+
+        {/* ── Row 3: schedule + location ── */}
+        <View style={liveStyles.metaRow}>
+          <View style={liveStyles.metaChip}>
+            <Ionicons name="calendar-outline" size={12} color={colors.textSecondary} />
+            <Text style={liveStyles.metaText}>{dateStr} · {timeStr}</Text>
+          </View>
+          {booking.serviceAddress?.locality ? (
+            <View style={liveStyles.metaChip}>
+              <Ionicons name="location-outline" size={12} color={colors.textSecondary} />
+              <Text style={liveStyles.metaText} numberOfLines={1}>
+                {booking.serviceAddress.locality}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        {/* ── Description ── */}
+        {booking.description ? (
+          <Text style={liveStyles.description} numberOfLines={2}>{booking.description}</Text>
+        ) : null}
+
+        {/* ── Actions ── */}
+        <View style={liveStyles.actionRow}>
+          {status === "pending" && (
+            <>
+              <Pressable
+                style={[liveStyles.btn, liveStyles.btnAccept]}
+                onPress={onAccept} disabled={isActioning}
+                accessibilityLabel="Accept booking"
+              >
+                <Ionicons name="checkmark" size={14} color={colors.white} />
+                <Text style={liveStyles.btnText}>Accept</Text>
+              </Pressable>
+              <Pressable
+                style={[liveStyles.btn, liveStyles.btnDecline]}
+                onPress={onDecline} disabled={isActioning}
+                accessibilityLabel="Decline booking"
+              >
+                <Ionicons name="close" size={14} color={colors.white} />
+                <Text style={liveStyles.btnText}>Decline</Text>
+              </Pressable>
+            </>
+          )}
+          {status === "accepted" && (
+            <>
+              <Pressable
+                style={[liveStyles.btn, liveStyles.btnStart]}
+                onPress={onStart} disabled={isActioning}
+                accessibilityLabel="Start work"
+              >
+                <Ionicons name="play" size={13} color={colors.white} />
+                <Text style={liveStyles.btnText}>Start Work</Text>
+              </Pressable>
+              <Pressable
+                style={[liveStyles.btn, liveStyles.btnDecline]}
+                onPress={onDecline} disabled={isActioning}
+                accessibilityLabel="Cancel booking"
+              >
+                <Ionicons name="close" size={14} color={colors.white} />
+                <Text style={liveStyles.btnText}>Cancel</Text>
+              </Pressable>
+            </>
+          )}
+          {status === "in_progress" && (
+            <Pressable
+              style={[liveStyles.btn, liveStyles.btnComplete]}
+              onPress={onCompletePress} disabled={isActioning}
+              accessibilityLabel="Complete job — enter customer code"
+            >
+              <Ionicons name="keypad-outline" size={14} color={colors.white} />
+              <Text style={liveStyles.btnText}>Complete — Enter Code</Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+
+const liveStyles = StyleSheet.create({
+  card: {
+    flexDirection: "row",
+    backgroundColor: colors.background,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    marginBottom: spacing.sm,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  cardPending: { backgroundColor: "#f0fdf8" },
+  strip:       { width: 4 },
+  body:        { flex: 1, padding: spacing.md, gap: spacing.sm },
+  topRow:      { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  topRight:    { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  statusPill:  { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.pill, borderWidth: 1 },
+  statusPillText: { fontFamily: fonts.jakartaSemiBold, fontSize: 10 },
+  emergencyChip:  { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.errorLight, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.sm },
+  emergencyText:  { fontFamily: fonts.jakartaMedium, fontSize: 10, color: colors.error },
+  creditChip:     { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.successLight, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.sm },
+  creditText:     { fontFamily: fonts.jakartaSemiBold, fontSize: 11, color: colors.success },
+  customerRow:    { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  avatar:         { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  customerName:   { fontFamily: fonts.jakartaSemiBold, fontSize: 14, color: colors.textPrimary },
+  categoryText:   { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: 1 },
+  metaRow:        { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
+  metaChip:       { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.sm },
+  metaText:       { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary },
+  description:    { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
+  actionRow:      { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
+  btn:            { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 16, paddingVertical: 9, borderRadius: radii.pill, flex: 1 },
+  btnAccept:      { backgroundColor: colors.primary },
+  btnDecline:     { backgroundColor: colors.error },
+  btnStart:       { backgroundColor: "#6366F1" },
+  btnComplete:    { backgroundColor: colors.success },
+  btnText:        { fontFamily: fonts.jakartaSemiBold, fontSize: 13, color: colors.white },
+});
+
+// ─── Home Screen ──────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
   const { partner } = useAuth();
@@ -25,22 +503,34 @@ export default function HomeScreen() {
   const router = useRouter();
 
   const { data: serviceData } = useServiceStatus();
-  const toggleOnlineMutation = useToggleOnline();
+  const toggleOnlineMutation  = useToggleOnline();
   const { data: dashboardStats } = useDashboardStats();
 
   const { data: pendingData } = usePendingBookings();
-  const acceptMutation = useAcceptBooking();
+  const { data: activeData  } = useActiveBookings();
 
-  const pendingBookings = pendingData?.bookings ?? [];
-  const pendingCount = pendingBookings.length;
+  const acceptMutation   = useAcceptBooking();
+  const startMutation    = useStartBooking();
+  const completeMutation = useCompleteBooking();
+  const cancelMutation   = useCancelBooking();
+
+  // OTP modal state
+  const [codeModalVisible,  setCodeModalVisible]  = useState(false);
+  const [pendingCompleteId, setPendingCompleteId] = useState<string | null>(null);
+  const modalControlRef = useRef<CompletionCodeModalHandle>(null);
+
+  const pendingBookings: Booking[] = pendingData?.bookings ?? [];
+  const activeBookings:  Booking[] = (activeData as any)?.bookings ?? [];
+
+  // Merge: pending first, then accepted/in_progress
+  const liveBookings: Booking[] = [...pendingBookings, ...activeBookings];
+  const liveCount = liveBookings.length;
 
   const isOnline = serviceData?.isOnline ?? false;
-
-  const name = data?.name ?? partner?.name ?? "Partner";
+  const name     = data?.name ?? partner?.fullName ?? "Partner";
   const greeting = getGreeting();
 
-  // Overview stats
-  const todayBookings = dashboardStats?.todayBookings ?? pendingCount;
+  const todayBookings = dashboardStats?.todayBookings ?? pendingBookings.length;
   const totalEarnings = dashboardStats?.totalEarnings ?? 0;
   const averageRating = dashboardStats?.averageRating ?? 0;
 
@@ -52,13 +542,52 @@ export default function HomeScreen() {
     toggleOnlineMutation.mutate(!isOnline);
   }, [isOnline, toggleOnlineMutation]);
 
+  // Complete flow
+  const handleCompletePress = useCallback((bookingId: string) => {
+    setPendingCompleteId(bookingId);
+    setCodeModalVisible(true);
+  }, []);
+
+  const handleCodeConfirm = useCallback(
+    (code: string) => {
+      if (!pendingCompleteId) return;
+      completeMutation.mutate(
+        { bookingId: pendingCompleteId, completionCode: code },
+        {
+          onSuccess: () => {
+            modalControlRef.current?.showSuccess(() => {
+              setCodeModalVisible(false);
+              setPendingCompleteId(null);
+            });
+          },
+          onError: (err: any) => {
+            const msg = err?.response?.data?.message ?? "Wrong code — check with the customer and try again.";
+            modalControlRef.current?.showError(msg);
+          },
+        }
+      );
+    },
+    [pendingCompleteId, completeMutation]
+  );
+
+  const handleModalClose = useCallback(() => {
+    if (completeMutation.isPending) return;
+    setCodeModalVisible(false);
+    setPendingCompleteId(null);
+  }, [completeMutation.isPending]);
+
+  const isActioning =
+    acceptMutation.isPending ||
+    startMutation.isPending  ||
+    cancelMutation.isPending;
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
+        {/* ── Header ── */}
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>{greeting}</Text>
@@ -66,11 +595,11 @@ export default function HomeScreen() {
           </View>
           <Pressable style={styles.notificationBtn} accessibilityLabel="Notifications">
             <Ionicons name="notifications-outline" size={24} color={colors.textPrimary} />
-            {pendingCount > 0 && <View style={styles.notifDot} />}
+            {liveCount > 0 && <View style={styles.notifDot} />}
           </Pressable>
         </View>
 
-        {/* Status Card with Toggle */}
+        {/* ── Online toggle card ── */}
         <View style={[styles.statusCard, !isOnline && styles.statusCardOffline]}>
           <View style={styles.statusCardContent}>
             <View>
@@ -100,14 +629,14 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* ─── NEW BOOKING REQUESTS ─────────────────────────────────────── */}
-        {pendingCount > 0 && (
-          <View style={styles.newBookingsSection}>
+        {/* ── Live bookings feed ── */}
+        {liveCount > 0 && (
+          <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleRow}>
-                <Text style={styles.sectionTitle}>New Requests</Text>
+                <Text style={styles.sectionTitle}>Live Bookings</Text>
                 <View style={styles.countBadge}>
-                  <Text style={styles.countBadgeText}>{pendingCount}</Text>
+                  <Text style={styles.countBadgeText}>{liveCount}</Text>
                 </View>
               </View>
               <Pressable onPress={handleViewAllBookings} hitSlop={8}>
@@ -115,169 +644,69 @@ export default function HomeScreen() {
               </Pressable>
             </View>
 
-            {pendingBookings.slice(0, 3).map((booking) => (
-              <PendingBookingCard
+            {liveBookings.map((booking) => (
+              <LiveBookingCard
                 key={booking._id}
                 booking={booking}
                 onAccept={() => acceptMutation.mutate(booking._id)}
-                isAccepting={acceptMutation.isPending}
+                onDecline={() => cancelMutation.mutate({ bookingId: booking._id })}
+                onStart={() => startMutation.mutate(booking._id)}
+                onCompletePress={() => handleCompletePress(booking._id)}
+                isActioning={isActioning}
               />
             ))}
           </View>
         )}
 
-        {/* Today's Overview */}
+        {/* ── Today's Overview ── */}
         <Text style={styles.sectionTitle}>Today's Overview</Text>
         <View style={styles.statsRow}>
-          <StatCard
-            icon="calendar"
-            iconColor="#6366F1"
-            iconBg="#EEF2FF"
-            label="Bookings"
-            value={String(todayBookings)}
-          />
-          <StatCard
-            icon="cash"
-            iconColor="#10B981"
-            iconBg="#ECFDF5"
-            label="Earnings"
-            value={`₹${totalEarnings}`}
-          />
-          <StatCard
-            icon="star"
-            iconColor="#F59E0B"
-            iconBg="#FFFBEB"
-            label="Rating"
-            value={averageRating > 0 ? averageRating.toFixed(1) : "--"}
-          />
+          <StatCard icon="calendar"  iconColor="#6366F1" iconBg="#EEF2FF"  label="Bookings" value={String(todayBookings)} />
+          <StatCard icon="cash"      iconColor="#10B981" iconBg="#ECFDF5"  label="Earnings" value={`₹${totalEarnings}`} />
+          <StatCard icon="star"      iconColor="#F59E0B" iconBg="#FFFBEB"  label="Rating"   value={averageRating > 0 ? averageRating.toFixed(1) : "--"} />
         </View>
 
-        {/* Quick Actions */}
+        {/* ── Quick Actions ── */}
         <Text style={styles.sectionTitle}>Quick Actions</Text>
         <View style={styles.actionsGrid}>
-          <ActionCard icon="time-outline" label="Availability" color="#6366F1" />
-          <ActionCard icon="pricetag-outline" label="My Services" color="#10B981" />
-          <ActionCard icon="document-text-outline" label="Documents" color="#F59E0B" />
-          <ActionCard icon="help-circle-outline" label="Support" color="#EF4444" />
+          <ActionCard icon="time-outline"          label="Availability" color="#6366F1" />
+          <ActionCard icon="pricetag-outline"      label="My Services"  color="#10B981" />
+          <ActionCard icon="document-text-outline" label="Documents"    color="#F59E0B" />
+          <ActionCard icon="help-circle-outline"   label="Support"      color="#EF4444" />
         </View>
 
-        {/* Recent Activity */}
-        <Text style={styles.sectionTitle}>Recent Activity</Text>
-        {pendingCount === 0 ? (
+        {/* ── Empty state (no live bookings) ── */}
+        {liveCount === 0 && (
           <View style={styles.emptyCard}>
             <Ionicons name="folder-open-outline" size={40} color={colors.navInactive} />
-            <Text style={styles.emptyText}>No recent activity yet</Text>
-            <Text style={styles.emptySubtext}>
-              Your booking activity will show up here
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.emptyCard}>
-            <Ionicons name="notifications" size={40} color={colors.primary} />
-            <Text style={styles.emptyText}>
-              {pendingCount} booking{pendingCount > 1 ? "s" : ""} waiting
-            </Text>
-            <Text style={styles.emptySubtext}>
-              Tap "New Requests" above to review and accept
-            </Text>
+            <Text style={styles.emptyText}>No active bookings</Text>
+            <Text style={styles.emptySubtext}>New booking requests will appear here</Text>
           </View>
         )}
 
-        {/* Spacer for bottom nav */}
         <View style={{ height: 100 }} />
       </ScrollView>
 
       <BottomNav />
+
+      <CompletionCodeModalControlled
+        visible={codeModalVisible}
+        onClose={handleModalClose}
+        onConfirm={handleCodeConfirm}
+        isLoading={completeMutation.isPending}
+        controlRef={modalControlRef}
+      />
     </SafeAreaView>
-  );
-}
-
-// ─── Pending Booking Card (Home Page) ─────────────────────────────────────────
-
-function PendingBookingCard({
-  booking,
-  onAccept,
-  isAccepting,
-}: {
-  booking: Booking;
-  onAccept: () => void;
-  isAccepting: boolean;
-}) {
-  const scheduledDate = new Date(booking.scheduledAt);
-  const dateStr = scheduledDate.toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "short",
-  });
-  const timeStr = scheduledDate.toLocaleTimeString("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
-  return (
-    <View style={styles.pendingCard}>
-      {/* Pulsing dot indicator */}
-      <View style={styles.pulseIndicator} />
-
-      <View style={styles.pendingCardBody}>
-        <View style={styles.pendingCardTop}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.pendingCustomerName}>
-              {booking.customer?.name ?? "Customer"}
-            </Text>
-            <Text style={styles.pendingCategory}>
-              {booking.category?.name ?? "Service Request"}
-            </Text>
-          </View>
-          {booking.isEmergency && (
-            <View style={styles.emergencyChip}>
-              <Ionicons name="flash" size={10} color={colors.error} />
-              <Text style={styles.emergencyChipText}>Urgent</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.pendingInfoRow}>
-          <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
-          <Text style={styles.pendingInfoText}>
-            {dateStr} • {timeStr}
-          </Text>
-          {booking.visitingCredit != null && (
-            <>
-              <Text style={styles.pendingInfoDot}>•</Text>
-              <Text style={styles.pendingCreditText}>₹{booking.visitingCredit}</Text>
-            </>
-          )}
-        </View>
-
-        {/* Accept button */}
-        <Pressable
-          style={styles.miniAcceptBtn}
-          onPress={onAccept}
-          disabled={isAccepting}
-          accessibilityLabel="Accept this booking"
-        >
-          <Ionicons name="checkmark" size={14} color={colors.white} />
-          <Text style={styles.miniAcceptText}>Accept</Text>
-        </Pressable>
-      </View>
-    </View>
   );
 }
 
 // ─── Sub-Components ───────────────────────────────────────────────────────────
 
 function StatCard({
-  icon,
-  iconColor,
-  iconBg,
-  label,
-  value,
+  icon, iconColor, iconBg, label, value,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
-  iconColor: string;
-  iconBg: string;
-  label: string;
-  value: string;
+  iconColor: string; iconBg: string; label: string; value: string;
 }) {
   return (
     <View style={styles.statCard}>
@@ -291,13 +720,9 @@ function StatCard({
 }
 
 function ActionCard({
-  icon,
-  label,
-  color,
+  icon, label, color,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  color: string;
+  icon: keyof typeof Ionicons.glyphMap; label: string; color: string;
 }) {
   return (
     <Pressable style={styles.actionCard} accessibilityLabel={label}>
@@ -309,326 +734,57 @@ function ActionCard({
   );
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good Morning";
-  if (hour < 17) return "Good Afternoon";
+  const h = new Date().getHours();
+  if (h < 12) return "Good Morning";
+  if (h < 17) return "Good Afternoon";
   return "Good Evening";
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  scrollContent: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-  },
+  safe:          { flex: 1, backgroundColor: colors.background },
+  scrollContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
 
-  // Header
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: spacing.lg,
-  },
-  greeting: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  name: {
-    fontFamily: fonts.oswaldBold,
-    fontSize: 26,
-    color: colors.textPrimary,
-    marginTop: 2,
-  },
-  notificationBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  notifDot: {
-    position: "absolute",
-    top: 10,
-    right: 11,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.error,
-    borderWidth: 2,
-    borderColor: colors.surface,
-  },
+  header:          { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.lg },
+  greeting:        { fontFamily: fonts.jostRegular,   fontSize: 14, color: colors.textSecondary },
+  name:            { fontFamily: fonts.oswaldBold,    fontSize: 26, color: colors.textPrimary, marginTop: 2 },
+  notificationBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" },
+  notifDot:        { position: "absolute", top: 10, right: 11, width: 8, height: 8, borderRadius: 4, backgroundColor: colors.error, borderWidth: 2, borderColor: colors.surface },
 
-  // Status card
-  statusCard: {
-    backgroundColor: colors.primary,
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  statusCardOffline: {
-    backgroundColor: "#4B5563",
-  },
-  statusCardContent: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    marginBottom: 4,
-  },
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: "#4ADE80",
-  },
-  statusDotOffline: {
-    backgroundColor: "#9CA3AF",
-  },
-  statusText: {
-    fontFamily: fonts.jakartaSemiBold,
-    fontSize: 16,
-    color: colors.white,
-  },
-  statusSub: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 13,
-    color: "rgba(255,255,255,0.7)",
-    marginLeft: 18,
-  },
-  toggleWrap: {
-    minWidth: 51,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  statusCard:        { backgroundColor: colors.primary, borderRadius: radii.lg, padding: spacing.md, marginBottom: spacing.lg },
+  statusCardOffline: { backgroundColor: "#4B5563" },
+  statusCardContent: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  statusRow:         { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: 4 },
+  statusDot:         { width: 10, height: 10, borderRadius: 5, backgroundColor: "#4ADE80" },
+  statusDotOffline:  { backgroundColor: "#9CA3AF" },
+  statusText:        { fontFamily: fonts.jakartaSemiBold, fontSize: 16, color: colors.white },
+  statusSub:         { fontFamily: fonts.jostRegular,    fontSize: 13, color: "rgba(255,255,255,0.7)", marginLeft: 18 },
+  toggleWrap:        { minWidth: 51, alignItems: "center", justifyContent: "center" },
 
-  // ─── New Bookings Section ─────────────────────────────────────────────────
-  newBookingsSection: {
-    marginBottom: spacing.lg,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: spacing.md,
-  },
-  sectionTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  countBadge: {
-    backgroundColor: colors.error,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 6,
-  },
-  countBadgeText: {
-    fontFamily: fonts.jakartaSemiBold,
-    fontSize: 11,
-    color: colors.white,
-  },
-  viewAllText: {
-    fontFamily: fonts.jakartaMedium,
-    fontSize: 13,
-    color: colors.primary,
-  },
+  section:       { marginBottom: spacing.lg },
+  sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.md },
+  sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  sectionTitle:  { fontFamily: fonts.jakartaSemiBold, fontSize: 16, color: colors.textPrimary, marginBottom: spacing.md },
+  countBadge:    { backgroundColor: colors.error, borderRadius: 10, minWidth: 20, height: 20, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  countBadgeText:{ fontFamily: fonts.jakartaSemiBold, fontSize: 11, color: colors.white },
+  viewAllText:   { fontFamily: fonts.jakartaMedium, fontSize: 13, color: colors.primary },
 
-  // Pending booking card (compact)
-  pendingCard: {
-    flexDirection: "row",
-    backgroundColor: "#f0fdf8",
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    overflow: "hidden",
-  },
-  pulseIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.primary,
-    marginTop: 6,
-    marginRight: spacing.sm,
-  },
-  pendingCardBody: {
-    flex: 1,
-  },
-  pendingCardTop: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    marginBottom: 4,
-  },
-  pendingCustomerName: {
-    fontFamily: fonts.jakartaSemiBold,
-    fontSize: 14,
-    color: colors.textPrimary,
-  },
-  pendingCategory: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: 1,
-  },
-  emergencyChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    backgroundColor: colors.errorLight,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: radii.sm,
-  },
-  emergencyChipText: {
-    fontFamily: fonts.jakartaMedium,
-    fontSize: 10,
-    color: colors.error,
-  },
-  pendingInfoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 4,
-    marginBottom: spacing.sm,
-  },
-  pendingInfoText: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  pendingInfoDot: {
-    color: colors.textSecondary,
-    fontSize: 12,
-  },
-  pendingCreditText: {
-    fontFamily: fonts.jakartaSemiBold,
-    fontSize: 12,
-    color: colors.success,
-  },
-  miniAcceptBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-    gap: 4,
-    backgroundColor: colors.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: radii.pill,
-  },
-  miniAcceptText: {
-    fontFamily: fonts.jakartaSemiBold,
-    fontSize: 12,
-    color: colors.white,
-  },
+  statsRow:    { flexDirection: "row", gap: spacing.sm, marginBottom: spacing.lg },
+  statCard:    { flex: 1, backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md, alignItems: "center" },
+  statIconWrap:{ width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", marginBottom: spacing.sm },
+  statValue:   { fontFamily: fonts.oswaldSemiBold, fontSize: 20, color: colors.textPrimary },
+  statLabel:   { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: 2 },
 
-  // Section title
-  sectionTitle: {
-    fontFamily: fonts.jakartaSemiBold,
-    fontSize: 16,
-    color: colors.textPrimary,
-    marginBottom: spacing.md,
-  },
+  actionsGrid:   { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.lg },
+  actionCard:    { width: "48%", flexGrow: 1, backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md, alignItems: "center", gap: spacing.sm },
+  actionIconWrap:{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  actionLabel:   { fontFamily: fonts.jakartaMedium, fontSize: 13, color: colors.textPrimary },
 
-  // Stats
-  statsRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    alignItems: "center",
-  },
-  statIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: spacing.sm,
-  },
-  statValue: {
-    fontFamily: fonts.oswaldSemiBold,
-    fontSize: 20,
-    color: colors.textPrimary,
-  },
-  statLabel: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-
-  // Actions grid
-  actionsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  actionCard: {
-    width: "48%",
-    flexGrow: 1,
-    backgroundColor: colors.surface,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  actionIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  actionLabel: {
-    fontFamily: fonts.jakartaMedium,
-    fontSize: 13,
-    color: colors.textPrimary,
-  },
-
-  // Empty state
-  emptyCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radii.lg,
-    padding: spacing.xl,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyText: {
-    fontFamily: fonts.jakartaSemiBold,
-    fontSize: 15,
-    color: colors.textPrimary,
-    marginTop: spacing.md,
-  },
-  emptySubtext: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 13,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-    textAlign: "center",
-  },
+  emptyCard:    { backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.xl, alignItems: "center", justifyContent: "center" },
+  emptyText:    { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.textPrimary, marginTop: spacing.md },
+  emptySubtext: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, marginTop: spacing.xs, textAlign: "center" },
 });

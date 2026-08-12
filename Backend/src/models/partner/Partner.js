@@ -4,6 +4,7 @@ import profileFields from "./partner.profile.js";
 import serviceFields from "./partner.service.js";
 import documentFields from "./partner.documents.js";
 import ratingFields from "./partner.rating.js";
+import transactionAccountFields from "./partner.transactionaccount.js";
 
 const partnerSchema = new mongoose.Schema(
   {
@@ -12,6 +13,7 @@ const partnerSchema = new mongoose.Schema(
     ...serviceFields,
     ...documentFields,
     ...ratingFields,
+    ...transactionAccountFields,
   },
   { timestamps: true }
 );

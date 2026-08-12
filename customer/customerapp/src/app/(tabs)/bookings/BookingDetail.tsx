@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useRef, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -90,6 +90,154 @@ const infoStyles = StyleSheet.create({
   label:          { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary, marginBottom: 1 },
   value:          { fontFamily: fonts.jakartaMedium, fontSize: 13, color: colors.textPrimary },
   valueAccent:    { color: colors.primary, fontFamily: fonts.jakartaSemiBold },
+});
+
+// ─── Completion Code Card ─────────────────────────────────────────────────────
+
+function CompletionCodeCard({ code }: { code: string }) {
+  const [tapped, setTapped] = useState(false);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const glowAnim  = useRef(new Animated.Value(0)).current;
+
+  // Pulse animation on mount to draw attention
+  useEffect(() => {
+    Animated.sequence([
+      Animated.timing(pulseAnim, { toValue: 1.04, duration: 350, useNativeDriver: true }),
+      Animated.timing(pulseAnim, { toValue: 1,    duration: 350, useNativeDriver: true }),
+      Animated.timing(pulseAnim, { toValue: 1.04, duration: 350, useNativeDriver: true }),
+      Animated.timing(pulseAnim, { toValue: 1,    duration: 350, useNativeDriver: true }),
+    ]).start();
+  }, [pulseAnim]);
+
+  const handleTap = useCallback(() => {
+    setTapped(true);
+    Animated.sequence([
+      Animated.timing(glowAnim, { toValue: 1, duration: 180, useNativeDriver: false }),
+      Animated.timing(glowAnim, { toValue: 0, duration: 600, useNativeDriver: false }),
+    ]).start(() => setTapped(false));
+  }, [glowAnim]);
+
+  const borderColor = glowAnim.interpolate({
+    inputRange:  [0, 1],
+    outputRange: ['#DDD6FE', '#7C3AED'],
+  });
+
+  // Split into individual digits for display
+  const digits = code.split('');
+
+  return (
+    <Animated.View style={[codeStyles.wrapper, { transform: [{ scale: pulseAnim }] }]}>
+      {/* Glow border overlay — separate view avoids non-native driver conflict */}
+      <Animated.View
+        style={[StyleSheet.absoluteFill, codeStyles.glowBorder, { borderColor }]}
+        pointerEvents="none"
+      />
+      {/* Header row */}
+      <View style={codeStyles.headerRow}>
+        <View style={codeStyles.iconWrap}>
+          <Ionicons name="key" size={15} color="#5B21B6" />
+        </View>
+        <Text style={codeStyles.title}>Your Completion Code</Text>
+      </View>
+
+      {/* Code digits */}
+      <TouchableOpacity
+        style={codeStyles.digitsRow}
+        onPress={handleTap}
+        activeOpacity={0.85}
+        accessibilityLabel={`Completion code: ${code.split('').join(' ')}`}
+        accessibilityHint="Tap to highlight"
+      >
+        {digits.map((d, i) => (
+          <View key={i} style={[codeStyles.digitBox, tapped && codeStyles.digitBoxActive]}>
+            <Text style={[codeStyles.digitText, tapped && codeStyles.digitTextActive]}>{d}</Text>
+          </View>
+        ))}
+      </TouchableOpacity>
+
+      {/* Instruction */}
+      <Text style={codeStyles.instruction}>
+        Read this 4-digit code to the partner when the job is done. They will enter it to complete the booking.
+      </Text>
+    </Animated.View>
+  );
+}
+
+const codeStyles = StyleSheet.create({
+  wrapper: {
+    backgroundColor: '#F5F3FF',
+    borderRadius: radii.md,
+    padding: spacing.md,
+    borderWidth: 1.5,
+    borderColor: '#DDD6FE',
+    gap: spacing.sm,
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  glowBorder: {
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    alignSelf: 'flex-start',
+  },
+  iconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: radii.sm,
+    backgroundColor: '#EDE9FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: {
+    fontFamily: fonts.jakartaSemiBold,
+    fontSize: 13,
+    color: '#4C1D95',
+  },
+  digitsRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginVertical: spacing.xs,
+  },
+  digitBox: {
+    width: 54,
+    height: 64,
+    borderRadius: radii.sm,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#C4B5FD',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#7C3AED',
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  digitBoxActive: {
+    backgroundColor: '#4C1D95',
+    borderColor: '#4C1D95',
+  },
+  digitText: {
+    fontFamily: fonts.oswaldBold,
+    fontSize: 32,
+    color: '#4C1D95',
+    letterSpacing: 1,
+  },
+  digitTextActive: {
+    color: '#fff',
+  },
+  instruction: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 12,
+    color: '#6D28D9',
+    textAlign: 'center',
+    lineHeight: 18,
+    opacity: 0.85,
+  },
 });
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -236,6 +384,15 @@ export default function BookingDetail({
                 <InfoRow icon="flash-outline" label="Booking Type" value="Emergency" />
               )}
             </View>
+
+            {/* ── Completion Code ── */}
+            {(booking.status === 'accepted' || booking.status === 'in_progress') &&
+              booking.completionCode?.code ? (
+              <View style={styles.section}>
+                <SectionHeader title="Completion Code" />
+                <CompletionCodeCard code={booking.completionCode.code} />
+              </View>
+            ) : null}
 
             {/* ── Address ── */}
             {serviceAddress && (

@@ -84,8 +84,13 @@ export async function startBooking(bookingId: string): Promise<{ message: string
 
 // ─── PATCH /api/bookings/:id/complete ─────────────────────────────────────────
 
-export async function completeBooking(bookingId: string): Promise<{ message: string }> {
-  const res = await api.patch<{ message: string }>(`/bookings/${bookingId}/complete`);
+export async function completeBooking(
+  bookingId: string,
+  completionCode: string
+): Promise<{ message: string }> {
+  const res = await api.patch<{ message: string }>(`/bookings/${bookingId}/complete`, {
+    completionCode,
+  });
   return res.data;
 }
 

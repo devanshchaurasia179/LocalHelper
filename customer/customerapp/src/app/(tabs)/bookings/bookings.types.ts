@@ -43,6 +43,11 @@ export interface BookingCategory {
   name: string;
 }
 
+export interface CompletionCode {
+  /** Plain 4-digit code the customer reads out to the partner */
+  code: string | null;
+}
+
 export interface Booking {
   _id: string;
   status: BookingStatus;
@@ -55,6 +60,8 @@ export interface Booking {
   serviceAddress?: ServiceAddress;
   cancellation?: BookingCancellation;
   review?: BookingReview;
+  /** Present on accepted / in_progress bookings — customer sees the plain code */
+  completionCode?: CompletionCode;
   partner: BookingPartner;
   category?: BookingCategory;
   createdAt: string;

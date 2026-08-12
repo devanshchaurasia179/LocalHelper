@@ -10,6 +10,9 @@ import partnerAuthRoutes from "./routes/partner.auth.routes.js";
 import partnerServiceRoutes from "./routes/partner.service.routes.js";
 import partnerDocumentRoutes from "./routes/partner.documents.routes.js";
 import partnerVerificationRoutes from "./routes/partner.verification.routes.js";
+import partnerTransactionAccountRoutes from "./routes/partner.transactionaccount.routes.js";
+import partnerTransactionRoutes from "./routes/partner.transaction.routes.js";
+import adminTransactionRoutes from "./routes/admin/admin.transaction.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import customerAuthRoutes from "./routes/customer.auth.routes.js";
 import customerNearbyRoutes from "./routes/customer.nearby.routes.js";
@@ -49,6 +52,8 @@ app.use("/api/partner/auth", partnerAuthRoutes);
 app.use("/api/partner/service", partnerServiceRoutes);
 app.use("/api/partner/documents", partnerDocumentRoutes);       // old hardcoded routes (kept for backwards compatibility)
 app.use("/api/partner/verification", partnerVerificationRoutes); // new dynamic routes
+app.use("/api/partner/transaction-account", partnerTransactionAccountRoutes);
+app.use("/api/partner/transactions", partnerTransactionRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/customer/auth", customerAuthRoutes);
 app.use("/api/customer/services", customerNearbyRoutes);
@@ -58,6 +63,7 @@ app.use("/api/admin/partners", adminPartnerRoutes);
 app.use("/api/admin/document-types", adminDocumentTypeRoutes);
 app.use("/api/admin/verification", adminVerificationRoutes);
 app.use("/api/admin/categories", adminCategoryRoutes);
+app.use("/api/admin", adminTransactionRoutes);
 
 connectDB();
 app.listen(PORT, () => {

@@ -3,6 +3,7 @@ import Booking from "../models/partner/partner.booking.js";
 import Partner from "../models/partner/Partner.js";
 import Customer from "../models/customer/Customer.js";
 import PartnerDocument from "../models/verification/PartnerDocument.js";
+import PartnerTransaction from "../models/partner/partner.transaction.js";
 
 /** Generate a random 4-digit completion code string */
 const generateCompletionCode = () =>
@@ -241,13 +242,32 @@ export const completeBooking = async (req, res) => {
     await booking.save();
 
     // Update partner stats atomically
-    await Partner.findByIdAndUpdate(req.partnerId, {
-      $inc: {
-        completedJobs: 1,
-        totalEarnings: booking.visitingCredit ?? 0,
-        walletBalance: booking.visitingCredit ?? 0,
+    const updatedPartner = await Partner.findByIdAndUpdate(
+      req.partnerId,
+      {
+        $inc: {
+          completedJobs: 1,
+          totalEarnings: booking.visitingCredit ?? 0,
+          walletBalance: booking.visitingCredit ?? 0,
+        },
       },
-    });
+      { new: true, select: "walletBalance" }
+    );
+
+    // ── Record earning transaction ────────────────────────────────────────
+    // Creates an immutable audit entry for this booking's payout.
+    if (booking.visitingCredit && booking.visitingCredit > 0) {
+      await PartnerTransaction.create({
+        partner:      req.partnerId,
+        type:         "earning",
+        amount:       booking.visitingCredit,
+        direction:    "credit",
+        balanceAfter: updatedPartner?.walletBalance ?? 0,
+        status:       "completed",
+        booking:      booking._id,
+        description:  `Earning from booking #${booking._id}`,
+      });
+    }
 
     return res.status(200).json({
       message: "Booking completed.",
