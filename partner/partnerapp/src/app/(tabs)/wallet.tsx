@@ -18,6 +18,7 @@ import BottomNav from "@/components/navigation/BottomNav";
 import {
   useWalletSummary,
   useTransactions,
+  useTransaction,
   useRequestPayout,
   useTransactionAccount,
   useSaveBankAccount,
@@ -257,6 +258,218 @@ const editStyles = StyleSheet.create({
   cancelBtnText: { fontFamily: fonts.jakartaMedium, fontSize: 14, color: colors.textSecondary },
 });
 
+// ─── Transaction Detail Modal ─────────────────────────────────────────────────
+
+function TransactionDetailModal({
+  visible,
+  transactionId,
+  onClose,
+}: {
+  visible: boolean;
+  transactionId: string | null;
+  onClose: () => void;
+}) {
+  const { data: tx, isLoading } = useTransaction(transactionId ?? "", visible && !!transactionId);
+
+  const meta       = tx ? TX_META[tx.type] : null;
+  const statusMeta = tx ? STATUS_META[tx.status] : null;
+  const isCredit   = tx?.direction === "credit";
+
+  const date    = tx ? new Date(tx.createdAt) : null;
+  const dateStr = date?.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+  const timeStr = date?.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+
+  const booking        = tx?.booking;
+  const customerName   = booking?.customer?.fullName ?? booking?.customer?.phone ?? null;
+  const serviceLabel   = booking?.serviceLabel ?? booking?.category?.name ?? null;
+  const addr           = booking?.serviceAddress;
+  const addressParts   = [addr?.locality, addr?.city, addr?.state].filter(Boolean);
+  const addressStr     = addressParts.length > 0 ? addressParts.join(", ") : null;
+
+  const scheduledDate  = booking?.scheduledAt
+    ? new Date(booking.scheduledAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+    : null;
+  const completedDate  = booking?.completedAt
+    ? new Date(booking.completedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+    : null;
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={detailStyles.overlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={detailStyles.sheet}>
+          <View style={detailStyles.handle} />
+
+          {isLoading || !tx ? (
+            <View style={detailStyles.loadingWrap}>
+              <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+          ) : (
+            <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+              {/* Amount header */}
+              <View style={detailStyles.amountRow}>
+                <View style={[detailStyles.typeIconWrap, { backgroundColor: meta!.bg }]}>
+                  <Ionicons name={meta!.icon} size={28} color={meta!.color} />
+                </View>
+                <Text style={[detailStyles.amount, isCredit && detailStyles.amountCredit]}>
+                  {isCredit ? "+" : "-"}₹{tx.amount}
+                </Text>
+                <Text style={detailStyles.typeLabel}>
+                  {tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}
+                </Text>
+              </View>
+
+              {/* Status */}
+              <View style={[detailStyles.statusRow, { backgroundColor: `${statusMeta!.color}12` }]}>
+                <View style={[detailStyles.statusDot, { backgroundColor: statusMeta!.color }]} />
+                <Text style={[detailStyles.statusLabel, { color: statusMeta!.color }]}>
+                  {statusMeta!.label}
+                </Text>
+              </View>
+
+              {/* Date & time */}
+              <View style={detailStyles.section}>
+                <Text style={detailStyles.sectionTitle}>Transaction Details</Text>
+                <DetailRow icon="calendar-outline"  label="Date"    value={`${dateStr} at ${timeStr}`} />
+                <DetailRow icon="receipt-outline"   label="Ref ID"  value={tx._id} mono />
+                <DetailRow icon="swap-horizontal"   label="Direction" value={isCredit ? "Credit" : "Debit"} />
+                <DetailRow icon="wallet-outline"    label="Balance after" value={`₹${tx.balanceAfter}`} />
+                {tx.description ? (
+                  <DetailRow icon="document-text-outline" label="Note" value={tx.description} />
+                ) : null}
+                {tx.failureReason ? (
+                  <DetailRow icon="alert-circle-outline" label="Failure reason" value={tx.failureReason} error />
+                ) : null}
+              </View>
+
+              {/* Booking details — only for earnings */}
+              {booking && (
+                <View style={detailStyles.section}>
+                  <Text style={detailStyles.sectionTitle}>Booking Details</Text>
+                  {customerName && (
+                    <DetailRow icon="person-outline"   label="Customer"    value={customerName} />
+                  )}
+                  {serviceLabel && (
+                    <DetailRow icon="construct-outline" label="Service"    value={serviceLabel} />
+                  )}
+                  {booking.description ? (
+                    <DetailRow icon="chatbubble-outline" label="Description" value={booking.description} />
+                  ) : null}
+                  {addressStr && (
+                    <DetailRow icon="location-outline"  label="Location"    value={addressStr} />
+                  )}
+                  {scheduledDate && (
+                    <DetailRow icon="time-outline"      label="Scheduled"   value={scheduledDate} />
+                  )}
+                  {completedDate && (
+                    <DetailRow icon="checkmark-circle-outline" label="Completed" value={completedDate} />
+                  )}
+                  {booking.visitingCredit != null && (
+                    <DetailRow icon="cash-outline" label="Earning"  value={`₹${booking.visitingCredit}`} highlight />
+                  )}
+                </View>
+              )}
+
+              {/* Payout details */}
+              {tx.payoutDetails?.method && (
+                <View style={detailStyles.section}>
+                  <Text style={detailStyles.sectionTitle}>Payout Details</Text>
+                  <DetailRow icon="card-outline" label="Method"
+                    value={tx.payoutDetails.method === "bank" ? "Bank Transfer" : "UPI"} />
+                  {tx.payoutDetails.method === "bank" && (
+                    <>
+                      {tx.payoutDetails.accountHolderName && (
+                        <DetailRow icon="person-outline" label="Account holder" value={tx.payoutDetails.accountHolderName} />
+                      )}
+                      {tx.payoutDetails.bankName && (
+                        <DetailRow icon="business-outline" label="Bank" value={tx.payoutDetails.bankName} />
+                      )}
+                      {tx.payoutDetails.accountNumber && (
+                        <DetailRow icon="lock-closed-outline" label="Account no." value={tx.payoutDetails.accountNumber} mono />
+                      )}
+                      {tx.payoutDetails.ifscCode && (
+                        <DetailRow icon="barcode-outline" label="IFSC" value={tx.payoutDetails.ifscCode} mono />
+                      )}
+                    </>
+                  )}
+                  {tx.payoutDetails.method === "upi" && tx.payoutDetails.upiId && (
+                    <DetailRow icon="wallet-outline" label="UPI ID" value={tx.payoutDetails.upiId} />
+                  )}
+                </View>
+              )}
+
+              <Pressable style={detailStyles.closeBtn} onPress={onClose}>
+                <Text style={detailStyles.closeBtnText}>Close</Text>
+              </Pressable>
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function DetailRow({
+  icon,
+  label,
+  value,
+  mono = false,
+  error = false,
+  highlight = false,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  mono?: boolean;
+  error?: boolean;
+  highlight?: boolean;
+}) {
+  return (
+    <View style={detailStyles.row}>
+      <Ionicons name={icon} size={15} color={colors.textSecondary} style={detailStyles.rowIcon} />
+      <Text style={detailStyles.rowLabel}>{label}</Text>
+      <Text
+        style={[
+          detailStyles.rowValue,
+          mono      && detailStyles.rowValueMono,
+          error     && detailStyles.rowValueError,
+          highlight && detailStyles.rowValueHighlight,
+        ]}
+        numberOfLines={2}
+        selectable
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+const detailStyles = StyleSheet.create({
+  overlay:     { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  sheet:       { backgroundColor: colors.background, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: spacing.lg, paddingBottom: 40, paddingTop: spacing.sm, maxHeight: "90%" },
+  handle:      { width: 40, height: 4, backgroundColor: "#E5E7EB", borderRadius: 2, marginBottom: spacing.lg, alignSelf: "center" },
+  loadingWrap: { paddingVertical: spacing.xl, alignItems: "center" },
+  amountRow:   { alignItems: "center", paddingVertical: spacing.md },
+  typeIconWrap:{ width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: spacing.sm },
+  amount:      { fontFamily: fonts.oswaldBold, fontSize: 40, color: colors.textPrimary },
+  amountCredit:{ color: colors.success },
+  typeLabel:   { fontFamily: fonts.jostMedium, fontSize: 14, color: colors.textSecondary, marginTop: 2 },
+  statusRow:   { flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radii.sm, marginBottom: spacing.md, alignSelf: "center" },
+  statusDot:   { width: 8, height: 8, borderRadius: 4 },
+  statusLabel: { fontFamily: fonts.jakartaSemiBold, fontSize: 13 },
+  section:     { backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md, marginBottom: spacing.md },
+  sectionTitle:{ fontFamily: fonts.jakartaSemiBold, fontSize: 12, color: colors.textSecondary, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: spacing.sm },
+  row:         { flexDirection: "row", alignItems: "center", paddingVertical: spacing.xs + 2, borderBottomWidth: 1, borderBottomColor: "#F3F4F6" },
+  rowIcon:     { marginRight: spacing.sm, width: 16 },
+  rowLabel:    { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, width: 110 },
+  rowValue:    { flex: 1, fontFamily: fonts.jakartaMedium, fontSize: 13, color: colors.textPrimary, textAlign: "right" },
+  rowValueMono:     { fontFamily: fonts.jakartaRegular, fontSize: 11, letterSpacing: 0.3 },
+  rowValueError:    { color: colors.error },
+  rowValueHighlight:{ color: colors.success, fontFamily: fonts.jakartaSemiBold },
+  closeBtn:    { backgroundColor: colors.surface, borderRadius: radii.pill, paddingVertical: 14, alignItems: "center", marginTop: spacing.xs },
+  closeBtnText:{ fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.textSecondary },
+});
+
 // ─── Main Wallet Screen ───────────────────────────────────────────────────────
 
 export default function WalletScreen() {
@@ -264,6 +477,7 @@ export default function WalletScreen() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editMode, setEditMode] = useState<EditMode>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
 
   const { data: summary, isLoading: summaryLoading, refetch: refetchSummary } = useWalletSummary();
   const { data: txData, isLoading: txLoading, refetch: refetchTx } = useTransactions({ page: 1, limit: 10 });
@@ -460,7 +674,13 @@ export default function WalletScreen() {
             <Text style={styles.emptySub}>Complete bookings to earn and request payouts.</Text>
           </View>
         ) : (
-          transactions.map((tx) => <TransactionCard key={tx._id} transaction={tx} />)
+          transactions.map((tx) => (
+            <TransactionCard
+              key={tx._id}
+              transaction={tx}
+              onPress={() => setSelectedTxId(tx._id)}
+            />
+          ))
         )}
       </ScrollView>
 
@@ -484,13 +704,19 @@ export default function WalletScreen() {
         existingBank={account?.bankAccount}
         existingUpi={account?.upiId}
       />
+
+      <TransactionDetailModal
+        visible={selectedTxId !== null}
+        transactionId={selectedTxId}
+        onClose={() => setSelectedTxId(null)}
+      />
     </SafeAreaView>
   );
 }
 
 // ─── Transaction Card ─────────────────────────────────────────────────────────
 
-function TransactionCard({ transaction }: { transaction: Transaction }) {
+function TransactionCard({ transaction, onPress }: { transaction: Transaction; onPress: () => void }) {
   const meta = TX_META[transaction.type];
   const statusMeta = STATUS_META[transaction.status];
   const isCredit = transaction.direction === "credit";
@@ -499,15 +725,35 @@ function TransactionCard({ transaction }: { transaction: Transaction }) {
   const dateStr = date.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
   const timeStr = date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 
+  // For earnings, show customer name as the primary label if available
+  const customerName  = transaction.booking?.customer?.fullName
+    ?? transaction.booking?.customer?.phone
+    ?? null;
+  // Use backend-computed "Category - Subcategory" label (e.g. "Home Service - Electrician")
+  const serviceLabel  = transaction.booking?.serviceLabel
+    ?? transaction.booking?.category?.name
+    ?? null;
+  const primaryLabel  = transaction.type === "earning" && customerName
+    ? customerName
+    : transaction.description;
+  const subLabel      = transaction.type === "earning" && serviceLabel
+    ? serviceLabel
+    : `${dateStr} · ${timeStr}`;
+
   return (
-    <View style={txStyles.card}>
+    <Pressable
+      style={({ pressed }) => [txStyles.card, pressed && txStyles.cardPressed]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Transaction: ${primaryLabel}`}
+    >
       <View style={[txStyles.iconWrap, { backgroundColor: meta.bg }]}>
         <Ionicons name={meta.icon} size={20} color={meta.color} />
       </View>
       <View style={txStyles.body}>
-        <Text style={txStyles.description} numberOfLines={1}>{transaction.description}</Text>
+        <Text style={txStyles.description} numberOfLines={1}>{primaryLabel}</Text>
         <View style={txStyles.meta}>
-          <Text style={txStyles.date}>{dateStr} · {timeStr}</Text>
+          <Text style={txStyles.date}>{subLabel}</Text>
           {transaction.status !== "completed" && (
             <View style={[txStyles.statusBadge, { backgroundColor: `${statusMeta.color}15`, borderColor: `${statusMeta.color}50` }]}>
               <Text style={[txStyles.statusText, { color: statusMeta.color }]}>{statusMeta.label}</Text>
@@ -515,15 +761,19 @@ function TransactionCard({ transaction }: { transaction: Transaction }) {
           )}
         </View>
       </View>
-      <Text style={[txStyles.amount, isCredit && txStyles.amountCredit]}>
-        {isCredit ? "+" : "-"}₹{transaction.amount}
-      </Text>
-    </View>
+      <View style={txStyles.right}>
+        <Text style={[txStyles.amount, isCredit && txStyles.amountCredit]}>
+          {isCredit ? "+" : "-"}₹{transaction.amount}
+        </Text>
+        <Ionicons name="chevron-forward" size={14} color={colors.textSecondary} />
+      </View>
+    </Pressable>
   );
 }
 
 const txStyles = StyleSheet.create({
   card:         { flexDirection: "row", alignItems: "center", backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md, marginBottom: spacing.sm },
+  cardPressed:  { opacity: 0.75 },
   iconWrap:     { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", marginRight: spacing.sm },
   body:         { flex: 1 },
   description:  { fontFamily: fonts.jakartaSemiBold, fontSize: 14, color: colors.textPrimary, marginBottom: 3 },
@@ -531,7 +781,10 @@ const txStyles = StyleSheet.create({
   date:         { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary },
   statusBadge:  { paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.sm, borderWidth: 1 },
   statusText:   { fontFamily: fonts.jakartaSemiBold, fontSize: 10 },
+  right:        { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   amount:       { fontFamily: fonts.oswaldBold, fontSize: 16, color: colors.textPrimary },
+  amountCredit: { color: colors.success },
+});
   amountCredit: { color: colors.success },
 });
 

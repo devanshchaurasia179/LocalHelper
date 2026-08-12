@@ -1,5 +1,22 @@
 import Partner from "../models/partner/Partner.js";
 import PartnerTransaction from "../models/partner/partner.transaction.js";
+import Booking from "../models/partner/partner.booking.js";
+
+// ─── Helper: build "Category - Subcategory" service label ─────────────────────
+/**
+ * Given a populated booking object (with category.name and category.subcategories),
+ * returns a human-readable service label like "Home Service - Electrician".
+ * Falls back to just the category name if no subcategory is found.
+ */
+function buildServiceLabel(booking) {
+  if (!booking?.category) return null;
+  const catName = booking.category.name ?? "";
+  if (!booking.subcategoryId) return catName;
+  const sub = (booking.category.subcategories ?? []).find(
+    (s) => s._id.toString() === booking.subcategoryId.toString()
+  );
+  return sub?.name ? `${catName} - ${sub.name}` : catName;
+}
 
 // ─── PARTNER: Get Transaction History ────────────────────────────────────────
 /**
@@ -33,13 +50,29 @@ export const getTransactionHistory = async (req, res) => {
         .sort({ createdAt: -1 })
         .skip((Number(page) - 1) * Number(limit))
         .limit(Number(limit))
-        .populate("booking", "scheduledAt completedAt visitingCredit")
-        .select("-__v"),
+        .populate({
+          path:     "booking",
+          select:   "scheduledAt completedAt visitingCredit serviceAddress customer category subcategoryId",
+          populate: [
+            { path: "customer", select: "fullName phone" },
+            { path: "category", select: "name subcategories" },
+          ],
+        })
+        .select("-__v")
+        .lean(),
       PartnerTransaction.countDocuments(filter),
     ]);
 
+    // Attach computed serviceLabel to each booking
+    const enriched = transactions.map((tx) => {
+      if (tx.booking) {
+        tx.booking.serviceLabel = buildServiceLabel(tx.booking);
+      }
+      return tx;
+    });
+
     return res.status(200).json({
-      transactions,
+      transactions: enriched,
       pagination: {
         total,
         page:       Number(page),
@@ -95,11 +128,24 @@ export const getTransactionById = async (req, res) => {
       _id:     req.params.id,
       partner: req.partnerId, // ownership guard
     })
-      .populate("booking", "scheduledAt completedAt visitingCredit serviceAddress category")
-      .select("-__v");
+      .populate({
+        path:     "booking",
+        select:   "scheduledAt completedAt visitingCredit serviceAddress customer category subcategoryId description",
+        populate: [
+          { path: "customer", select: "fullName phone" },
+          { path: "category", select: "name subcategories" },
+        ],
+      })
+      .select("-__v")
+      .lean();
 
     if (!transaction) {
       return res.status(404).json({ message: "Transaction not found." });
+    }
+
+    // Attach computed serviceLabel
+    if (transaction.booking) {
+      transaction.booking.serviceLabel = buildServiceLabel(transaction.booking);
     }
 
     return res.status(200).json({ transaction });

@@ -35,6 +35,25 @@ export interface TransactionBooking {
   scheduledAt: string;
   completedAt?: string;
   visitingCredit?: number;
+  description?: string;
+  serviceLabel?: string;   // e.g. "Home Service - Electrician" (computed by backend)
+  serviceAddress?: {
+    house?: string;
+    street?: string;
+    locality?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+  };
+  customer?: {
+    _id: string;
+    fullName?: string;
+    phone?: string;
+  };
+  category?: {
+    _id: string;
+    name: string;
+  };
 }
 
 export interface PayoutDetails {

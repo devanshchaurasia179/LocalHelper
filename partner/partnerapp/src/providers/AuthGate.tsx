@@ -3,6 +3,7 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Redirect } from "expo-router";
 import { useAuth } from "./AuthProvider";
 import { VerificationGate } from "@/navigation/VerificationGate";
+import { NoInternetScreen } from "@/screens/NoInternetScreen";
 import { ROUTES } from "@/constants/routes";
 
 type Props = {
@@ -14,15 +15,16 @@ type Props = {
  * AuthGate wraps any screen that requires authentication.
  *
  * Partner onboarding funnel enforced here:
- *  1. No session                  → /(auth)/send-otp
- *  2. Account blocked/suspended   → account status screens
- *  3. Phone verified, !isProfile  → /(onboarding)/complete-profile
- *  4. isProfile, !isService       → /(onboarding)/add-service
- *  5. isService, !isDocument      → /(onboarding)/upload-documents
- *  6. All steps done              → VerificationGate → status-based route
+ *  1. No connection                → NoInternetScreen (retry restores session)
+ *  2. No session                   → /(auth)/send-otp
+ *  3. Account blocked/suspended    → account status screens
+ *  4. Phone verified, !isProfile   → /(onboarding)/complete-profile
+ *  5. isProfile, !isService        → /(onboarding)/add-service
+ *  6. isService, !isDocument       → /(onboarding)/upload-documents
+ *  7. All steps done               → VerificationGate → status-based route
  */
 export function AuthGate({ children: _children }: Props) {
-  const { status, partner } = useAuth();
+  const { status, partner, retryConnection } = useAuth();
 
   if (status === "loading") {
     return (
@@ -30,6 +32,11 @@ export function AuthGate({ children: _children }: Props) {
         <ActivityIndicator size="large" />
       </View>
     );
+  }
+
+  // ── No internet — show retry screen instead of kicking to login ───────────
+  if (status === "no_internet") {
+    return <NoInternetScreen onRetry={retryConnection} />;
   }
 
   if (status === "unauthenticated" || !partner) {

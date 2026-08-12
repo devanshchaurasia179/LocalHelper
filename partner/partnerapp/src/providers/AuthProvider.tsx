@@ -12,7 +12,7 @@ import type { Partner, CompleteProfilePayload } from "@/types/auth";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type AuthStatus = "loading" | "unauthenticated" | "authenticated";
+type AuthStatus = "loading" | "unauthenticated" | "authenticated" | "no_internet";
 
 type AuthContextType = {
   partner: Partner | null;
@@ -32,6 +32,9 @@ type AuthContextType = {
 
   // Sign out
   signOut: () => Promise<void>;
+
+  // Retry session restore after a network error
+  retryConnection: () => void;
 };
 
 // ─── Context ─────────────────────────────────────────────────────────────────
@@ -43,6 +46,23 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [partner, setPartner] = useState<Partner | null>(null);
   const [status, setStatus] = useState<AuthStatus>("loading");
+  const [retryToken, setRetryToken] = useState(0);
+
+  /** Call this from the no-internet screen to retry the session restore */
+  const retryConnection = useCallback(() => {
+    setStatus("loading");
+    setRetryToken((t) => t + 1);
+  }, []);
+
+  /** Returns true if the error looks like a network/connectivity problem */
+  const isNetworkError = (err: any): boolean => {
+    if (!axios.isAxiosError(err)) return false;
+    // No response at all = DNS failure, refused connection, timeout
+    if (!err.response) return true;
+    // Treat request timeout the same way
+    if (err.code === "ECONNABORTED" || err.code === "ERR_NETWORK") return true;
+    return false;
+  };
 
   /**
    * On mount – ping /partner/auth/me to restore session from the
@@ -68,9 +88,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Safety net — must be longer than the axios request timeout (8 s in api.ts)
     const timer = setTimeout(() => {
       console.warn(
-        "[AuthProvider] /me timed out — falling back to unauthenticated"
+        "[AuthProvider] /me timed out — falling back to no_internet"
       );
-      finish("unauthenticated");
+      finish("no_internet");
     }, 10000);
 
     const restoreSession = async () => {
@@ -82,6 +102,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         );
         finish("authenticated", res.data.partner);
       } catch (err: any) {
+        // ── Network error (no connection / server unreachable) ─────────────
+        if (isNetworkError(err)) {
+          console.log("[AuthProvider] session restore failed: Network Error");
+          finish("no_internet");
+          return;
+        }
+
         // 403 with accountStatus means blocked/suspended — still "authenticated"
         // so the VerificationGate can route to the correct screen
         if (
@@ -95,8 +122,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             accountStatus,
             statusReason
           );
-          // Create a minimal partner object with account status info
-          // so VerificationGate can redirect to blocked/suspended screen
           const restrictedPartner: Partner = {
             id: "",
             phone: "",
@@ -129,7 +154,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       settled = true;
       clearTimeout(timer);
     };
-  }, []);
+  }, [retryToken]); // re-runs when retryConnection() is called
 
   // Step 1 ── fire OTP, no state change needed
   const requestOtp = useCallback(async (phone: string) => {
@@ -193,6 +218,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         finishProfile,
         patchPartner,
         signOut,
+        retryConnection,
       }}
     >
       {children}

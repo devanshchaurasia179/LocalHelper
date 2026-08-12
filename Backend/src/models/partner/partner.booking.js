@@ -85,6 +85,12 @@ const bookingSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref:  "Category",
     },
+    // Which subcategory within the category (e.g. "Electrician" under "Home Service")
+    // Stored as the subdocument _id since subcategories are embedded in Category.
+    subcategoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
     // Free-text description of what the customer needs
     description: {
       type:      String,
