@@ -1,4 +1,4 @@
-// Ratings, Job Stats & Earnings fields
+// Ratings & Job Stats fields
 const ratingFields = {
   averageRating: {
     type: Number,
@@ -13,14 +13,6 @@ const ratingFields = {
     default: 0,
   },
   cancelledJobs: {
-    type: Number,
-    default: 0,
-  },
-  walletBalance: {
-    type: Number,
-    default: 0,
-  },
-  totalEarnings: {
     type: Number,
     default: 0,
   },

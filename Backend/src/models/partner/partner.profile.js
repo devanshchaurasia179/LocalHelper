@@ -20,6 +20,17 @@ const profileFields = {
     state: String,
     pincode: String,
   },
+
+  // ── Wallet & Earnings ─────────────────────────────────────────────────────
+  // Moved from rating.js since these are financial account data, not ratings.
+  walletBalance: {
+    type: Number,
+    default: 0,
+  },
+  totalEarnings: {
+    type: Number,
+    default: 0,
+  },
 };
 
 export default profileFields;
