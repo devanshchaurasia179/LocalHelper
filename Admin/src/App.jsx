@@ -10,6 +10,7 @@ import PartnersPage             from '@/pages/PartnersPage'
 import PartnerDetailPage        from '@/pages/PartnerDetailPage'
 import DocumentManagementPage   from '@/pages/DocumentManagementPage'
 import ServicesPage             from '@/pages/ServicesPage'
+import TransactionsPage         from '@/pages/TransactionsPage'
 import PlaceholderPage          from '@/pages/PlaceholderPage'
 import NotFoundPage             from '@/pages/NotFoundPage'
 
@@ -62,6 +63,7 @@ const App = () => (
             <Route path="/customers"    element={<PlaceholderPage title="Customers" />} />
             <Route path="/bookings"     element={<PlaceholderPage title="Bookings" />} />
             <Route path="/services"     element={<ServicesPage />} />
+            <Route path="/transactions" element={<TransactionsPage />} />
             <Route path="/payments"     element={<PlaceholderPage title="Payments" />} />
             <Route path="/analytics"    element={<PlaceholderPage title="Analytics" />} />
             <Route path="/settings"     element={<PlaceholderPage title="Settings" />} />

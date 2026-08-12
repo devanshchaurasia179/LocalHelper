@@ -6,7 +6,7 @@ import Partner from "../../models/partner/Partner.js";
 const LIST_FIELDS =
   "_id fullName phone profilePhoto address.city address.state " +
   "verificationStatus accountStatus isProfile isService isDocument " +
-  "averageRating completedJobs createdAt";
+  "averageRating completedJobs walletBalance totalEarnings createdAt";
 
 // ─── GET ALL PARTNERS ─────────────────────────────────────────────────────────
 

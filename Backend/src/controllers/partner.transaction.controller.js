@@ -70,27 +70,12 @@ export const getWalletSummary = async (req, res) => {
       return res.status(404).json({ message: "Partner not found." });
     }
 
-    // Aggregate pending payout total so partner knows what's in transit
-    const pendingPayoutAgg = await PartnerTransaction.aggregate([
-      {
-        $match: {
-          partner: partner._id,
-          type:    "payout",
-          status:  { $in: ["pending", "processing"] },
-        },
-      },
-      { $group: { _id: null, total: { $sum: "$amount" } } },
-    ]);
-
-    const pendingPayout = pendingPayoutAgg[0]?.total ?? 0;
-
     return res.status(200).json({
       summary: {
-        walletBalance:  partner.walletBalance,
-        totalEarnings:  partner.totalEarnings,
-        pendingPayout,
-        // Available = current balance minus what's already queued for payout
-        availableBalance: Math.max(0, partner.walletBalance - pendingPayout),
+        walletBalance:    partner.walletBalance,
+        totalEarnings:    partner.totalEarnings,
+        pendingPayout:    0,        // kept for API compatibility; no longer aggregated
+        availableBalance: partner.walletBalance, // wallet is already net of in-flight payouts
       },
     });
   } catch (error) {
@@ -167,24 +152,18 @@ export const requestPayout = async (req, res) => {
     }
 
     // ── Guard: sufficient balance ─────────────────────────────────────────
-    // Check for already-pending payouts to calculate real available balance
-    const pendingAgg = await PartnerTransaction.aggregate([
-      {
-        $match: {
-          partner: partner._id,
-          type:    "payout",
-          status:  { $in: ["pending", "processing"] },
-        },
-      },
-      { $group: { _id: null, total: { $sum: "$amount" } } },
-    ]);
-    const alreadyPending  = pendingAgg[0]?.total ?? 0;
-    const availableBalance = partner.walletBalance - alreadyPending;
+    // walletBalance is deducted immediately on each payout request, so it
+    // already reflects all in-flight payouts. No need to subtract pendingAgg.
+    const availableBalance = partner.walletBalance;
 
     if (Number(amount) > availableBalance) {
       return res.status(400).json({
         message: `Insufficient balance. Available: ₹${availableBalance.toFixed(2)}`,
       });
+    }
+
+    if (availableBalance <= 0) {
+      return res.status(400).json({ message: "No balance available to withdraw." });
     }
 
     // ── Build payout details snapshot ─────────────────────────────────────

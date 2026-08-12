@@ -344,8 +344,6 @@ export default function WalletScreen() {
 
   const walletBalance = summary?.walletBalance ?? 0;
   const totalEarnings = summary?.totalEarnings ?? 0;
-  const pendingPayout = summary?.pendingPayout ?? 0;
-  const availableBalance = summary?.availableBalance ?? 0;
   const transactions = txData?.transactions ?? [];
 
   const hasBankAccount = account?.bankAccount?.accountNumber != null;
@@ -370,23 +368,18 @@ export default function WalletScreen() {
           </View>
         ) : (
           <View style={styles.balanceCard}>
-            <Text style={styles.balanceLabel}>Available Balance</Text>
-            <Text style={styles.balanceAmount}>₹{availableBalance.toFixed(2)}</Text>
+            <Text style={styles.balanceLabel}>Wallet Balance</Text>
+            <Text style={styles.balanceAmount}>₹{walletBalance.toFixed(2)}</Text>
             <View style={styles.balanceRow}>
               <View style={styles.balanceItem}>
                 <Text style={styles.balanceItemLabel}>Total Earnings</Text>
                 <Text style={styles.balanceItemValue}>₹{totalEarnings}</Text>
               </View>
-              <View style={styles.balanceDivider} />
-              <View style={styles.balanceItem}>
-                <Text style={styles.balanceItemLabel}>Pending Payout</Text>
-                <Text style={styles.balanceItemValue}>₹{pendingPayout}</Text>
-              </View>
             </View>
             <Pressable
-              style={[styles.payoutBtn, availableBalance <= 0 && styles.payoutBtnDisabled]}
+              style={[styles.payoutBtn, walletBalance <= 0 && styles.payoutBtnDisabled]}
               onPress={() => setPayoutModalVisible(true)}
-              disabled={availableBalance <= 0}
+              disabled={walletBalance <= 0}
             >
               <Ionicons name="arrow-down-circle" size={18} color={colors.white} />
               <Text style={styles.payoutBtnText}>Request Payout</Text>
@@ -476,7 +469,7 @@ export default function WalletScreen() {
       <PayoutModal
         visible={payoutModalVisible}
         onClose={() => setPayoutModalVisible(false)}
-        availableBalance={availableBalance}
+        availableBalance={walletBalance}
         onConfirm={handlePayoutRequest}
         isLoading={payoutMutation.isPending}
       />
