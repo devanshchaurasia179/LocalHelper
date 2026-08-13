@@ -18,6 +18,7 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 
 import { colors, spacing, radii, typography } from './theme';
 import { useBookPartner } from '@/hooks/useBookPartner';
+import { initiateChat, initiateCall } from '@/constants/booking.api';
 import type { NearbyPartner } from '@/api/nearby.api';
 import { nearbyCache } from '@/cache/nearbyCache';
 
@@ -253,6 +254,8 @@ interface PartnerDetailSheetProps {
   visible: boolean;
   onClose: () => void;
   onBooked: () => void;
+  /** Called after a successful call deduction — passes partnerId and minutes unlocked */
+  onCallPaid?: (partnerId: string, durationMinutes: number) => void;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -326,6 +329,7 @@ export default function PartnerDetailSheet({
   visible,
   onClose,
   onBooked,
+  onCallPaid,
 }: PartnerDetailSheetProps) {
   const { booking, error, book, reset } = useBookPartner();
 
@@ -374,6 +378,12 @@ export default function PartnerDetailSheet({
   const [offlineModalType, setOfflineModalType] = useState<OfflineModalType>(null);
   const [emergencyBooking, setEmergencyBooking] = useState(false);
 
+  // ── Chat / Call state ──────────────────────────────────────────────────────
+  const [chatLoading, setChatLoading] = useState(false);
+  const [callLoading, setCallLoading] = useState(false);
+  /** Minutes unlocked after a successful call deduction — shown as a banner */
+  const [callDuration, setCallDuration] = useState<number | null>(null);
+
   // Reset form when sheet opens with a new partner
   useEffect(() => {
     if (visible) {
@@ -385,6 +395,7 @@ export default function PartnerDetailSheet({
       setShowTimePicker(false);
       setOfflineModalType(null);
       setEmergencyBooking(false);
+      setCallDuration(null);
     }
   }, [visible, reset]);
 
@@ -419,6 +430,86 @@ export default function PartnerDetailSheet({
   );
 
   // ── Offline modal handlers ───────────────────────────────────────────────────
+  // ── Chat handler ───────────────────────────────────────────────────────────
+  const handleChat = useCallback(() => {
+    if (!partner) return;
+    const charge = partner.chatCharges ?? 0;
+    Alert.alert(
+      'Start Chat',
+      charge > 0
+        ? `₹${charge} will be deducted from your wallet to chat with ${partner.fullName}.`
+        : `Start a free chat with ${partner.fullName}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: charge > 0 ? `Pay ₹${charge} & Chat` : 'Start Chat',
+          onPress: async () => {
+            setChatLoading(true);
+            try {
+              const res = await initiateChat(partner._id);
+              Alert.alert(
+                'Chat Ready',
+                res.charge > 0
+                  ? `₹${res.charge} deducted. Wallet balance: ₹${res.walletBalance}`
+                  : 'Chat session started.',
+              );
+            } catch (err: any) {
+              const msg = err?.response?.data?.message ?? 'Could not start chat. Try again.';
+              Alert.alert(
+                err?.response?.data?.code === 'INSUFFICIENT_BALANCE' ? 'Insufficient Balance' : 'Error',
+                msg,
+              );
+            } finally {
+              setChatLoading(false);
+            }
+          },
+        },
+      ],
+    );
+  }, [partner]);
+
+  // ── Call handler ───────────────────────────────────────────────────────────
+  const handleCall = useCallback(() => {
+    if (!partner) return;
+    const charge   = partner.callCharges?.amount ?? 0;
+    const duration = partner.callCharges?.durationMinutes ?? 10;
+    Alert.alert(
+      'Start Call',
+      charge > 0
+        ? `₹${charge} will be deducted from your wallet for a ${duration}-minute call with ${partner.fullName}.`
+        : `Start a free call with ${partner.fullName}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: charge > 0 ? `Pay ₹${charge} & Call` : 'Start Call',
+          onPress: async () => {
+            setCallLoading(true);
+            try {
+              const res = await initiateCall(partner._id);
+              setCallDuration(res.durationMinutes);
+              onCallPaid?.(partner._id, res.durationMinutes);
+              Alert.alert(
+                'Call Ready',
+                res.charge > 0
+                  ? `₹${res.charge} deducted. You have ${res.durationMinutes} min. Wallet: ₹${res.walletBalance}`
+                  : `Call started. Duration: ${res.durationMinutes} min`,
+              );
+            } catch (err: any) {
+              const msg = err?.response?.data?.message ?? 'Could not initiate call. Try again.';
+              Alert.alert(
+                err?.response?.data?.code === 'INSUFFICIENT_BALANCE' ? 'Insufficient Balance' : 'Error',
+                msg,
+              );
+            } finally {
+              setCallLoading(false);
+            }
+          },
+        },
+      ],
+    );
+  }, [partner]);
+
+  // ── Book handler ───────────────────────────────────────────────────────────
   const handleBook = useCallback(async () => {
     if (!partner) return;
 
@@ -555,13 +646,15 @@ export default function PartnerDetailSheet({
               </View>
             </View>
 
-            {/* ── About ────────────────────────────────────────────────────── */}
-            {partner.bio ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>About</Text>
+            {/* ── About + Categories ──────────────────────────────────────── */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>About</Text>
+              {partner.bio ? (
                 <Text style={styles.bioText}>{partner.bio}</Text>
-              </View>
-            ) : null}
+              ) : (
+                <Text style={styles.bioText}>No bio provided.</Text>
+              )}
+            </View>
 
             {/* ── Chips ────────────────────────────────────────────────────── */}
             <View style={styles.section}>
@@ -584,23 +677,32 @@ export default function PartnerDetailSheet({
                 {partner.languages?.map((lang) => (
                   <InfoChip key={lang} icon="chatbubble-outline" label={lang} />
                 ))}
-                {partner.categories.map((cat) => (
-                  <InfoChip key={cat._id} icon="briefcase-outline" label={cat.name} />
-                ))}
+                {/* Category – Subcategory chips */}
+                {partner.categories.map((cat) => {
+                  // find which subcategories this partner selected under this category
+                  const selectedSubs = (partner.subcategories ?? [])
+                    .filter((s) => s.categoryId === cat._id)
+                    .map((s) =>
+                      cat.subcategories?.find((sub) => sub._id === s.subcategoryId)
+                    )
+                    .filter(Boolean) as { _id: string; name: string }[];
+
+                  if (selectedSubs.length === 0) {
+                    // No subcategory — show category alone
+                    return (
+                      <InfoChip key={cat._id} icon="briefcase-outline" label={cat.name} />
+                    );
+                  }
+                  return selectedSubs.map((sub) => (
+                    <InfoChip
+                      key={`${cat._id}-${sub._id}`}
+                      icon="briefcase-outline"
+                      label={`${cat.name} – ${sub.name}`}
+                    />
+                  ));
+                })}
               </View>
             </View>
-
-            {/* ── Working days ─────────────────────────────────────────────── */}
-            {partner.workingDays?.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Available Days</Text>
-                <View style={styles.chipRow}>
-                  {partner.workingDays.map((entry) => (
-                    <InfoChip key={entry.day} icon="calendar-outline" label={entry.day} />
-                  ))}
-                </View>
-              </View>
-            )}
 
             {/* ── Booking form ─────────────────────────────────────────────── */}
             <View style={styles.section}>
@@ -692,39 +794,95 @@ export default function PartnerDetailSheet({
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             )}
+
+            {/* Call duration banner — shown after a successful call deduction */}
+            {callDuration != null && (
+              <View style={styles.callDurationBanner}>
+                <Ionicons name="time" size={15} color="#1E40AF" />
+                <Text style={styles.callDurationText}>
+                  Call unlocked · {callDuration} min
+                </Text>
+              </View>
+            )}
           </ScrollView>
 
           {/* ── Book Now CTA ─────────────────────────────────────────────────── */}
           <View style={styles.footer}>
-            {partner.visitingCredits != null && (
-              <View style={styles.priceLabel}>
-                <Text style={styles.priceLabelText}>
-                  {{ perVisit: 'Per visit', perHour: 'Per hour', perDay: 'Per day', perWeek: 'Per week' }[partner.visitingCredits.type]}
+            {/* Chat + Call row */}
+            <View style={styles.commsRow}>
+              <TouchableOpacity
+                style={styles.commsBtn}
+                onPress={handleChat}
+                disabled={chatLoading}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`Chat with ${partner.fullName}`}
+              >
+                {chatLoading ? (
+                  <ActivityIndicator size={14} color={colors.primary} />
+                ) : (
+                  <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.primary} />
+                )}
+                <Text style={styles.commsBtnText}>
+                  {partner.chatCharges && partner.chatCharges > 0
+                    ? `Chat · ₹${partner.chatCharges}`
+                    : 'Chat'}
                 </Text>
-                <Text style={styles.priceValue}>₹{partner.visitingCredits.amount}</Text>
-              </View>
-            )}
-            <TouchableOpacity
-              style={[styles.bookBtn, booking && styles.bookBtnDisabled, (!partner.isOnline || !partner.isAvailable) && styles.bookBtnEmergency]}
-              onPress={handleBook}
-              disabled={booking}
-              activeOpacity={0.85}
-            >
-              {booking ? (
-                <ActivityIndicator color={colors.white} size="small" />
-              ) : (
-                <>
-                  <Ionicons
-                    name={(!partner.isOnline || !partner.isAvailable) ? 'flash-outline' : 'checkmark-circle-outline'}
-                    size={20}
-                    color={colors.white}
-                  />
-                  <Text style={styles.bookBtnText}>
-                    {(!partner.isOnline || !partner.isAvailable) ? 'Book Now' : 'Book Now'}
+              </TouchableOpacity>
+
+              <View style={styles.commsDivider} />
+
+              <TouchableOpacity
+                style={styles.commsBtn}
+                onPress={handleCall}
+                disabled={callLoading}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`Call ${partner.fullName}`}
+              >
+                {callLoading ? (
+                  <ActivityIndicator size={14} color="#1E40AF" />
+                ) : (
+                  <Ionicons name="call-outline" size={16} color="#1E40AF" />
+                )}
+                <Text style={[styles.commsBtnText, styles.callBtnText]}>
+                  {partner.callCharges?.amount && partner.callCharges.amount > 0
+                    ? `Call · ₹${partner.callCharges.amount}/${partner.callCharges.durationMinutes}min`
+                    : 'Call'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Book row */}
+            <View style={styles.bookRow}>
+              {partner.visitingCredits != null && (
+                <View style={styles.priceLabel}>
+                  <Text style={styles.priceLabelText}>
+                    {{ perVisit: 'Per visit', perHour: 'Per hour', perDay: 'Per day', perWeek: 'Per week' }[partner.visitingCredits.type]}
                   </Text>
-                </>
+                  <Text style={styles.priceValue}>₹{partner.visitingCredits.amount}</Text>
+                </View>
               )}
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.bookBtn, booking && styles.bookBtnDisabled, (!partner.isOnline || !partner.isAvailable) && styles.bookBtnEmergency]}
+                onPress={handleBook}
+                disabled={booking}
+                activeOpacity={0.85}
+              >
+                {booking ? (
+                  <ActivityIndicator color={colors.white} size="small" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name={(!partner.isOnline || !partner.isAvailable) ? 'flash-outline' : 'checkmark-circle-outline'}
+                      size={20}
+                      color={colors.white}
+                    />
+                    <Text style={styles.bookBtnText}>Book Now</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </View>
@@ -961,13 +1119,12 @@ const styles = StyleSheet.create({
 
   // Footer
   footer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'column',
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
-    gap: spacing.sm,
+    gap: 0,
   },
   priceLabel: {
     gap: 2,
@@ -1001,5 +1158,59 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 16,
     fontWeight: '700',
+  },
+
+  // ── Communication ──────────────────────────────────────────────────────────
+  callDurationBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#EFF6FF',
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  callDurationText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E40AF',
+  },
+  commsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: '#EBEBF0',
+    overflow: 'hidden',
+    marginBottom: spacing.sm,
+  },
+  commsBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+  },
+  commsDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: '#EBEBF0',
+  },
+  commsBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  callBtnText: {
+    color: '#1E40AF',
+  },
+  bookRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
 });

@@ -6,6 +6,13 @@ export interface NearbyCategory {
   _id: string;
   name: string;
   icon?: string;
+  /** Embedded subcategories on the Category document */
+  subcategories?: { _id: string; name: string }[];
+}
+
+export interface NearbySubcategory {
+  categoryId: string;
+  subcategoryId: string;
 }
 
 export interface WorkingDay {
@@ -28,6 +35,8 @@ export interface NearbyPartner {
   selfieUrl?: string;
   bio?: string;
   categories: NearbyCategory[];
+  /** Which subcategories the partner has selected, keyed by categoryId */
+  subcategories?: NearbySubcategory[];
   experience?: number;
   languages: string[];
   visitingCredits?: VisitingCredits;

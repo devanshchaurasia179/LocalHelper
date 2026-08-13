@@ -108,6 +108,7 @@ export async function findNearbyServices(longitude, latitude, filters = {}) {
         selfieUrl: 1,
         bio: 1,
         categories: 1,
+        subcategories: 1,
         experience: 1,
         languages: 1,
         visitingCredits: 1,
@@ -123,7 +124,6 @@ export async function findNearbyServices(longitude, latitude, filters = {}) {
         averageRating: 1,
         totalReviews: 1,
         completedJobs: 1,
-        // selfie and profilePhoto are excluded here — already resolved into selfieUrl
       },
     },
 

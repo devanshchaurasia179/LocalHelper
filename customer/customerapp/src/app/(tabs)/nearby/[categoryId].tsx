@@ -175,6 +175,31 @@ export default function CategoryPartnersScreen() {
   // Active bookings map: partnerId → status (to prevent re-booking)
   const [activeBookings, setActiveBookings] = useState<Map<string, ActiveBookingStatus>>(new Map());
 
+  /**
+   * callMinutesLeft: partnerId → minutes remaining on a paid call.
+   * Set when the sheet reports a successful call deduction.
+   * Decremented every 60 s by a shared interval.
+   */
+  const [callMinutesLeft, setCallMinutesLeft] = useState<Map<string, number>>(new Map());
+
+  // Decrement all active call timers every minute
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCallMinutesLeft((prev) => {
+        const next = new Map(prev);
+        for (const [pid, mins] of next) {
+          if (mins <= 1) {
+            next.delete(pid);
+          } else {
+            next.set(pid, mins - 1);
+          }
+        }
+        return next;
+      });
+    }, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const load = useCallback(async (silent = false) => {
@@ -432,6 +457,7 @@ export default function CategoryPartnersScreen() {
                 partner={item}
                 onPress={() => setSelectedPartner(item)}
                 activeBookingStatus={activeBookings.get(item._id) ?? null}
+                callMinutesLeft={callMinutesLeft.get(item._id) ?? null}
               />
             </AnimatedRow>
           )}
@@ -446,6 +472,13 @@ export default function CategoryPartnersScreen() {
         onBooked={() => {
           setSelectedPartner(null);
           refresh();
+        }}
+        onCallPaid={(partnerId, durationMinutes) => {
+          setCallMinutesLeft((prev) => {
+            const next = new Map(prev);
+            next.set(partnerId, durationMinutes);
+            return next;
+          });
         }}
       />
     </SafeAreaView>
