@@ -168,6 +168,7 @@ export default function ProfileScreen() {
   const handleNavigate = useCallback((route: NavRoute) => {
     if (route === 'home')     router.replace(ROUTES.APP.HOME     as any);
     if (route === 'bookings') router.replace(ROUTES.APP.BOOKINGS as any);
+    if (route === 'wallet')   router.replace(ROUTES.APP.WALLET   as any);
   }, []);
 
   const handleSave = useCallback(async () => {

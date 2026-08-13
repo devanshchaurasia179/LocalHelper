@@ -102,6 +102,29 @@ export const submitReview = (id: string, rating: number, comment?: string) =>
     .post(`/bookings/${id}/review`, { rating, comment })
     .then((res) => res.data);
 
+// ─── Communication ───────────────────────────────────────────────────────────
+
+export interface InitiateChatResponse {
+  message: string;
+  charge: number;
+  walletBalance: number;
+}
+
+export interface InitiateCallResponse {
+  message: string;
+  charge: number;
+  durationMinutes: number;
+  walletBalance: number;
+}
+
+// POST /api/bookings/chat/:partnerId  — deducts chatCharges, call once before opening chat
+export const initiateChat = (partnerId: string): Promise<InitiateChatResponse> =>
+  api.post<InitiateChatResponse>(`/bookings/chat/${partnerId}`).then((res) => res.data);
+
+// POST /api/bookings/call/:partnerId  — deducts callCharges, call once before connecting
+export const initiateCall = (partnerId: string): Promise<InitiateCallResponse> =>
+  api.post<InitiateCallResponse>(`/bookings/call/${partnerId}`).then((res) => res.data);
+
 // ─── Active Bookings (for blocking re-booking) ───────────────────────────────
 
 export type ActiveBookingInfo = {

@@ -16,4 +16,4 @@ export interface PromoOffer {
   image?: string;
 }
 
-export type NavRoute = 'home' | 'chat' | 'bookings' | 'profile';
+export type NavRoute = 'home' | 'chat' | 'bookings' | 'wallet' | 'profile';

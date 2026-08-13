@@ -31,6 +31,10 @@ export interface NearbyPartner {
   experience?: number;
   languages: string[];
   visitingCredits?: VisitingCredits;
+  /** Flat fee deducted per chat session (₹) */
+  chatCharges?: number;
+  /** Fee + duration block deducted per call */
+  callCharges?: { amount: number; durationMinutes: number };
   emergencyAvailable: boolean;
   isOnline: boolean;
   isAvailable: boolean;

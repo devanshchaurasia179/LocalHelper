@@ -17,6 +17,7 @@ export const ROUTES = {
   APP: {
     HOME: "/(tabs)/home",
     BOOKINGS: "/(tabs)/bookings",
+    WALLET: "/(tabs)/wallet",
     ORDERS: "/(tabs)/orders",
     PROFILE: "/(tabs)/profile",
     NEARBY_CATEGORY: "/(tabs)/nearby/[categoryId]",

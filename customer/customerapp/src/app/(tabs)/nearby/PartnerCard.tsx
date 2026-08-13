@@ -1,8 +1,9 @@
-import { useRef, useState, useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet, Animated, Easing } from 'react-native';
+import { useRef, useState, useEffect, useCallback } from 'react';
+import { View, Text, Pressable, StyleSheet, Animated, Easing, Alert, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radii, typography } from '../home/theme';
+import { initiateChat, initiateCall } from '@/constants/booking.api';
 import type { NearbyPartner } from '@/api/nearby.api';
 
 export type ActiveBookingStatus = 'pending' | 'accepted' | 'in_progress' | null;
@@ -25,14 +26,23 @@ export default function PartnerCard({ partner, onPress, activeBookingStatus = nu
 
   const [imageLoaded, setImageLoaded] = useState(false);
 
-  // Press feedback
+  // ── Chat / Call state ──────────────────────────────────────────────────────
+  const [chatLoading, setChatLoading]     = useState(false);
+  const [callLoading, setCallLoading]     = useState(false);
+  /**
+   * After a successful call deduction the backend returns durationMinutes.
+   * We show it as an inline banner on the card.
+   */
+  const [callDuration, setCallDuration]   = useState<number | null>(null);
+
+  // ── Press feedback ─────────────────────────────────────────────────────────
   const scale = useRef(new Animated.Value(1)).current;
   const pressIn = () =>
     Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
   const pressOut = () =>
     Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 6 }).start();
 
-  // Pulsing online dot
+  // ── Pulsing online dot ─────────────────────────────────────────────────────
   const pulse = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     if (!partner.isOnline) return;
@@ -46,6 +56,80 @@ export default function PartnerCard({ partner, onPress, activeBookingStatus = nu
     anim.start();
     return () => anim.stop();
   }, [partner.isOnline, pulse]);
+
+  // ── Chat handler ───────────────────────────────────────────────────────────
+  const handleChat = useCallback(() => {
+    const charge = partner.chatCharges ?? 0;
+    const msg =
+      charge > 0
+        ? `₹${charge} will be deducted from your wallet to start a chat with ${partner.fullName}.`
+        : `Start a free chat with ${partner.fullName}?`;
+
+    Alert.alert('Start Chat', msg, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: charge > 0 ? `Pay ₹${charge} & Chat` : 'Start Chat',
+        onPress: async () => {
+          setChatLoading(true);
+          try {
+            const res = await initiateChat(partner._id);
+            Alert.alert(
+              'Chat Ready',
+              res.charge > 0
+                ? `₹${res.charge} deducted. Wallet balance: ₹${res.walletBalance}`
+                : 'Chat session started.',
+            );
+          } catch (err: any) {
+            const apiMsg = err?.response?.data?.message ?? 'Could not start chat. Try again.';
+            Alert.alert(
+              err?.response?.data?.code === 'INSUFFICIENT_BALANCE' ? 'Insufficient Balance' : 'Error',
+              apiMsg,
+            );
+          } finally {
+            setChatLoading(false);
+          }
+        },
+      },
+    ]);
+  }, [partner]);
+
+  // ── Call handler ───────────────────────────────────────────────────────────
+  const handleCall = useCallback(() => {
+    const charge   = partner.callCharges?.amount ?? 0;
+    const duration = partner.callCharges?.durationMinutes ?? 10;
+    const msg =
+      charge > 0
+        ? `₹${charge} will be deducted from your wallet for a ${duration}-minute call with ${partner.fullName}.`
+        : `Start a free call with ${partner.fullName}?`;
+
+    Alert.alert('Start Call', msg, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: charge > 0 ? `Pay ₹${charge} & Call` : 'Start Call',
+        onPress: async () => {
+          setCallLoading(true);
+          try {
+            const res = await initiateCall(partner._id);
+            setCallDuration(res.durationMinutes);
+            Alert.alert(
+              'Call Ready',
+              res.charge > 0
+                ? `₹${res.charge} deducted. You have ${res.durationMinutes} min. Wallet: ₹${res.walletBalance}`
+                : `Call started. Duration: ${res.durationMinutes} min`,
+            );
+          } catch (err: any) {
+            const apiMsg = err?.response?.data?.message ?? 'Could not initiate call. Try again.';
+            Alert.alert(
+              err?.response?.data?.code === 'INSUFFICIENT_BALANCE' ? 'Insufficient Balance' : 'Error',
+              apiMsg,
+            );
+          } finally {
+            setCallLoading(false);
+          }
+        },
+      },
+    ]);
+  }, [partner]);
 
   return (
     <Pressable
@@ -66,6 +150,7 @@ export default function PartnerCard({ partner, onPress, activeBookingStatus = nu
             </Text>
           </View>
         )}
+
         {/* ── Avatar ── */}
         <View style={styles.avatarWrap}>
           {!imageLoaded && <View style={styles.avatarPlaceholder} />}
@@ -180,6 +265,61 @@ export default function PartnerCard({ partner, onPress, activeBookingStatus = nu
               </View>
             )}
           </View>
+
+          {/* ── Call duration banner (shown after successful call deduction) ── */}
+          {callDuration != null && (
+            <View style={styles.callDurationRow}>
+              <Ionicons name="time" size={13} color="#1E40AF" />
+              <Text style={styles.callDurationText}>
+                Call unlocked · {callDuration} min
+              </Text>
+            </View>
+          )}
+
+          {/* ── Chat / Call buttons ── */}
+          <View style={styles.commsRow}>
+            {/* Chat */}
+            <Pressable
+              style={styles.commsBtn}
+              onPress={handleChat}
+              disabled={chatLoading}
+              accessibilityRole="button"
+              accessibilityLabel={`Chat with ${partner.fullName}`}
+            >
+              {chatLoading ? (
+                <ActivityIndicator size={13} color={colors.primary} />
+              ) : (
+                <Ionicons name="chatbubble-ellipses-outline" size={13} color={colors.primary} />
+              )}
+              <Text style={styles.commsBtnText}>
+                {partner.chatCharges && partner.chatCharges > 0
+                  ? `Chat · ₹${partner.chatCharges}`
+                  : 'Chat'}
+              </Text>
+            </Pressable>
+
+            <View style={styles.commsDivider} />
+
+            {/* Call */}
+            <Pressable
+              style={styles.commsBtn}
+              onPress={handleCall}
+              disabled={callLoading}
+              accessibilityRole="button"
+              accessibilityLabel={`Call ${partner.fullName}`}
+            >
+              {callLoading ? (
+                <ActivityIndicator size={13} color="#1E40AF" />
+              ) : (
+                <Ionicons name="call-outline" size={13} color="#1E40AF" />
+              )}
+              <Text style={[styles.commsBtnText, styles.callBtnText]}>
+                {partner.callCharges?.amount && partner.callCharges.amount > 0
+                  ? `Call · ₹${partner.callCharges.amount}/${partner.callCharges.durationMinutes}min`
+                  : 'Call'}
+              </Text>
+            </Pressable>
+          </View>
         </View>
 
         {/* ── Arrow ── */}
@@ -195,53 +335,37 @@ export default function PartnerCard({ partner, onPress, activeBookingStatus = nu
 
 function getBookingLabel(status: ActiveBookingStatus): string {
   switch (status) {
-    case 'pending':
-      return 'Booking Pending';
-    case 'accepted':
-      return 'Booked – Busy';
-    case 'in_progress':
-      return 'Service In Progress';
-    default:
-      return '';
+    case 'pending':     return 'Booking Pending';
+    case 'accepted':    return 'Booked – Busy';
+    case 'in_progress': return 'Service In Progress';
+    default:            return '';
   }
 }
 
 function getBannerIcon(status: ActiveBookingStatus): keyof typeof Ionicons.glyphMap {
   switch (status) {
-    case 'pending':
-      return 'time-outline';
-    case 'accepted':
-      return 'checkmark-circle-outline';
-    case 'in_progress':
-      return 'construct-outline';
-    default:
-      return 'information-circle-outline';
+    case 'pending':     return 'time-outline';
+    case 'accepted':    return 'checkmark-circle-outline';
+    case 'in_progress': return 'construct-outline';
+    default:            return 'information-circle-outline';
   }
 }
 
 function getBannerColor(status: ActiveBookingStatus): string {
   switch (status) {
-    case 'pending':
-      return '#D97706'; // amber
-    case 'accepted':
-      return '#2563EB'; // blue
-    case 'in_progress':
-      return '#7C3AED'; // purple
-    default:
-      return colors.textSecondary;
+    case 'pending':     return '#D97706';
+    case 'accepted':    return '#2563EB';
+    case 'in_progress': return '#7C3AED';
+    default:            return colors.textSecondary;
   }
 }
 
 function getBannerStyle(status: ActiveBookingStatus) {
   switch (status) {
-    case 'pending':
-      return { backgroundColor: '#FEF3C7' }; // amber light
-    case 'accepted':
-      return { backgroundColor: '#DBEAFE' }; // blue light
-    case 'in_progress':
-      return { backgroundColor: '#EDE9FE' }; // purple light
-    default:
-      return {};
+    case 'pending':     return { backgroundColor: '#FEF3C7' };
+    case 'accepted':    return { backgroundColor: '#DBEAFE' };
+    case 'in_progress': return { backgroundColor: '#EDE9FE' };
+    default:            return {};
   }
 }
 
@@ -484,6 +608,57 @@ const styles = StyleSheet.create({
   },
   statusChipDotOffline: {
     backgroundColor: '#9CA3AF',
+  },
+
+  // ── Communication ──────────────────────────────────────────────────────────
+  callDurationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#EFF6FF',
+    borderRadius: radii.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    alignSelf: 'flex-start',
+    marginTop: 2,
+  },
+  callDurationText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1E40AF',
+  },
+  commsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: '#EBEBF0',
+    overflow: 'hidden',
+    marginTop: 4,
+  },
+  commsBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 7,
+  },
+  commsDivider: {
+    width: 1,
+    height: '100%',
+    backgroundColor: '#EBEBF0',
+  },
+  commsBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  callBtnText: {
+    color: '#1E40AF',
   },
 
   // Arrow
