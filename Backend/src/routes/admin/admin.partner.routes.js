@@ -10,6 +10,7 @@ import {
   suspendPartner,
   reactivatePartner,
   softDeletePartner,
+  updateCommunicationCharges,
 } from "../../controllers/admin/admin.partner.controller.js";
 import { protectAdmin, authorizeRoles } from "../../middleware/admin.auth.middleware.js";
 
@@ -35,5 +36,8 @@ router.patch("/:id/reactivate", authorizeRoles("SUPER_ADMIN", "ADMIN"), reactiva
 
 // ── Destructive routes — SUPER_ADMIN only ────────────────────────────────────
 router.delete("/:id", authorizeRoles("SUPER_ADMIN"), softDeletePartner);
+
+// ── Communication charges — ADMIN and SUPER_ADMIN only ───────────────────────
+router.patch("/:id/communication-charges", authorizeRoles("SUPER_ADMIN", "ADMIN"), updateCommunicationCharges);
 
 export default router;

@@ -621,3 +621,103 @@ export const softDeletePartner = async (req, res) => {
     return res.status(500).json({ message: "Internal server error." });
   }
 };
+
+// ─── UPDATE COMMUNICATION CHARGES ────────────────────────────────────────────
+/**
+ * PATCH /api/admin/partners/:id/communication-charges
+ * 🔒 ADMIN | SUPER_ADMIN
+ *
+ * Body (all optional, at least one required):
+ * {
+ *   chatCharges     : 15,           // flat ₹ per chat session
+ *   callCharges     : {
+ *     amount          : 20,         // ₹ charged per block
+ *     durationMinutes : 10          // minutes covered by that amount
+ *   }
+ * }
+ *
+ * Example: { callCharges: { amount: 20, durationMinutes: 10 } }
+ *   → customer is charged ₹20 for every 10 minutes on a call.
+ */
+export const updateCommunicationCharges = async (req, res) => {
+  try {
+    const { chatCharges, callCharges } = req.body;
+
+    // ── At least one field must be present ───────────────────────────────────
+    if (chatCharges === undefined && callCharges === undefined) {
+      return res.status(400).json({
+        message: "Provide at least one of chatCharges or callCharges.",
+      });
+    }
+
+    // ── Validate chatCharges ──────────────────────────────────────────────────
+    if (chatCharges !== undefined) {
+      if (typeof chatCharges !== "number" || chatCharges < 0) {
+        return res.status(400).json({
+          message: "chatCharges must be a non-negative number.",
+        });
+      }
+    }
+
+    // ── Validate callCharges ──────────────────────────────────────────────────
+    if (callCharges !== undefined) {
+      if (typeof callCharges !== "object" || Array.isArray(callCharges)) {
+        return res.status(400).json({
+          message: "callCharges must be an object: { amount, durationMinutes }.",
+        });
+      }
+
+      const { amount, durationMinutes } = callCharges;
+
+      if (amount !== undefined) {
+        if (typeof amount !== "number" || amount < 0) {
+          return res.status(400).json({
+            message: "callCharges.amount must be a non-negative number.",
+          });
+        }
+      }
+      if (durationMinutes !== undefined) {
+        if (typeof durationMinutes !== "number" || durationMinutes < 1) {
+          return res.status(400).json({
+            message: "callCharges.durationMinutes must be a positive number (≥ 1).",
+          });
+        }
+      }
+    }
+
+    // ── Fetch & update ────────────────────────────────────────────────────────
+    const partner = await Partner.findById(req.params.id);
+    if (!partner) {
+      return res.status(404).json({ message: "Partner not found." });
+    }
+
+    if (chatCharges !== undefined) {
+      partner.chatCharges = chatCharges;
+    }
+
+    if (callCharges !== undefined) {
+      // Merge — only overwrite the sub-fields that were provided
+      if (callCharges.amount          !== undefined) partner.callCharges.amount          = callCharges.amount;
+      if (callCharges.durationMinutes !== undefined) partner.callCharges.durationMinutes = callCharges.durationMinutes;
+    }
+
+    await partner.save();
+
+    return res.status(200).json({
+      message: "Communication charges updated.",
+      charges: {
+        chatCharges: partner.chatCharges,
+        callCharges: {
+          amount:          partner.callCharges.amount,
+          durationMinutes: partner.callCharges.durationMinutes,
+        },
+      },
+    });
+  } catch (error) {
+    if (error.name === "CastError") {
+      return res.status(400).json({ message: "Invalid partner ID." });
+    }
+    console.error("updateCommunicationCharges error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};

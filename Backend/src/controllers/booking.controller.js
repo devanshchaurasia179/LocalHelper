@@ -4,6 +4,7 @@ import Partner from "../models/partner/Partner.js";
 import Customer from "../models/customer/Customer.js";
 import PartnerDocument from "../models/verification/PartnerDocument.js";
 import PartnerTransaction from "../models/partner/partner.transaction.js";
+import CustomerTransaction from "../models/customer/customer.wallet.js";
 
 /** Generate a random 4-digit completion code string */
 const generateCompletionCode = () =>
@@ -61,10 +62,19 @@ export const createBooking = async (req, res) => {
 
     // Load customer for address snapshot
     const customer = await Customer.findById(req.customerId).select(
-      "addresses currentLocation"
+      "addresses currentLocation walletBalance"
     );
     if (!customer) {
       return res.status(404).json({ message: "Customer not found." });
+    }
+
+    // ── Wallet balance check ──────────────────────────────────────────────────
+    const bookingCost = partner.visitingCredits?.amount ?? 0;
+    if (bookingCost > 0 && customer.walletBalance < bookingCost) {
+      return res.status(400).json({
+        code: "INSUFFICIENT_BALANCE",
+        message: `Insufficient wallet balance. Required: ₹${bookingCost}, Available: ₹${customer.walletBalance}.`,
+      });
     }
 
     // Snapshot the first saved address (if any)
@@ -97,6 +107,26 @@ export const createBooking = async (req, res) => {
       serviceAddress,
       status:         "pending",
     });
+
+    // ── Deduct booking cost from customer wallet ───────────────────────────
+    if (bookingCost > 0) {
+      const newBalance = customer.walletBalance - bookingCost;
+
+      await CustomerTransaction.create({
+        customer:     req.customerId,
+        type:         "booking",
+        amount:       bookingCost,
+        direction:    "debit",
+        balanceAfter: newBalance,
+        status:       "completed",
+        booking:      booking._id,
+        description:  `Booking payment to partner`,
+      });
+
+      await Customer.findByIdAndUpdate(req.customerId, {
+        $inc: { walletBalance: -bookingCost },
+      });
+    }
 
     return res.status(201).json({
       message: "Booking created successfully.",
@@ -363,6 +393,27 @@ export const cancelBooking = async (req, res) => {
     await Partner.findByIdAndUpdate(booking.partner, {
       $inc: { cancelledJobs: 1 },
     });
+
+    // ── Refund visiting credit to customer wallet ──────────────────────────
+    const refundAmount = booking.visitingCredit ?? 0;
+    if (refundAmount > 0) {
+      const customer = await Customer.findByIdAndUpdate(
+        booking.customer,
+        { $inc: { walletBalance: refundAmount } },
+        { new: true, select: "walletBalance" }
+      );
+
+      await CustomerTransaction.create({
+        customer:     booking.customer,
+        type:         "refund",
+        amount:       refundAmount,
+        direction:    "credit",
+        balanceAfter: customer.walletBalance,
+        status:       "completed",
+        booking:      booking._id,
+        description:  `Refund for cancelled booking`,
+      });
+    }
 
     return res.status(200).json({
       message: "Booking cancelled.",
@@ -694,6 +745,144 @@ export const getBookingById = async (req, res) => {
     return res.status(200).json({ booking: obj });
   } catch (error) {
     console.error("getBookingById error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+// ─── CUSTOMER: Initiate Chat ──────────────────────────────────────────────────
+/**
+ * POST /api/bookings/chat/:partnerId
+ * 🔒 customer_token
+ *
+ * Deducts the partner's chatCharges from the customer's wallet and records
+ * a "chat" transaction. Call this once before opening a chat session.
+ *
+ * Returns the updated wallet balance so the client can reflect it immediately.
+ */
+export const initiateChat = async (req, res) => {
+  try {
+    const { partnerId } = req.params;
+
+    const [partner, customer] = await Promise.all([
+      Partner.findById(partnerId).select("chatCharges verificationStatus isOnline"),
+      Customer.findById(req.customerId).select("walletBalance"),
+    ]);
+
+    if (!partner) {
+      return res.status(404).json({ message: "Partner not found." });
+    }
+    if (partner.verificationStatus !== "Approved") {
+      return res.status(400).json({ message: "Partner is not available for chat." });
+    }
+    if (!customer) {
+      return res.status(404).json({ message: "Customer not found." });
+    }
+
+    const charge = partner.chatCharges ?? 0;
+
+    if (charge > 0 && customer.walletBalance < charge) {
+      return res.status(400).json({
+        code:    "INSUFFICIENT_BALANCE",
+        message: `Insufficient wallet balance. Required: ₹${charge}, Available: ₹${customer.walletBalance}.`,
+      });
+    }
+
+    const newBalance = customer.walletBalance - charge;
+
+    // Deduct and record in a single logical block
+    if (charge > 0) {
+      await CustomerTransaction.create({
+        customer:     req.customerId,
+        type:         "chat",
+        amount:       charge,
+        direction:    "debit",
+        balanceAfter: newBalance,
+        status:       "completed",
+        description:  `Chat charges`,
+      });
+
+      await Customer.findByIdAndUpdate(req.customerId, {
+        $inc: { walletBalance: -charge },
+      });
+    }
+
+    return res.status(200).json({
+      message:        charge > 0 ? `₹${charge} deducted for chat.` : "Chat initiated.",
+      charge,
+      walletBalance:  newBalance,
+    });
+  } catch (error) {
+    console.error("initiateChat error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+// ─── CUSTOMER: Initiate Call ──────────────────────────────────────────────────
+/**
+ * POST /api/bookings/call/:partnerId
+ * 🔒 customer_token
+ *
+ * Deducts the partner's callCharges from the customer's wallet and records
+ * a "call" transaction. Call this once before connecting a call.
+ *
+ * Returns the updated wallet balance so the client can reflect it immediately.
+ */
+export const initiateCall = async (req, res) => {
+  try {
+    const { partnerId } = req.params;
+
+    const [partner, customer] = await Promise.all([
+      Partner.findById(partnerId).select("callCharges verificationStatus isOnline"),
+      Customer.findById(req.customerId).select("walletBalance"),
+    ]);
+
+    if (!partner) {
+      return res.status(404).json({ message: "Partner not found." });
+    }
+    if (partner.verificationStatus !== "Approved") {
+      return res.status(400).json({ message: "Partner is not available for calls." });
+    }
+    if (!customer) {
+      return res.status(404).json({ message: "Customer not found." });
+    }
+
+    const charge = partner.callCharges?.amount ?? 0;
+    const durationMinutes = partner.callCharges?.durationMinutes ?? 10;
+
+    if (charge > 0 && customer.walletBalance < charge) {
+      return res.status(400).json({
+        code:    "INSUFFICIENT_BALANCE",
+        message: `Insufficient wallet balance. Required: ₹${charge}, Available: ₹${customer.walletBalance}.`,
+      });
+    }
+
+    const newBalance = customer.walletBalance - charge;
+
+    // Deduct and record in a single logical block
+    if (charge > 0) {
+      await CustomerTransaction.create({
+        customer:     req.customerId,
+        type:         "call",
+        amount:       charge,
+        direction:    "debit",
+        balanceAfter: newBalance,
+        status:       "completed",
+        description:  `Call charges (₹${charge} / ${durationMinutes} min)`,
+      });
+
+      await Customer.findByIdAndUpdate(req.customerId, {
+        $inc: { walletBalance: -charge },
+      });
+    }
+
+    return res.status(200).json({
+      message:         charge > 0 ? `₹${charge} deducted for call.` : "Call initiated.",
+      charge,
+      durationMinutes,
+      walletBalance:   newBalance,
+    });
+  } catch (error) {
+    console.error("initiateCall error:", error);
     return res.status(500).json({ message: "Internal server error." });
   }
 };

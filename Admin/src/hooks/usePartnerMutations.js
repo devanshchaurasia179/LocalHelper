@@ -8,6 +8,7 @@ import {
   suspendPartner,
   reactivatePartner,
   deletePartner,
+  updateCommunicationCharges,
 } from '@/api/partner.api'
 
 /**
@@ -105,6 +106,16 @@ const usePartnerMutations = (partnerId, callbacks = {}) => {
     onError: (err) => toast.error(err.response?.data?.message || 'Delete failed'),
   })
 
+  const updateChargesMutation = useMutation({
+    mutationFn: (data) => updateCommunicationCharges(partnerId, data),
+    onSuccess: (res) => {
+      toast.success(res.message || 'Charges updated')
+      invalidate()
+      callbacks.onUpdateCharges?.(res)
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to update charges'),
+  })
+
   return {
     invalidate,
     approveMutation,
@@ -114,6 +125,7 @@ const usePartnerMutations = (partnerId, callbacks = {}) => {
     suspendMutation,
     reactivateMutation,
     deleteMutation,
+    updateChargesMutation,
     // Convenience: true if any mutation is in-flight
     isAnyPending:
       approveMutation.isPending  ||
@@ -122,7 +134,8 @@ const usePartnerMutations = (partnerId, callbacks = {}) => {
       unblockMutation.isPending  ||
       suspendMutation.isPending  ||
       reactivateMutation.isPending ||
-      deleteMutation.isPending,
+      deleteMutation.isPending   ||
+      updateChargesMutation.isPending,
   }
 }
 

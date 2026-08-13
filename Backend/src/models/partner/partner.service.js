@@ -57,8 +57,25 @@ const serviceFields = {
       default: 0,
     },
   },
-
-
+  chatCharges: {
+    type: Number,
+    min: 0,
+    default: 0,
+  },
+  // callCharges: amount charged per durationMinutes of a call
+  // e.g. { amount: 20, durationMinutes: 10 } = ₹20 per 10 minutes
+  callCharges: {
+    amount: {
+      type: Number,
+      min: 0,
+      default: 10,
+    },
+    durationMinutes: {
+      type: Number,
+      min: 1,
+      default: 10, // minutes covered by the charge
+    },
+  },
   // Availability
   isOnline: {
     type: Boolean,

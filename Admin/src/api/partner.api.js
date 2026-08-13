@@ -61,3 +61,7 @@ export const reactivatePartner = (id) =>
 /** DELETE /api/admin/partners/:id — SUPER_ADMIN only */
 export const deletePartner = (id) =>
   api.delete(`/admin/partners/${id}`).then((res) => res.data)
+
+/** PATCH /api/admin/partners/:id/communication-charges — body: { chatCharges?, callCharges? } */
+export const updateCommunicationCharges = (id, data) =>
+  api.patch(`/admin/partners/${id}/communication-charges`, data).then((res) => res.data)

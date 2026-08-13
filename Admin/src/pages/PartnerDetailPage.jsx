@@ -23,6 +23,7 @@ import {
   Trash2,
   FileText,
 } from 'lucide-react'
+import { MessageSquare } from 'lucide-react'
 import { getPartnerById } from '@/api/partner.api'
 import { getVerificationDetail } from '@/api/verification.api'
 import usePartnerMutations from '@/hooks/usePartnerMutations'
@@ -36,6 +37,7 @@ import RejectModal from '@/components/ui/RejectModal'
 import ReasonModal from '@/components/ui/ReasonModal'
 import ConfirmModal from '@/components/ui/ConfirmModal'
 import DocumentCard from '@/components/verification/DocumentCard'
+import CommunicationChargesModal from '@/components/partners/CommunicationChargesModal'
 import {
   formatDate,
   formatDateTime,
@@ -90,6 +92,7 @@ const PartnerDetailPage = () => {
     suspend:      false,
     reactivate:   false,
     delete:       false,
+    charges:      false,
     // doc-level
     rejectDoc:    false,
     forceApprove: false,
@@ -128,14 +131,16 @@ const PartnerDetailPage = () => {
     suspendMutation,
     reactivateMutation,
     deleteMutation,
+    updateChargesMutation,
   } = usePartnerMutations(id, {
-    onApprove:    () => closeModal('approve'),
-    onReject:     () => closeModal('reject'),
-    onBlock:      () => closeModal('block'),
-    onUnblock:    () => closeModal('unblock'),
-    onSuspend:    () => closeModal('suspend'),
-    onReactivate: () => closeModal('reactivate'),
-    onDelete:     () => { closeModal('delete'); navigate('/partners', { replace: true }) },
+    onApprove:        () => closeModal('approve'),
+    onReject:         () => closeModal('reject'),
+    onBlock:          () => closeModal('block'),
+    onUnblock:        () => closeModal('unblock'),
+    onSuspend:        () => closeModal('suspend'),
+    onReactivate:     () => closeModal('reactivate'),
+    onDelete:         () => { closeModal('delete'); navigate('/partners', { replace: true }) },
+    onUpdateCharges:  () => closeModal('charges'),
   })
 
   // ── Verification mutations (document review) ───────────────────────
@@ -357,6 +362,43 @@ const PartnerDetailPage = () => {
                       Delete account
                     </Button>
                   )}
+                </Card.Body>
+              </Card>
+            )}
+
+            {/* Communication charges */}
+            {canVerify && (
+              <Card>
+                <Card.Header>
+                  <h3 className="text-sm font-semibold text-slate-700">Communication Charges</h3>
+                </Card.Header>
+                <Card.Body className="space-y-3">
+                  {/* Current values */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="p-3 rounded-xl bg-blue-50 border border-blue-100">
+                      <p className="text-xs text-blue-500 font-medium mb-1">Chat / session</p>
+                      <p className="text-base font-bold text-blue-700">
+                        {partner.chatCharges != null ? `₹${partner.chatCharges}` : '—'}
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                      <p className="text-xs text-emerald-500 font-medium mb-1">Call rate</p>
+                      <p className="text-base font-bold text-emerald-700">
+                        {partner.callCharges?.amount != null
+                          ? `₹${partner.callCharges.amount} / ${partner.callCharges.durationMinutes ?? 10} min`
+                          : '—'}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    fullWidth
+                    size="sm"
+                    leftIcon={<MessageSquare className="w-3.5 h-3.5" />}
+                    onClick={() => openModal('charges')}
+                  >
+                    Edit Charges
+                  </Button>
                 </Card.Body>
               </Card>
             )}
@@ -598,6 +640,19 @@ const PartnerDetailPage = () => {
         confirmLabel="Delete Account"
         confirmVariant="danger"
         isLoading={deleteMutation.isPending}
+      />
+
+      {/* ── Communication Charges ─────────────────────────────────── */}
+      <CommunicationChargesModal
+        isOpen={modals.charges}
+        onClose={() => closeModal('charges')}
+        onConfirm={(data) => updateChargesMutation.mutate(data)}
+        isLoading={updateChargesMutation.isPending}
+        partnerName={partner.fullName}
+        initialValues={{
+          chatCharges: partner.chatCharges,
+          callCharges: partner.callCharges,
+        }}
       />
     </>
   )

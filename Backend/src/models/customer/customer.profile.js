@@ -15,6 +15,13 @@ const profileFields = {
     lowercase: true,
   },
 
+  // Wallet Balance
+  walletBalance: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+
   // GeoJSON Point — used for finding nearby services
   // No defaults here — keep the field absent until customer sets it.
   // A default on the nested "type" field causes Mongoose to create

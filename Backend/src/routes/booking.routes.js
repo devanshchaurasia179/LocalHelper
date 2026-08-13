@@ -11,6 +11,8 @@ import {
   getCustomerBookings,
   getBookingById,
   getPartnerReviews,
+  initiateChat,
+  initiateCall,
 } from "../controllers/booking.controller.js";
 import protectPartner  from "../middleware/partner.auth.middleware.js";
 import protectCustomer from "../middleware/customer.auth.middleware.js";
@@ -60,9 +62,11 @@ const protectEither = (req, res, next) => {
 router.get("/partners/:partnerId/reviews", getPartnerReviews); // Partner's reviews
 
 // ─── Customer-only ────────────────────────────────────────────────────────────
-router.post("/",           protectCustomer, createBooking);      // Create booking
-router.get("/customer",    protectCustomer, getCustomerBookings); // Customer's booking list
-router.post("/:id/review", protectCustomer, reviewBooking);       // Leave review
+router.post("/",                      protectCustomer, createBooking);        // Create booking
+router.get("/customer",               protectCustomer, getCustomerBookings);  // Customer's booking list
+router.post("/:id/review",            protectCustomer, reviewBooking);        // Leave review
+router.post("/chat/:partnerId",       protectCustomer, initiateChat);         // Deduct chat charge
+router.post("/call/:partnerId",       protectCustomer, initiateCall);         // Deduct call charge
 
 // ─── Partner-only ─────────────────────────────────────────────────────────────
 router.get("/partner",        protectPartner, getPartnerBookings); // Partner's booking list

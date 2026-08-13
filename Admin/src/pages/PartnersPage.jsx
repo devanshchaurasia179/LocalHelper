@@ -124,7 +124,7 @@ const PartnersPage = () => {
           <table className="w-full text-sm" role="table" aria-label="Partners table">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100">
-                {['Partner', 'Phone', 'City', 'Service', 'Verification', 'Account', 'Joined', 'Actions'].map(
+                {['Partner', 'Phone', 'City', 'Service', 'Charges', 'Verification', 'Account', 'Joined', 'Actions'].map(
                   (col) => (
                     <th
                       key={col}
@@ -144,7 +144,7 @@ const PartnersPage = () => {
                 ))
               ) : isError ? (
                 <tr>
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     <ErrorState
                       message="Could not load partners."
                       onRetry={refetch}
@@ -153,7 +153,7 @@ const PartnersPage = () => {
                 </tr>
               ) : partners.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     <EmptyState.NoResults onClear={hasFilters ? handleClearFilters : undefined} />
                   </td>
                 </tr>
@@ -204,6 +204,19 @@ const PartnersPage = () => {
                         ) : (
                           <span className="text-slate-400">—</span>
                         )}
+                      </div>
+                    </td>
+                    {/* Charges */}
+                    <td className="px-4 py-3.5">
+                      <div className="flex flex-col gap-0.5 text-xs whitespace-nowrap">
+                        <span className="text-blue-600 font-medium">
+                          💬 {partner.chatCharges != null ? `₹${partner.chatCharges}` : '—'}
+                        </span>
+                        <span className="text-emerald-600 font-medium">
+                          📞 {partner.callCharges?.amount != null
+                            ? `₹${partner.callCharges.amount}/${partner.callCharges.durationMinutes ?? 10}m`
+                            : '—'}
+                        </span>
                       </div>
                     </td>
                     {/* Verification */}
