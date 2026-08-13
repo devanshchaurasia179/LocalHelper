@@ -47,10 +47,14 @@ export interface TransactionBooking {
   };
   customer?: {
     _id: string;
-    fullName?: string;
-    phone?: string;
+    name?: string;         // Customer's name (not fullName)
+    phone?: string;        // ⚠️ Never display to the user — internal only
   };
   category?: {
+    _id: string;
+    name: string;
+  };
+  subcategory?: {
     _id: string;
     name: string;
   };

@@ -280,8 +280,13 @@ function TransactionDetailModal({
   const timeStr = date?.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 
   const booking        = tx?.booking;
-  const customerName   = booking?.customer?.fullName ?? booking?.customer?.phone ?? null;
-  const serviceLabel   = booking?.serviceLabel ?? booking?.category?.name ?? null;
+  const customerName   = booking?.customer?.name ?? null;  // ⚠️ Never fall back to phone
+  // Build "Category - Subcategory" label: prefer backend serviceLabel, else construct client-side
+  const serviceLabel   = booking?.serviceLabel
+    ?? (booking?.category?.name && booking?.subcategory?.name
+        ? `${booking.category.name} - ${booking.subcategory.name}`
+        : booking?.category?.name)
+    ?? null;
   const addr           = booking?.serviceAddress;
   const addressParts   = [addr?.locality, addr?.city, addr?.state].filter(Boolean);
   const addressStr     = addressParts.length > 0 ? addressParts.join(", ") : null;
@@ -334,8 +339,17 @@ function TransactionDetailModal({
                 <DetailRow icon="receipt-outline"   label="Ref ID"  value={tx._id} mono />
                 <DetailRow icon="swap-horizontal"   label="Direction" value={isCredit ? "Credit" : "Debit"} />
                 <DetailRow icon="wallet-outline"    label="Balance after" value={`₹${tx.balanceAfter}`} />
-                {tx.description ? (
-                  <DetailRow icon="document-text-outline" label="Note" value={tx.description} />
+                {/* Note — show "Booking from [customer]" when it's a booking earning, else raw description */}
+                {(tx.description || customerName) ? (
+                  <DetailRow
+                    icon="document-text-outline"
+                    label="Note"
+                    value={
+                      booking && customerName
+                        ? `Booking from ${customerName}`
+                        : tx.description
+                    }
+                  />
                 ) : null}
                 {tx.failureReason ? (
                   <DetailRow icon="alert-circle-outline" label="Failure reason" value={tx.failureReason} error />
@@ -725,13 +739,13 @@ function TransactionCard({ transaction, onPress }: { transaction: Transaction; o
   const dateStr = date.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
   const timeStr = date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 
-  // For earnings, show customer name as the primary label if available
-  const customerName  = transaction.booking?.customer?.fullName
-    ?? transaction.booking?.customer?.phone
-    ?? null;
-  // Use backend-computed "Category - Subcategory" label (e.g. "Home Service - Electrician")
+  // For earnings, show customer name as the primary label if available (NEVER show phone)
+  const customerName  = transaction.booking?.customer?.name ?? null;
+  // Build "Category - Subcategory" label: prefer backend serviceLabel, else construct client-side
   const serviceLabel  = transaction.booking?.serviceLabel
-    ?? transaction.booking?.category?.name
+    ?? (transaction.booking?.category?.name && transaction.booking?.subcategory?.name
+        ? `${transaction.booking.category.name} - ${transaction.booking.subcategory.name}`
+        : transaction.booking?.category?.name)
     ?? null;
   const primaryLabel  = transaction.type === "earning" && customerName
     ? customerName
@@ -783,8 +797,6 @@ const txStyles = StyleSheet.create({
   statusText:   { fontFamily: fonts.jakartaSemiBold, fontSize: 10 },
   right:        { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   amount:       { fontFamily: fonts.oswaldBold, fontSize: 16, color: colors.textPrimary },
-  amountCredit: { color: colors.success },
-});
   amountCredit: { color: colors.success },
 });
 

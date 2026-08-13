@@ -52,9 +52,9 @@ export const getTransactionHistory = async (req, res) => {
         .limit(Number(limit))
         .populate({
           path:     "booking",
-          select:   "scheduledAt completedAt visitingCredit serviceAddress customer category subcategoryId",
+          select:   "scheduledAt completedAt visitingCredit serviceAddress customer category subcategoryId description",
           populate: [
-            { path: "customer", select: "fullName phone" },
+            { path: "customer", select: "name phone" },
             { path: "category", select: "name subcategories" },
           ],
         })
@@ -132,7 +132,7 @@ export const getTransactionById = async (req, res) => {
         path:     "booking",
         select:   "scheduledAt completedAt visitingCredit serviceAddress customer category subcategoryId description",
         populate: [
-          { path: "customer", select: "fullName phone" },
+          { path: "customer", select: "name phone" },
           { path: "category", select: "name subcategories" },
         ],
       })
