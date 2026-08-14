@@ -161,8 +161,9 @@ const ChatDetailPage = () => {
   const navigate           = useNavigate()
   const queryClient        = useQueryClient()
 
-  const [page,        setPage]        = useState(1)
-  const [closeModal,  setCloseModal]  = useState(false)
+  const [page,         setPage]         = useState(1)
+  const [closeModal,   setCloseModal]   = useState(false)
+  const [reopenModal,  setReopenModal]  = useState(false)
 
   const LIMIT = 50
 
@@ -183,6 +184,19 @@ const ChatDetailPage = () => {
     },
     onError: (err) => {
       toast.error(err?.response?.data?.message || 'Failed to close conversation.')
+    },
+  })
+
+  const reopenMutation = useMutation({
+    mutationFn: () => reopenConversation(conversationId),
+    onSuccess: () => {
+      toast.success('Conversation reopened — both parties can chat again.')
+      setReopenModal(false)
+      queryClient.invalidateQueries(['admin-chat-messages', conversationId])
+      queryClient.invalidateQueries(['admin-conversations'])
+    },
+    onError: (err) => {
+      toast.error(err?.response?.data?.message || 'Failed to reopen conversation.')
     },
   })
 
@@ -254,7 +268,7 @@ const ChatDetailPage = () => {
               variant={isClosed ? 'default' : 'success'}
               size="md"
             />
-            {!isClosed && (
+            {!isClosed ? (
               <Button
                 variant="danger"
                 size="sm"
@@ -262,6 +276,15 @@ const ChatDetailPage = () => {
                 onClick={() => setCloseModal(true)}
               >
                 Close Chat
+              </Button>
+            ) : (
+              <Button
+                variant="success"
+                size="sm"
+                leftIcon={<LockOpen className="w-3.5 h-3.5" />}
+                onClick={() => setReopenModal(true)}
+              >
+                Reopen Chat
               </Button>
             )}
           </div>
@@ -414,10 +437,22 @@ const ChatDetailPage = () => {
         onClose={() => setCloseModal(false)}
         onConfirm={() => closeMutation.mutate()}
         title="Close Conversation"
-        message={`Close the chat between ${partnerName} and ${customerName}? Neither party will be able to send further messages. This is reversible only by contacting the database.`}
+        message={`Close the chat between ${partnerName} and ${customerName}? Neither party will be able to send further messages.`}
         confirmLabel="Close Chat"
         confirmVariant="danger"
         isLoading={closeMutation.isPending}
+      />
+
+      {/* ── Reopen conversation modal ─────────────────────────── */}
+      <ConfirmModal
+        isOpen={reopenModal}
+        onClose={() => setReopenModal(false)}
+        onConfirm={() => reopenMutation.mutate()}
+        title="Reopen Conversation"
+        message={`Reopen the chat between ${partnerName} and ${customerName}? Both parties will be able to send messages again.`}
+        confirmLabel="Reopen Chat"
+        confirmVariant="primary"
+        isLoading={reopenMutation.isPending}
       />
     </>
   )
