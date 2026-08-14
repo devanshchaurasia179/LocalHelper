@@ -11,7 +11,6 @@
     "@expo/ui": "~57.0.10",
     "@expo/vector-icons": "^15.1.1",
     "@react-native-community/datetimepicker": "9.1.0",
-    "@twilio/voice-react-native-sdk": "^1.7.0",
     "axios": "^1.18.1",
     "expo": "~57.0.12",
     "expo-constants": "~57.0.10",
