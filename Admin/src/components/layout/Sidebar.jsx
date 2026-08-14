@@ -16,6 +16,7 @@ import {
   X,
   FileStack,
   Wallet,
+  MessageSquare,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/contexts/AuthContext'
@@ -23,16 +24,17 @@ import { useState } from 'react'
 import toast from 'react-hot-toast'
 
 const NAV_ITEMS = [
-  { label: 'Dashboard',          to: '/dashboard',  icon: LayoutDashboard },
-  { label: 'Partners',           to: '/partners',   icon: Users },
-  { label: 'Document Management', to: '/documents', icon: FileStack },
-  { label: 'Customers',          to: '/customers',  icon: UserCheck },
-  { label: 'Bookings',           to: '/bookings',   icon: CalendarDays },
-  { label: 'Services',           to: '/services',   icon: Wrench },
+  { label: 'Dashboard',           to: '/dashboard',    icon: LayoutDashboard },
+  { label: 'Partners',            to: '/partners',     icon: Users },
+  { label: 'Document Management', to: '/documents',    icon: FileStack },
+  { label: 'Customers',           to: '/customers',    icon: UserCheck },
+  { label: 'Bookings',            to: '/bookings',     icon: CalendarDays },
+  { label: 'Services',            to: '/services',     icon: Wrench },
   { label: 'Transactions',        to: '/transactions', icon: Wallet },
-  { label: 'Payments',           to: '/payments',   icon: CreditCard },
-  { label: 'Analytics',          to: '/analytics',  icon: BarChart3 },
-  { label: 'Settings',           to: '/settings',   icon: Settings },
+  { label: 'Chats',               to: '/chats',        icon: MessageSquare },
+  { label: 'Payments',            to: '/payments',     icon: CreditCard },
+  { label: 'Analytics',           to: '/analytics',    icon: BarChart3 },
+  { label: 'Settings',            to: '/settings',     icon: Settings },
 ]
 
 /**

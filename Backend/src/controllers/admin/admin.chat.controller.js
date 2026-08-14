@@ -24,7 +24,7 @@ export const adminGetPartnerConversations = async (req, res) => {
         .sort({ "lastMessage.sentAt": -1 })
         .skip((page - 1) * limit)
         .limit(limit)
-        .populate("customer", "fullName profilePhoto phone")
+        .populate("customer", "name profilePhoto phone")
         .populate("partner",  "fullName profilePhoto phone")
         .populate("booking",  "status scheduledAt")
         .lean(),
@@ -72,7 +72,7 @@ export const adminGetAllConversations = async (req, res) => {
         .sort({ "lastMessage.sentAt": -1 })
         .skip((page - 1) * limit)
         .limit(limit)
-        .populate("customer", "fullName profilePhoto phone")
+        .populate("customer", "name profilePhoto phone")
         .populate("partner",  "fullName profilePhoto phone")
         .populate("booking",  "status scheduledAt")
         .lean(),
@@ -112,7 +112,7 @@ export const adminGetConversationMessages = async (req, res) => {
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
 
     const conversation = await Conversation.findById(conversationId)
-      .populate("customer", "fullName profilePhoto phone")
+      .populate("customer", "name profilePhoto phone")
       .populate("partner",  "fullName profilePhoto phone")
       .populate("booking",  "status scheduledAt description")
       .lean();

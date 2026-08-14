@@ -402,6 +402,21 @@ const PartnerDetailPage = () => {
                 </Card.Body>
               </Card>
             )}
+
+            {/* View conversations shortcut */}
+            <Card>
+              <Card.Body className="py-3">
+                <Button
+                  variant="outline"
+                  fullWidth
+                  size="sm"
+                  leftIcon={<MessageSquare className="w-3.5 h-3.5" />}
+                  onClick={() => navigate(`/chats?partner=${id}`)}
+                >
+                  View All Conversations
+                </Button>
+              </Card.Body>
+            </Card>
           </div>
 
           {/* ── Right columns ────────────────────────────────────── */}
