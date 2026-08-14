@@ -108,5 +108,32 @@ export const sendMessageRest = (
     { text }
   );
 
+/**
+ * Upload an image message via multipart/form-data.
+ * The backend accepts field name "image" + optional "text".
+ *
+ * @param conversationId  - The conversation to post to
+ * @param imageUri        - Local file URI (from expo-image-picker)
+ * @param mimeType        - MIME type string e.g. "image/jpeg"
+ * @param text            - Optional caption text
+ */
+export const sendImageMessage = (
+  conversationId: string,
+  imageUri: string,
+  mimeType = "image/jpeg",
+  text = ""
+) => {
+  const form = new FormData();
+  const filename = imageUri.split("/").pop() ?? "photo.jpg";
+  form.append("image", { uri: imageUri, name: filename, type: mimeType } as any);
+  if (text.trim()) form.append("text", text.trim());
+
+  return api.post<{ message: ChatMessage }>(
+    `/chat/conversations/${conversationId}/messages`,
+    form,
+    { headers: { "Content-Type": "multipart/form-data" } }
+  );
+};
+
 export const deleteMessage = (messageId: string) =>
   api.delete(`/chat/messages/${messageId}`);

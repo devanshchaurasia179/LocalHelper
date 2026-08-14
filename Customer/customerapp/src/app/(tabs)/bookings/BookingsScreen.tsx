@@ -252,6 +252,8 @@ export default function BookingsScreen() {
   const handleNavigate = useCallback((route: NavRoute) => {
     if (route === 'home')    router.replace(ROUTES.APP.HOME    as any);
     if (route === 'wallet')  router.replace(ROUTES.APP.WALLET  as any);
+    if (route === 'chat')    router.replace(ROUTES.APP.CHAT    as any);
+    if (route === 'profile') router.replace(ROUTES.APP.PROFILE as any);
     if (route === 'profile') router.replace(ROUTES.APP.PROFILE as any);
   }, []);
 

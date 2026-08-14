@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { View, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { usePathname, useRouter } from "expo-router";
@@ -11,6 +11,8 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { colors, spacing, radii, fonts } from "@/constants/theme";
+import { fetchMyConversations } from "@/api/chat.api";
+import { connectChatSocket, getChatSocket } from "@/services/chat.socket";
 
 type TabRoute = "home" | "wallet" | "bookings" | "chat" | "profile";
 
@@ -36,10 +38,12 @@ function NavItem({
   item,
   isActive,
   onPress,
+  showBadge,
 }: {
   item: (typeof NAV_ITEMS)[number];
   isActive: boolean;
   onPress: () => void;
+  showBadge?: boolean;
 }) {
   const progress = useSharedValue(isActive ? 1 : 0);
   const pressScale = useSharedValue(1);
@@ -88,6 +92,8 @@ function NavItem({
       accessibilityLabel={item.label}
     >
       <Animated.View style={pressStyle}>
+        {/* Badge dot — shown when there are unread messages */}
+        {showBadge && !isActive && <View style={styles.badgeDot} />}
         <Animated.View style={[styles.pill, pillWidthStyle]}>
           <Animated.View style={[StyleSheet.absoluteFill, styles.pillBg, bgStyle]} />
           <View style={styles.iconWrapper}>
@@ -109,9 +115,57 @@ function NavItem({
 export default function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
+  const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
 
   const activeRoute: TabRoute =
     NAV_ITEMS.find((item) => pathname.includes(`/${item.matchKey}`))?.route ?? "home";
+
+  // ── Unread message badge ─────────────────────────────────────────────────────
+  // Fetch unread count on mount and refresh when a new_message socket event fires.
+  const checkUnread = useCallback(async () => {
+    try {
+      const res = await fetchMyConversations();
+      const totalUnread = res.data.conversations.reduce(
+        (sum, c) => sum + (c.unreadByPartner ?? 0),
+        0
+      );
+      setHasUnreadMessages(totalUnread > 0);
+    } catch {
+      // Silently ignore — badge is non-critical UI
+    }
+  }, []);
+
+  useEffect(() => {
+    checkUnread();
+  }, [checkUnread]);
+
+  // Re-check whenever we're NOT on the chat tab (so badge clears once they open chat)
+  useEffect(() => {
+    if (activeRoute === "chat") {
+      // User is on chat tab — clear badge optimistically
+      setHasUnreadMessages(false);
+      return;
+    }
+
+    // Subscribe to socket new_message to update badge in real-time
+    let mounted = true;
+    connectChatSocket()
+      .then((socket) => {
+        if (!mounted) return;
+        socket.on("new_message", () => {
+          if (mounted && activeRoute !== "chat") {
+            setHasUnreadMessages(true);
+          }
+        });
+      })
+      .catch(() => {/* ignore */});
+
+    return () => {
+      mounted = false;
+      const socket = getChatSocket();
+      if (socket) socket.off("new_message");
+    };
+  }, [activeRoute, checkUnread]);
 
   const handleNavigate = useCallback(
     (route: TabRoute) => {
@@ -128,6 +182,7 @@ export default function BottomNav() {
           item={item}
           isActive={item.route === activeRoute}
           onPress={() => handleNavigate(item.route)}
+          showBadge={item.route === "chat" && hasUnreadMessages}
         />
       ))}
     </View>
@@ -180,5 +235,18 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 12,
     maxWidth: 64,
+  },
+  /** Red dot badge — appears above the chat icon pill when there are unread messages */
+  badgeDot: {
+    position: "absolute",
+    top: 2,
+    right: 4,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: colors.error,
+    borderWidth: 1.5,
+    borderColor: colors.background,
+    zIndex: 10,
   },
 });

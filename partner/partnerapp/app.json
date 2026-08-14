@@ -35,6 +35,13 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow PartnerApp to access your photos to send images in chat.",
+          "cameraPermission": "Allow PartnerApp to use the camera to take photos for chat."
+        }
       ]
     ],
     "experiments": {

@@ -2,7 +2,7 @@
  * Partner Chat Room Screen
  *
  * Individual conversation view with message history, real-time updates,
- * and typing indicators.
+ * typing indicators, and image sending.
  */
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
@@ -16,10 +16,13 @@ import {
   Platform,
   ActivityIndicator,
   Image,
+  ActionSheetIOS,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 import { colors, fonts, spacing, radii } from "@/constants/theme";
 import { useChatRoom } from "@/hooks/useChatRoom";
 import type { ChatMessage } from "@/api/chat.api";
@@ -46,7 +49,11 @@ function formatDateSeparator(dateStr: string): string {
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
   if (isSameDay(d, yesterday)) return "Yesterday";
-  return d.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+  return d.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
 }
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
@@ -58,16 +65,32 @@ function MessageBubble({ msg, isMe }: { msg: ChatMessage; isMe: boolean }) {
     <View style={[styles.bubbleWrap, isMe ? styles.bubbleWrapMe : styles.bubbleWrapOther]}>
       <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleOther]}>
         {msg.mediaUrl && (
-          <Image source={{ uri: msg.mediaUrl }} style={styles.bubbleImage} resizeMode="cover" />
+          <View>
+            <Image
+              source={{ uri: msg.mediaUrl }}
+              style={styles.bubbleImage}
+              resizeMode="cover"
+            />
+            {/* Upload progress overlay */}
+            {msg.isSending && (
+              <View style={styles.imageUploadOverlay}>
+                <ActivityIndicator size="small" color={colors.white} />
+              </View>
+            )}
+          </View>
         )}
-        {msg.text ? <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{msg.text}</Text> : null}
+        {msg.text ? (
+          <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
+            {msg.text}
+          </Text>
+        ) : null}
         <View style={styles.bubbleFooter}>
           <Text style={[styles.bubbleTime, isMe && styles.bubbleTimeMe]}>
             {formatMessageTime(msg.createdAt)}
           </Text>
           {showStatus && (
             <View style={styles.statusIcon}>
-              {msg.isSending ? (
+              {msg.isSending && !msg.mediaUrl ? (
                 <ActivityIndicator size={10} color={colors.white} />
               ) : msg.hasFailed ? (
                 <Ionicons name="alert-circle" size={12} color={colors.error} />
@@ -114,6 +137,7 @@ export default function ChatRoomScreen() {
     isConnected,
     isTyping,
     sendMessage,
+    sendImage,
     loadMore,
     onTypingStart,
     onTypingStop,
@@ -138,7 +162,8 @@ export default function ChatRoomScreen() {
       const isMe = item.senderType === "partner";
       const prevMsg = index > 0 ? messages[index - 1] : null;
       const showDateSep =
-        !prevMsg || !isSameDay(new Date(item.createdAt), new Date(prevMsg.createdAt));
+        !prevMsg ||
+        !isSameDay(new Date(item.createdAt), new Date(prevMsg.createdAt));
 
       return (
         <>
@@ -155,7 +180,6 @@ export default function ChatRoomScreen() {
   const handleTextChange = useCallback(
     (text: string) => {
       setInputText(text);
-
       if (text.trim()) {
         onTypingStart();
         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -175,6 +199,69 @@ export default function ChatRoomScreen() {
     onTypingStop();
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
   }, [inputText, sendMessage, onTypingStop]);
+
+  // ── Image picker ──────────────────────────────────────────────────────────
+
+  const pickFromLibrary = useCallback(async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission needed",
+        "Please allow access to your photo library in Settings."
+      );
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.8,
+      allowsEditing: false,
+    });
+    if (!result.canceled && result.assets.length > 0) {
+      const asset = result.assets[0];
+      sendImage(asset.uri, asset.mimeType ?? "image/jpeg");
+    }
+  }, [sendImage]);
+
+  const pickFromCamera = useCallback(async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission needed",
+        "Please allow camera access in Settings."
+      );
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ["images"],
+      quality: 0.8,
+      allowsEditing: false,
+    });
+    if (!result.canceled && result.assets.length > 0) {
+      const asset = result.assets[0];
+      sendImage(asset.uri, asset.mimeType ?? "image/jpeg");
+    }
+  }, [sendImage]);
+
+  const handleAttach = useCallback(() => {
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ["Cancel", "Photo Library", "Take Photo"],
+          cancelButtonIndex: 0,
+        },
+        (index) => {
+          if (index === 1) pickFromLibrary();
+          if (index === 2) pickFromCamera();
+        }
+      );
+    } else {
+      Alert.alert("Send Image", "Choose a source", [
+        { text: "Photo Library", onPress: pickFromLibrary },
+        { text: "Take Photo", onPress: pickFromCamera },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    }
+  }, [pickFromLibrary, pickFromCamera]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -198,11 +285,13 @@ export default function ChatRoomScreen() {
               {customerName}
             </Text>
             {isTyping ? (
-              <Text style={styles.headerTyping}>typing...</Text>
+              <Text style={styles.headerTyping}>typing…</Text>
             ) : (
               <View style={styles.headerStatusRow}>
                 <View style={[styles.headerDot, isConnected && styles.headerDotOn]} />
-                <Text style={styles.headerStatus}>{isConnected ? "Online" : "Offline"}</Text>
+                <Text style={styles.headerStatus}>
+                  {isConnected ? "Online" : "Offline"}
+                </Text>
               </View>
             )}
           </View>
@@ -229,16 +318,27 @@ export default function ChatRoomScreen() {
           contentContainerStyle={styles.listContent}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
-          ListHeaderComponent={loadingMore ? <ActivityIndicator size="small" color={colors.primary} style={{ paddingVertical: spacing.md }} /> : null}
+          ListHeaderComponent={
+            loadingMore ? (
+              <ActivityIndicator
+                size="small"
+                color={colors.primary}
+                style={{ paddingVertical: spacing.md }}
+              />
+            ) : null
+          }
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
-              <Ionicons name="chatbubble-ellipses-outline" size={48} color={colors.navInactive} />
+              <Ionicons
+                name="chatbubble-ellipses-outline"
+                size={48}
+                color={colors.navInactive}
+              />
               <Text style={styles.emptyText}>No messages yet</Text>
               <Text style={styles.emptySub}>Start the conversation below</Text>
             </View>
           }
           showsVerticalScrollIndicator={false}
-          inverted={false}
         />
       )}
 
@@ -248,11 +348,21 @@ export default function ChatRoomScreen() {
         keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       >
         <View style={styles.inputWrap}>
+          {/* Attach button */}
+          <Pressable
+            onPress={handleAttach}
+            hitSlop={8}
+            accessibilityLabel="Attach image"
+            style={styles.attachBtn}
+          >
+            <Ionicons name="image-outline" size={24} color={colors.textSecondary} />
+          </Pressable>
+
           <TextInput
             style={styles.input}
             value={inputText}
             onChangeText={handleTextChange}
-            placeholder="Type a message..."
+            placeholder="Type a message…"
             placeholderTextColor={colors.textSecondary}
             multiline
             maxLength={2000}
@@ -289,7 +399,13 @@ const styles = StyleSheet.create({
     borderBottomColor: "#F0F0F0",
     backgroundColor: colors.background,
   },
-  headerCenter: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm, marginHorizontal: spacing.md },
+  headerCenter: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginHorizontal: spacing.md,
+  },
   headerAvatar: { width: 36, height: 36, borderRadius: 18 },
   headerAvatarFallback: {
     width: 36,
@@ -299,23 +415,65 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  headerName: { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.textPrimary },
-  headerTyping: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.primary, fontStyle: "italic" },
+  headerName: {
+    fontFamily: fonts.jakartaSemiBold,
+    fontSize: 15,
+    color: colors.textPrimary,
+  },
+  headerTyping: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 12,
+    color: colors.primary,
+    fontStyle: "italic",
+  },
   headerStatusRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   headerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#9CA3AF" },
   headerDotOn: { backgroundColor: colors.success },
-  headerStatus: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary },
+  headerStatus: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 11,
+    color: colors.textSecondary,
+  },
 
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl },
-  errorText: { fontFamily: fonts.jostRegular, fontSize: 14, color: colors.textSecondary, textAlign: "center", marginTop: spacing.sm },
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.xl,
+  },
+  errorText: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: "center",
+    marginTop: spacing.sm,
+  },
 
-  listContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xl },
+  listContent: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
+  },
 
   emptyWrap: { alignItems: "center", justifyContent: "center", paddingTop: 60 },
-  emptyText: { fontFamily: fonts.oswaldBold, fontSize: 18, color: colors.textPrimary, marginTop: spacing.md },
-  emptySub: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+  emptyText: {
+    fontFamily: fonts.oswaldBold,
+    fontSize: 18,
+    color: colors.textPrimary,
+    marginTop: spacing.md,
+  },
+  emptySub: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
 
-  dateSepWrap: { flexDirection: "row", alignItems: "center", marginVertical: spacing.md },
+  dateSepWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: spacing.md,
+  },
   dateSepLine: { flex: 1, height: 1, backgroundColor: "#E5E7EB" },
   dateSepText: {
     fontFamily: fonts.jostMedium,
@@ -339,23 +497,55 @@ const styles = StyleSheet.create({
   bubbleOther: { backgroundColor: colors.surface },
 
   bubbleImage: { width: 200, height: 200, borderRadius: radii.sm },
-  bubbleText: { fontFamily: fonts.jostRegular, fontSize: 14, color: colors.textPrimary, lineHeight: 20 },
+  imageUploadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: radii.sm,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bubbleText: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 14,
+    color: colors.textPrimary,
+    lineHeight: 20,
+  },
   bubbleTextMe: { color: colors.white },
 
-  bubbleFooter: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-end" },
-  bubbleTime: { fontFamily: fonts.jostRegular, fontSize: 10, color: colors.textSecondary },
+  bubbleFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-end",
+  },
+  bubbleTime: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 10,
+    color: colors.textSecondary,
+  },
   bubbleTimeMe: { color: "rgba(255,255,255,0.8)" },
-  statusIcon: { width: 12, height: 12, alignItems: "center", justifyContent: "center" },
+  statusIcon: {
+    width: 12,
+    height: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
   inputWrap: {
     flexDirection: "row",
     alignItems: "flex-end",
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: "#F0F0F0",
     backgroundColor: colors.background,
     gap: spacing.sm,
+  },
+  attachBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
   input: {
     flex: 1,

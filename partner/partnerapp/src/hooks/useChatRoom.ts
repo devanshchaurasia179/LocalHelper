@@ -4,6 +4,7 @@ import { connectChatSocket, getChatSocket } from "@/services/chat.socket";
 import {
   fetchMessages,
   markConversationRead,
+  sendImageMessage,
   type ChatMessage,
   type MessagePagination,
 } from "@/api/chat.api";
@@ -16,6 +17,7 @@ export interface UseChatRoomResult {
   isConnected: boolean;
   isTyping: boolean; // other party typing?
   sendMessage: (text: string) => void;
+  sendImage: (imageUri: string, mimeType?: string) => Promise<void>;
   loadMore: () => Promise<void>;
   onTypingStart: () => void;
   onTypingStop: () => void;
@@ -247,6 +249,52 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
     [conversationId]
   );
 
+  // ── Send image (REST multipart → optimistic bubble) ─────────────────────
+
+  const sendImage = useCallback(
+    async (imageUri: string, mimeType = "image/jpeg") => {
+      const tempId = `temp_img_${Date.now()}_${Math.random()}`;
+
+      // Optimistic bubble — show the local image immediately with a spinner
+      const optimistic: ChatMessage = {
+        _id: tempId,
+        conversation: conversationId,
+        senderType: "partner",
+        sender: "",
+        text: "",
+        mediaUrl: imageUri,
+        mediaType: "image",
+        isRead: false,
+        readAt: null,
+        isDeleted: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        tempId,
+        isSending: true,
+      };
+
+      setMessages((prev) => [...prev, optimistic]);
+
+      try {
+        const res = await sendImageMessage(conversationId, imageUri, mimeType);
+        const confirmed = res.data.message;
+        setMessages((prev) => {
+          const withoutTemp = prev.filter((m) => m.tempId !== tempId);
+          if (withoutTemp.some((m) => m._id === confirmed._id)) return withoutTemp;
+          return [...withoutTemp, confirmed];
+        });
+      } catch (err) {
+        console.error("[ChatRoom] sendImage error:", err);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.tempId === tempId ? { ...m, isSending: false, hasFailed: true } : m
+          )
+        );
+      }
+    },
+    [conversationId]
+  );
+
   // ── Typing indicators ─────────────────────────────────────────────────────
 
   const onTypingStart = useCallback(() => {
@@ -275,6 +323,7 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
     isConnected,
     isTyping,
     sendMessage,
+    sendImage,
     loadMore,
     onTypingStart,
     onTypingStop,

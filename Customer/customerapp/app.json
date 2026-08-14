@@ -34,7 +34,14 @@
           "imageWidth": 76
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow CustomerApp to access your photos to send images in chat.",
+          "cameraPermission": "Allow CustomerApp to use the camera to take photos for chat."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

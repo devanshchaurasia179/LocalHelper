@@ -12,6 +12,7 @@ import {
   Animated,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from "react-native";
 import React from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -31,6 +32,9 @@ import { useServiceStatus, useToggleOnline, useDashboardStats } from "@/hooks/us
 import { colors, fonts, spacing, radii } from "@/constants/theme";
 import BottomNav from "@/components/navigation/BottomNav";
 import type { Booking } from "@/api/booking.api";
+import { useConversations } from "@/hooks/useConversations";
+import { connectChatSocket, getChatSocket } from "@/services/chat.socket";
+import type { Conversation } from "@/api/chat.api";
 
 // ─── Completion Code Modal ────────────────────────────────────────────────────
 
@@ -502,6 +506,30 @@ export default function HomeScreen() {
   const { data } = usePartnerStatus();
   const router = useRouter();
 
+  // ── Recent conversations ──────────────────────────────────────────────────
+  const { conversations, refresh: refreshConversations } = useConversations();
+  const recentConvs = conversations.slice(0, 3);
+  const totalUnread = conversations.reduce((sum, c) => sum + (c.unreadByPartner ?? 0), 0);
+
+  // Listen to socket new_message to refresh the list in real time
+  useEffect(() => {
+    let mounted = true;
+    connectChatSocket()
+      .then((socket) => {
+        if (!mounted) return;
+        socket.on("new_message", () => {
+          if (mounted) refreshConversations();
+        });
+      })
+      .catch(() => {/* ignore */});
+
+    return () => {
+      mounted = false;
+      const socket = getChatSocket();
+      if (socket) socket.off("new_message");
+    };
+  }, [refreshConversations]);
+
   const { data: serviceData } = useServiceStatus();
   const toggleOnlineMutation  = useToggleOnline();
   const { data: dashboardStats } = useDashboardStats();
@@ -658,6 +686,39 @@ export default function HomeScreen() {
           </View>
         )}
 
+        {/* ── Recent Messages ── */}
+        {recentConvs.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.sectionTitle}>Recent Messages</Text>
+                {totalUnread > 0 && (
+                  <View style={styles.countBadge}>
+                    <Text style={styles.countBadgeText}>{totalUnread > 99 ? "99+" : totalUnread}</Text>
+                  </View>
+                )}
+              </View>
+              <Pressable onPress={() => router.replace("/(tabs)/chat" as any)} hitSlop={8}>
+                <Text style={styles.viewAllText}>View All</Text>
+              </Pressable>
+            </View>
+            {recentConvs.map((conv) => (
+              <RecentMessageRow
+                key={conv._id}
+                conv={conv}
+                onPress={() => router.push({
+                  pathname: "/(tabs)/chat/[conversationId]" as any,
+                  params: {
+                    conversationId: conv._id,
+                    customerName: conv.customer?.fullName ?? conv.customer?.name ?? "Customer",
+                    customerPhoto: conv.customer?.profilePhoto ?? "",
+                  },
+                })}
+              />
+            ))}
+          </View>
+        )}
+
         {/* ── Today's Overview ── */}
         <Text style={styles.sectionTitle}>Today's Overview</Text>
         <View style={styles.statsRow}>
@@ -701,6 +762,74 @@ export default function HomeScreen() {
 }
 
 // ─── Sub-Components ───────────────────────────────────────────────────────────
+
+// ─── Recent Message Row ───────────────────────────────────────────────────────
+
+function formatTime(dateStr: string | null): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffDays === 0) return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7)  return d.toLocaleDateString("en-IN", { weekday: "short" });
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+}
+
+function getInitials(name?: string): string {
+  if (!name) return "?";
+  return name.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+}
+
+function RecentMessageRow({ conv, onPress }: { conv: Conversation; onPress: () => void }) {
+  const customer = conv.customer;
+  const name = customer?.fullName ?? customer?.name ?? "Customer";
+  const lastText = conv.lastMessage?.text || (conv.lastMessage?.senderType ? "📷 Image" : "No messages yet");
+  const isFromMe = conv.lastMessage?.senderType === "partner";
+  const unread = conv.unreadByPartner ?? 0;
+  const hasUnread = unread > 0;
+
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.msgRow, pressed && { backgroundColor: colors.surface }]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Chat with ${name}`}
+    >
+      {/* Avatar */}
+      <View style={styles.msgAvatarWrap}>
+        {customer?.profilePhoto ? (
+          <Image source={{ uri: customer.profilePhoto }} style={styles.msgAvatar} />
+        ) : (
+          <View style={[styles.msgAvatar, styles.msgAvatarFallback]}>
+            <Text style={styles.msgAvatarInitials}>{getInitials(name)}</Text>
+          </View>
+        )}
+        {hasUnread && <View style={styles.msgUnreadDot} />}
+      </View>
+      {/* Content */}
+      <View style={styles.msgContent}>
+        <View style={styles.msgTop}>
+          <Text style={[styles.msgName, hasUnread && styles.msgNameBold]} numberOfLines={1}>{name}</Text>
+          <Text style={styles.msgTime}>{formatTime(conv.lastMessage?.sentAt ?? null)}</Text>
+        </View>
+        <Text
+          style={[styles.msgPreview, hasUnread && styles.msgPreviewBold]}
+          numberOfLines={1}
+        >
+          {isFromMe ? `You: ${lastText}` : lastText}
+        </Text>
+      </View>
+      {/* Unread badge */}
+      {hasUnread && (
+        <View style={styles.msgBadge}>
+          <Text style={styles.msgBadgeText}>{unread > 99 ? "99+" : unread}</Text>
+        </View>
+      )}
+    </Pressable>
+  );
+}
 
 function StatCard({
   icon, iconColor, iconBg, label, value,
@@ -787,4 +916,21 @@ const styles = StyleSheet.create({
   emptyCard:    { backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.xl, alignItems: "center", justifyContent: "center" },
   emptyText:    { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.textPrimary, marginTop: spacing.md },
   emptySubtext: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, marginTop: spacing.xs, textAlign: "center" },
+
+  // ── Recent message row styles ────────────────────────────────────────────
+  msgRow:              { flexDirection: "row", alignItems: "center", paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radii.md, gap: spacing.md, backgroundColor: colors.background },
+  msgAvatarWrap:       { position: "relative" },
+  msgAvatar:           { width: 44, height: 44, borderRadius: 22 },
+  msgAvatarFallback:   { backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  msgAvatarInitials:   { fontFamily: fonts.jakartaBold, fontSize: 15, color: colors.white },
+  msgUnreadDot:        { position: "absolute", top: 0, right: 0, width: 11, height: 11, borderRadius: 6, backgroundColor: colors.error, borderWidth: 2, borderColor: colors.background },
+  msgContent:          { flex: 1, gap: 2 },
+  msgTop:              { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  msgName:             { fontFamily: fonts.jakartaMedium, fontSize: 14, color: colors.textPrimary, flex: 1 },
+  msgNameBold:         { fontFamily: fonts.jakartaBold },
+  msgTime:             { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary, marginLeft: 4 },
+  msgPreview:          { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary },
+  msgPreviewBold:      { fontFamily: fonts.jostMedium, color: colors.textPrimary },
+  msgBadge:            { backgroundColor: colors.error, borderRadius: radii.pill, minWidth: 20, height: 20, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
+  msgBadgeText:        { fontFamily: fonts.jakartaBold, fontSize: 11, color: colors.white },
 });
