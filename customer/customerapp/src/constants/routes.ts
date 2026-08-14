@@ -17,6 +17,7 @@ export const ROUTES = {
   APP: {
     HOME: "/(tabs)/home",
     BOOKINGS: "/(tabs)/bookings",
+    CHAT: "/(tabs)/chat",
     WALLET: "/(tabs)/wallet",
     ORDERS: "/(tabs)/orders",
     PROFILE: "/(tabs)/profile",

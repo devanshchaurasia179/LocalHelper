@@ -1,8 +1,5 @@
 /**
- * Partner Chat Tab — Conversation List Screen
- *
- * Shows all active conversations the partner has with customers.
- * Taps navigate to the individual chat room.
+ * Customer Chat Tab — Conversation List Screen
  */
 import React, { useState, useCallback, useEffect } from "react";
 import {
@@ -18,8 +15,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { colors, fonts, spacing, radii } from "@/constants/theme";
-import BottomNav from "@/components/navigation/BottomNav";
+import { Fonts, Colors, Spacing } from "@/constants/theme";
+import { useTheme } from "@/constants/theme";
 import { useConversations } from "@/hooks/useConversations";
 import { connectChatSocket, getChatSocket } from "@/services/chat.socket";
 import type { Conversation } from "@/api/chat.api";
@@ -46,24 +43,28 @@ function getInitials(name?: string): string {
 // ─── Conversation Row ─────────────────────────────────────────────────────────
 
 function ConversationRow({ conv, onPress }: { conv: Conversation; onPress: () => void }) {
-  const customer = conv.customer;
-  const name = customer?.fullName ?? customer?.name ?? "Customer";
+  const theme = useTheme();
+  const partner = conv.partner;
+  const name = partner?.fullName ?? partner?.name ?? "Partner";
   const lastText = conv.lastMessage?.text || (conv.lastMessage?.senderType ? "📷 Image" : "No messages yet");
-  const isFromMe = conv.lastMessage?.senderType === "partner";
-  const unread = conv.unreadByPartner;
+  const isFromMe = conv.lastMessage?.senderType === "customer";
+  const unread = conv.unreadByCustomer;
   const hasUnread = unread > 0;
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}
+      style={({ pressed }) => [
+        styles.row,
+        { backgroundColor: pressed ? theme.backgroundElement : theme.background },
+      ]}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`Chat with ${name}`}
     >
       {/* Avatar */}
       <View style={styles.avatarWrap}>
-        {customer?.profilePhoto ? (
-          <Image source={{ uri: customer.profilePhoto }} style={styles.avatar} />
+        {partner?.profilePhoto ? (
+          <Image source={{ uri: partner.profilePhoto }} style={styles.avatar} />
         ) : (
           <View style={[styles.avatar, styles.avatarFallback]}>
             <Text style={styles.avatarInitials}>{getInitials(name)}</Text>
@@ -75,14 +76,18 @@ function ConversationRow({ conv, onPress }: { conv: Conversation; onPress: () =>
       {/* Content */}
       <View style={styles.rowContent}>
         <View style={styles.rowTop}>
-          <Text style={[styles.rowName, hasUnread && styles.rowNameBold]} numberOfLines={1}>
+          <Text style={[styles.rowName, hasUnread && styles.rowNameBold, { color: theme.text }]} numberOfLines={1}>
             {name}
           </Text>
-          <Text style={styles.rowTime}>{formatTime(conv.lastMessage?.sentAt ?? null)}</Text>
+          <Text style={[styles.rowTime, { color: theme.textSecondary }]}>{formatTime(conv.lastMessage?.sentAt ?? null)}</Text>
         </View>
         <View style={styles.rowBottom}>
           <Text
-            style={[styles.rowLastMessage, hasUnread && styles.rowLastMessageBold]}
+            style={[
+              styles.rowLastMessage,
+              hasUnread && styles.rowLastMessageBold,
+              { color: hasUnread ? theme.text : theme.textSecondary },
+            ]}
             numberOfLines={1}
           >
             {isFromMe ? `You: ${lastText}` : lastText}
@@ -102,10 +107,11 @@ function ConversationRow({ conv, onPress }: { conv: Conversation; onPress: () =>
 
 export default function ChatScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const { conversations, loading, refreshing, error, refresh } = useConversations();
   const [socketStatus, setSocketStatus] = useState<"connecting" | "connected" | "error">("connecting");
 
-  // Connect socket on mount and listen for new messages to refresh the list
+  // Connect socket on mount
   useEffect(() => {
     let mounted = true;
 
@@ -114,7 +120,6 @@ export default function ChatScreen() {
         if (!mounted) return;
         setSocketStatus("connected");
 
-        // When a new message arrives in any conversation, refresh the list
         socket.on("new_message", () => {
           refresh();
         });
@@ -144,28 +149,25 @@ export default function ChatScreen() {
         pathname: "/(tabs)/chat/[conversationId]" as any,
         params: {
           conversationId: conv._id,
-          customerName: conv.customer?.fullName ?? conv.customer?.name ?? "Customer",
-          customerPhoto: conv.customer?.profilePhoto ?? "",
+          partnerName: conv.partner?.fullName ?? conv.partner?.name ?? "Partner",
+          partnerPhoto: conv.partner?.profilePhoto ?? "",
         },
       });
     },
     [router]
   );
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
       {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Messages</Text>
-        {/* Socket status indicator */}
+      <View style={[styles.header, { borderBottomColor: theme.backgroundElement }]}>
+        <Text style={[styles.title, { color: theme.text }]}>Messages</Text>
         <View style={styles.statusRow}>
           <View style={[
             styles.statusDot,
-            socketStatus === "connected" ? styles.statusDotOn : styles.statusDotOff,
+            { backgroundColor: socketStatus === "connected" ? "#10B981" : "#9CA3AF" },
           ]} />
-          <Text style={styles.statusText}>
+          <Text style={[styles.statusText, { color: theme.textSecondary }]}>
             {socketStatus === "connected" ? "Live" : socketStatus === "connecting" ? "Connecting…" : "Offline"}
           </Text>
         </View>
@@ -173,12 +175,12 @@ export default function ChatScreen() {
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <ActivityIndicator size="large" color="#16493c" />
         </View>
       ) : error ? (
         <View style={styles.center}>
-          <Ionicons name="alert-circle-outline" size={40} color={colors.error} />
-          <Text style={styles.errorText}>{error}</Text>
+          <Ionicons name="alert-circle-outline" size={40} color="#EF4444" />
+          <Text style={[styles.errorText, { color: theme.textSecondary }]}>{error}</Text>
           <Pressable style={styles.retryBtn} onPress={refresh}>
             <Text style={styles.retryText}>Retry</Text>
           </Pressable>
@@ -191,15 +193,15 @@ export default function ChatScreen() {
             <ConversationRow conv={item} onPress={() => handleConvPress(item)} />
           )}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} />
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor="#16493c" />
           }
-          ItemSeparatorComponent={() => <View style={styles.divider} />}
+          ItemSeparatorComponent={() => <View style={[styles.divider, { backgroundColor: theme.backgroundElement }]} />}
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
-              <Ionicons name="chatbubble-ellipses-outline" size={52} color={colors.navInactive} />
-              <Text style={styles.emptyTitle}>No conversations yet</Text>
-              <Text style={styles.emptySub}>
-                When a customer contacts you, the conversation will appear here.
+              <Ionicons name="chatbubble-ellipses-outline" size={52} color="#B0B4BA" />
+              <Text style={[styles.emptyTitle, { color: theme.text }]}>No conversations yet</Text>
+              <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
+                When a partner contacts you, the conversation will appear here.
               </Text>
             </View>
           }
@@ -207,8 +209,6 @@ export default function ChatScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
-
-      <BottomNav />
     </SafeAreaView>
   );
 }
@@ -216,63 +216,41 @@ export default function ChatScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background },
+  safe: { flex: 1 },
 
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.md,
+    paddingHorizontal: Spacing.four,
+    paddingTop: Spacing.two,
+    paddingBottom: Spacing.three,
     borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
   },
-  title: {
-    fontFamily: fonts.oswaldBold,
-    fontSize: 26,
-    color: colors.textPrimary,
-  },
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statusDotOn:  { backgroundColor: colors.success },
-  statusDotOff: { backgroundColor: "#9CA3AF" },
-  statusText: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
+  title: { fontFamily: Fonts.sans, fontSize: 26, fontWeight: "700" },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  statusText: { fontFamily: Fonts.sans, fontSize: 12 },
 
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    gap: spacing.md,
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.three,
+    gap: Spacing.three,
   },
   avatarWrap: { position: "relative" },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-  },
+  avatar: { width: 52, height: 52, borderRadius: 26 },
   avatarFallback: {
-    backgroundColor: colors.primary,
+    backgroundColor: "#16493c",
     alignItems: "center",
     justifyContent: "center",
   },
   avatarInitials: {
-    fontFamily: fonts.jakartaBold,
+    fontFamily: Fonts.sans,
     fontSize: 17,
-    color: colors.white,
+    fontWeight: "700",
+    color: "#fff",
   },
   unreadDot: {
     position: "absolute",
@@ -281,31 +259,51 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: colors.error,
+    backgroundColor: "#EF4444",
     borderWidth: 2,
-    borderColor: colors.background,
+    borderColor: "#fff",
   },
 
-  rowContent:          { flex: 1, gap: 3 },
-  rowTop:              { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  rowName:             { fontFamily: fonts.jakartaMedium, fontSize: 15, color: colors.textPrimary, flex: 1 },
-  rowNameBold:         { fontFamily: fonts.jakartaBold },
-  rowTime:             { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginLeft: 6 },
-  rowBottom:           { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 6 },
-  rowLastMessage:      { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, flex: 1 },
-  rowLastMessageBold:  { fontFamily: fonts.jostMedium, color: colors.textPrimary },
-  badgeWrap:           { backgroundColor: colors.primary, borderRadius: radii.pill, minWidth: 20, height: 20, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
-  badge:               { fontFamily: fonts.jakartaBold, fontSize: 11, color: colors.white },
+  rowContent: { flex: 1, gap: 3 },
+  rowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  rowName: { fontFamily: Fonts.sans, fontSize: 15, fontWeight: "500", flex: 1 },
+  rowNameBold: { fontWeight: "700" },
+  rowTime: { fontFamily: Fonts.sans, fontSize: 12, marginLeft: 6 },
+  rowBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 6 },
+  rowLastMessage: { fontFamily: Fonts.sans, fontSize: 13, flex: 1 },
+  rowLastMessageBold: { fontWeight: "600" },
+  badgeWrap: {
+    backgroundColor: "#16493c",
+    borderRadius: 999,
+    minWidth: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  badge: { fontFamily: Fonts.sans, fontSize: 11, fontWeight: "700", color: "#fff" },
 
-  divider: { height: 1, backgroundColor: "#F0F0F0", marginLeft: 52 + spacing.lg + spacing.md },
+  divider: { height: 1, marginLeft: 52 + Spacing.four + Spacing.three },
 
-  center:     { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl },
-  errorText:  { fontFamily: fonts.jostRegular, fontSize: 14, color: colors.textSecondary, textAlign: "center", marginTop: spacing.sm },
-  retryBtn:   { marginTop: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, backgroundColor: colors.primary, borderRadius: radii.pill },
-  retryText:  { fontFamily: fonts.jakartaSemiBold, fontSize: 14, color: colors.white },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: Spacing.five },
+  errorText: { fontFamily: Fonts.sans, fontSize: 14, textAlign: "center", marginTop: Spacing.two },
+  retryBtn: {
+    marginTop: Spacing.three,
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.two,
+    backgroundColor: "#16493c",
+    borderRadius: 999,
+  },
+  retryText: { fontFamily: Fonts.sans, fontSize: 14, fontWeight: "600", color: "#fff" },
 
   emptyContainer: { flex: 1 },
-  emptyWrap:      { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, paddingBottom: 100 },
-  emptyTitle:     { fontFamily: fonts.oswaldBold, fontSize: 20, color: colors.textPrimary, marginTop: spacing.md, marginBottom: spacing.xs },
-  emptySub:       { fontFamily: fonts.jostRegular, fontSize: 14, color: colors.textSecondary, textAlign: "center", lineHeight: 20 },
+  emptyWrap: { flex: 1, alignItems: "center", justifyContent: "center", padding: Spacing.five, paddingBottom: 100 },
+  emptyTitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 20,
+    fontWeight: "700",
+    marginTop: Spacing.three,
+    marginBottom: Spacing.one,
+  },
+  emptySub: { fontFamily: Fonts.sans, fontSize: 14, textAlign: "center", lineHeight: 20 },
 });

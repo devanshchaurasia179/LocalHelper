@@ -1,9 +1,9 @@
 import express from "express";
+import { createServer } from "http";
 import dotenv from "dotenv";
 import { connectDB } from "./lib/db.js";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import path from "path";
 import dns from "dns";
 
 import partnerAuthRoutes from "./routes/partner.auth.routes.js";
@@ -23,13 +23,18 @@ import adminPartnerRoutes from "./routes/admin/admin.partner.routes.js";
 import adminDocumentTypeRoutes from "./routes/admin/admin.documentType.routes.js";
 import adminVerificationRoutes from "./routes/admin/admin.verification.routes.js";
 import adminCategoryRoutes from "./routes/admin/admin.category.routes.js";
+import chatRoutes from "./routes/chat.routes.js";
+import adminChatRoutes from "./routes/admin/admin.chat.routes.js";
 import cloudinary from "./config/cloudinary.js";
+import { initSocket } from "./socket/index.js";
+
 dotenv.config();
 
 // Change DNS
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 const app = express();
+const httpServer = createServer(app);
 const PORT = process.env.PORT;
 
 console.log(cloudinary.config());
@@ -66,8 +71,13 @@ app.use("/api/admin/document-types", adminDocumentTypeRoutes);
 app.use("/api/admin/verification", adminVerificationRoutes);
 app.use("/api/admin/categories", adminCategoryRoutes);
 app.use("/api/admin", adminTransactionRoutes);
+app.use("/api/admin", adminChatRoutes);
+app.use("/api/chat", chatRoutes);
+
+// Initialise Socket.IO on the shared http server
+initSocket(httpServer);
 
 connectDB();
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
