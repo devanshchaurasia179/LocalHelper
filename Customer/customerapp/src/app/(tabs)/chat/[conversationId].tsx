@@ -1,6 +1,7 @@
 /**
  * Customer Chat Room Screen
- * – Respects system dark/light theme via useTheme()
+ * – Uses static brand colors (home/theme) to avoid the dark-mode black-page bug
+ *   that occurred when useTheme() returned Colors.dark.background = '#000000'.
  * – Supports sending images from the photo library or camera
  */
 import React, { useState, useRef, useCallback, useEffect } from "react";
@@ -22,7 +23,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
-import { Fonts, Colors, Spacing, useTheme } from "@/constants/theme";
+import { Fonts, Spacing } from "@/constants/theme";
+import { colors, fonts, spacing } from "../home/theme";
 import { useChatRoom } from "@/hooks/useChatRoom";
 import type { ChatMessage } from "@/api/chat.api";
 
@@ -55,16 +57,18 @@ function formatDateSeparator(dateStr: string): string {
   });
 }
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const BRAND = "#16493c";
+
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
   msg,
   isMe,
-  theme,
 }: {
   msg: ChatMessage;
   isMe: boolean;
-  theme: (typeof Colors)["light"];
 }) {
   const showStatus = isMe && (msg.isSending || msg.hasFailed);
 
@@ -73,7 +77,7 @@ function MessageBubble({
       <View
         style={[
           styles.bubble,
-          { backgroundColor: isMe ? BRAND : theme.backgroundElement },
+          { backgroundColor: isMe ? BRAND : "#F0F0F3" },
         ]}
       >
         {msg.mediaUrl && (
@@ -92,7 +96,7 @@ function MessageBubble({
           </View>
         )}
         {msg.text ? (
-          <Text style={[styles.bubbleText, { color: isMe ? "#fff" : theme.text }]}>
+          <Text style={[styles.bubbleText, { color: isMe ? "#fff" : colors.textPrimary }]}>
             {msg.text}
           </Text>
         ) : null}
@@ -100,7 +104,7 @@ function MessageBubble({
           <Text
             style={[
               styles.bubbleTime,
-              { color: isMe ? "rgba(255,255,255,0.75)" : theme.textSecondary },
+              { color: isMe ? "rgba(255,255,255,0.75)" : colors.textSecondary },
             ]}
           >
             {formatMessageTime(msg.createdAt)}
@@ -122,33 +126,22 @@ function MessageBubble({
 
 // ─── Date Separator ───────────────────────────────────────────────────────────
 
-function DateSeparator({
-  dateStr,
-  theme,
-}: {
-  dateStr: string;
-  theme: (typeof Colors)["light"];
-}) {
+function DateSeparator({ dateStr }: { dateStr: string }) {
   return (
     <View style={styles.dateSepWrap}>
-      <View style={[styles.dateSepLine, { backgroundColor: theme.backgroundElement }]} />
-      <Text style={[styles.dateSepText, { color: theme.textSecondary }]}>
+      <View style={[styles.dateSepLine, { backgroundColor: "#F0F0F3" }]} />
+      <Text style={[styles.dateSepText, { color: colors.textSecondary }]}>
         {formatDateSeparator(dateStr)}
       </Text>
-      <View style={[styles.dateSepLine, { backgroundColor: theme.backgroundElement }]} />
+      <View style={[styles.dateSepLine, { backgroundColor: "#F0F0F3" }]} />
     </View>
   );
 }
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const BRAND = "#16493c";
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ChatRoomScreen() {
   const router = useRouter();
-  const theme = useTheme();
   const params = useLocalSearchParams<{
     conversationId: string;
     partnerName?: string;
@@ -197,12 +190,12 @@ export default function ChatRoomScreen() {
 
       return (
         <>
-          {showDateSep && <DateSeparator dateStr={item.createdAt} theme={theme} />}
-          <MessageBubble msg={item} isMe={isMe} theme={theme} />
+          {showDateSep && <DateSeparator dateStr={item.createdAt} />}
+          <MessageBubble msg={item} isMe={isMe} />
         </>
       );
     },
-    [messages, theme]
+    [messages]
   );
 
   // ── Input handlers ────────────────────────────────────────────────────────
@@ -298,7 +291,7 @@ export default function ChatRoomScreen() {
 
   return (
     <SafeAreaView
-      style={[styles.safe, { backgroundColor: theme.background }]}
+      style={[styles.safe, { backgroundColor: colors.background }]}
       edges={["top"]}
     >
       {/* Header */}
@@ -306,13 +299,13 @@ export default function ChatRoomScreen() {
         style={[
           styles.header,
           {
-            borderBottomColor: theme.backgroundElement,
-            backgroundColor: theme.background,
+            borderBottomColor: "#F0F0F0",
+            backgroundColor: colors.background,
           },
         ]}
       >
         <Pressable onPress={() => router.back()} hitSlop={8} accessibilityLabel="Back">
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
+          <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
         </Pressable>
         <View style={styles.headerCenter}>
           {partnerPhoto ? (
@@ -324,7 +317,7 @@ export default function ChatRoomScreen() {
           )}
           <View>
             <Text
-              style={[styles.headerName, { color: theme.text }]}
+              style={[styles.headerName, { color: colors.textPrimary }]}
               numberOfLines={1}
             >
               {partnerName}
@@ -339,7 +332,7 @@ export default function ChatRoomScreen() {
                     { backgroundColor: isConnected ? "#10B981" : "#9CA3AF" },
                   ]}
                 />
-                <Text style={[styles.headerStatus, { color: theme.textSecondary }]}>
+                <Text style={[styles.headerStatus, { color: colors.textSecondary }]}>
                   {isConnected ? "Online" : "Offline"}
                 </Text>
               </View>
@@ -357,7 +350,7 @@ export default function ChatRoomScreen() {
       ) : error ? (
         <View style={styles.center}>
           <Ionicons name="alert-circle-outline" size={40} color="#EF4444" />
-          <Text style={[styles.errorText, { color: theme.textSecondary }]}>{error}</Text>
+          <Text style={[styles.errorText, { color: colors.textSecondary }]}>{error}</Text>
         </View>
       ) : (
         <FlatList
@@ -380,10 +373,10 @@ export default function ChatRoomScreen() {
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
               <Ionicons name="chatbubble-ellipses-outline" size={48} color="#B0B4BA" />
-              <Text style={[styles.emptyText, { color: theme.text }]}>
+              <Text style={[styles.emptyText, { color: colors.textPrimary }]}>
                 No messages yet
               </Text>
-              <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
+              <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
                 Start the conversation below
               </Text>
             </View>
@@ -401,8 +394,8 @@ export default function ChatRoomScreen() {
           style={[
             styles.inputWrap,
             {
-              borderTopColor: theme.backgroundElement,
-              backgroundColor: theme.background,
+              borderTopColor: "#F0F0F0",
+              backgroundColor: colors.background,
             },
           ]}
         >
@@ -413,21 +406,21 @@ export default function ChatRoomScreen() {
             accessibilityLabel="Attach image"
             style={styles.attachBtn}
           >
-            <Ionicons name="image-outline" size={24} color={theme.textSecondary} />
+            <Ionicons name="image-outline" size={24} color={colors.textSecondary} />
           </Pressable>
 
           <TextInput
             style={[
               styles.input,
               {
-                backgroundColor: theme.backgroundElement,
-                color: theme.text,
+                backgroundColor: "#F0F0F3",
+                color: colors.textPrimary,
               },
             ]}
             value={inputText}
             onChangeText={handleTextChange}
             placeholder="Type a message…"
-            placeholderTextColor={theme.textSecondary}
+            placeholderTextColor={colors.textSecondary}
             multiline
             maxLength={2000}
             returnKeyType="send"
