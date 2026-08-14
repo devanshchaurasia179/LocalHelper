@@ -79,7 +79,7 @@ export const getOrCreateConversation = async (req, res) => {
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     )
-      .populate("customer", "fullName profilePhoto phone")
+      .populate("customer", "name profilePhoto phone")
       .populate("partner",  "fullName profilePhoto phone");
 
     return res.status(200).json({ conversation });
@@ -114,7 +114,7 @@ export const getMyConversations = async (req, res) => {
 
     const conversations = await Conversation.find(filter)
       .sort({ "lastMessage.sentAt": -1 })
-      .populate("customer", "fullName profilePhoto")
+      .populate("customer", "name profilePhoto")
       .populate("partner",  "fullName profilePhoto")
       .populate("booking",  "status scheduledAt")
       .lean();

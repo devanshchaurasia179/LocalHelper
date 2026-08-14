@@ -19,8 +19,10 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import { colors, spacing, radii, typography } from './theme';
 import { useBookPartner } from '@/hooks/useBookPartner';
 import { initiateChat, initiateCall } from '@/constants/booking.api';
+import { getOrCreateConversation } from '@/api/chat.api';
 import type { NearbyPartner } from '@/api/nearby.api';
 import { nearbyCache } from '@/cache/nearbyCache';
+import { useRouter } from 'expo-router';
 
 // ─── Offline Booking Modal ────────────────────────────────────────────────────
 
@@ -332,6 +334,7 @@ export default function PartnerDetailSheet({
   onCallPaid,
 }: PartnerDetailSheetProps) {
   const { booking, error, book, reset } = useBookPartner();
+  const router = useRouter();
 
   // ── Distance (calculated from the selected address coords) ───────────────
   const [displayDistanceKm, setDisplayDistanceKm] = useState<number | null>(null);
@@ -446,13 +449,23 @@ export default function PartnerDetailSheet({
           onPress: async () => {
             setChatLoading(true);
             try {
-              const res = await initiateChat(partner._id);
-              Alert.alert(
-                'Chat Ready',
-                res.charge > 0
-                  ? `₹${res.charge} deducted. Wallet balance: ₹${res.walletBalance}`
-                  : 'Chat session started.',
-              );
+              // 1. Deduct charge (or no-op if free)
+              await initiateChat(partner._id);
+
+              // 2. Get or create the conversation record
+              const { data } = await getOrCreateConversation(partner._id);
+              const conversationId = data.conversation._id;
+
+              // 3. Close the sheet, then navigate into the chat room
+              onClose();
+              router.push({
+                pathname: '/(tabs)/chat/[conversationId]' as any,
+                params: {
+                  conversationId,
+                  partnerName: partner.fullName,
+                  partnerPhoto: partner.profilePhoto ?? partner.selfieUrl ?? '',
+                },
+              });
             } catch (err: any) {
               const msg = err?.response?.data?.message ?? 'Could not start chat. Try again.';
               Alert.alert(
@@ -466,7 +479,7 @@ export default function PartnerDetailSheet({
         },
       ],
     );
-  }, [partner]);
+  }, [partner, router, onClose]);
 
   // ── Call handler ───────────────────────────────────────────────────────────
   const handleCall = useCallback(() => {

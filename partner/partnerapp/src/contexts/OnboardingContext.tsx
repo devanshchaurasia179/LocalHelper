@@ -13,8 +13,6 @@ import React, { createContext, useContext, useState } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type WorkingDay = { day: string };
-
 export type ProfileDraft = {
   fullName: string;
   gender: string | null;
@@ -43,7 +41,6 @@ export type ServiceDraft = {
   bio: string;
   visitingCreditsType: "perVisit" | "perHour" | "perDay" | "perWeek";
   visitingCreditsAmount: string;
-  workingDays: WorkingDay[];
 };
 
 type OnboardingContextType = {
@@ -79,7 +76,6 @@ const DEFAULT_SERVICE: ServiceDraft = {
   bio: "",
   visitingCreditsType: "perVisit",
   visitingCreditsAmount: "",
-  workingDays: [],
 };
 
 // ─── Context ──────────────────────────────────────────────────────────────────

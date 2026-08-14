@@ -109,6 +109,8 @@ export default function Dashboard() {
   const handleNavigate = useCallback((route: NavRoute) => {
     if (route === 'profile')  router.replace(ROUTES.APP.PROFILE as any);
     if (route === 'bookings') router.replace(ROUTES.APP.BOOKINGS as any);
+    if (route === 'chat')     router.replace(ROUTES.APP.CHAT     as any);
+    if (route === 'wallet')   router.replace(ROUTES.APP.WALLET   as any);
     if (route === 'wallet')   router.replace(ROUTES.APP.WALLET   as any);
   }, []);
 

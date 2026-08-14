@@ -24,10 +24,11 @@ const NAV_ITEMS: {
   activeIcon: keyof typeof Ionicons.glyphMap;
   label: string;
 }[] = [
-  { route: 'home',     matchKey: 'home',     icon: 'home-outline',       activeIcon: 'home',       label: 'Home'     },
-  { route: 'bookings', matchKey: 'bookings', icon: 'calendar-outline',   activeIcon: 'calendar',   label: 'Bookings' },
-  { route: 'wallet',   matchKey: 'wallet',   icon: 'wallet-outline',     activeIcon: 'wallet',     label: 'Wallet'   },
-  { route: 'profile',  matchKey: 'profile',  icon: 'person-outline',     activeIcon: 'person',     label: 'Profile'  },
+  { route: 'home',     matchKey: 'home',     icon: 'home-outline',            activeIcon: 'home',              label: 'Home'     },
+  { route: 'bookings', matchKey: 'bookings', icon: 'calendar-outline',        activeIcon: 'calendar',          label: 'Bookings' },
+  { route: 'chat',     matchKey: 'chat',     icon: 'chatbubble-ellipses-outline', activeIcon: 'chatbubble-ellipses', label: 'Chat'     },
+  { route: 'wallet',   matchKey: 'wallet',   icon: 'wallet-outline',          activeIcon: 'wallet',            label: 'Wallet'   },
+  { route: 'profile',  matchKey: 'profile',  icon: 'person-outline',          activeIcon: 'person',            label: 'Profile'  },
 ];
 
 interface BottomNavProps {

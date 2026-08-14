@@ -31,13 +31,9 @@ type Category = {
   icon?: string;
   subcategories: Subcategory[];
 };
-type WorkingDay = { day: string };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const ALL_DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"] as const;
-const WEEKDAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday"] as const;
-const WEEKENDS = ["Saturday","Sunday"] as const;
 const LANGUAGES = ["Hindi","English","Tamil","Telugu","Kannada","Bengali","Marathi","Gujarati","Punjabi"] as const;
 
 // ─── FieldLabel ───────────────────────────────────────────────────────────────
@@ -85,56 +81,6 @@ const secStyles = StyleSheet.create({
   textCol: { flex: 1 },
   title: { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.textPrimary },
   subtitle: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: 1 },
-});
-
-// ─── WorkingDaysGrid ──────────────────────────────────────────────────────────
-
-const DAY_ROWS = [
-  ["Monday", "Tuesday", "Wednesday", "Thursday"],
-  ["Friday", "Saturday", "Sunday"],
-] as const;
-
-function WorkingDaysGrid({
-  workingDays, onAdd, onRemove,
-}: { workingDays: WorkingDay[]; onAdd: (d: string) => void; onRemove: (d: string) => void }) {
-  return (
-    <View style={wdStyles.grid}>
-      {DAY_ROWS.map((row, rowIdx) => (
-        <View key={rowIdx} style={[wdStyles.gridRow, rowIdx === 1 && wdStyles.gridRowCentered]}>
-          {row.map((day) => {
-            const active = workingDays.some((d) => d.day === day);
-            return (
-              <Pressable
-                key={day}
-                style={[wdStyles.dayChip, active && wdStyles.dayChipActive]}
-                onPress={() => active ? onRemove(day) : onAdd(day)}
-                hitSlop={4}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: active }}
-              >
-                {active && <MaterialCommunityIcons name="check" size={13} color={colors.white} />}
-                <Text style={[wdStyles.dayText, active && wdStyles.dayTextActive]}>{day.slice(0, 3)}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      ))}
-    </View>
-  );
-}
-const wdStyles = StyleSheet.create({
-  grid: { marginTop: spacing.xs, gap: spacing.xs },
-  gridRow: { flexDirection: "row", gap: spacing.xs },
-  gridRowCentered: { justifyContent: "center" },
-  dayChip: {
-    flex: 1, maxWidth: "25%", flexDirection: "row", alignItems: "center",
-    justifyContent: "center", gap: 4, paddingVertical: spacing.sm + 2,
-    borderRadius: radii.sm, borderWidth: 1.5, borderColor: colors.navInactive,
-    backgroundColor: colors.surface,
-  },
-  dayChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  dayText: { fontFamily: fonts.jostMedium, fontSize: 13, color: colors.textSecondary },
-  dayTextActive: { color: colors.white },
 });
 
 // ─── NestedCategoryPicker ─────────────────────────────────────────────────────
@@ -469,7 +415,6 @@ export default function AddServiceScreen() {
   const [visitingCreditsAmount, setVisitingCreditsAmountLocal] = useState(
     service.visitingCreditsAmount
   );
-  const [workingDays, setWorkingDaysLocal] = useState<WorkingDay[]>(service.workingDays);
 
   // Derive selected category IDs from subcats (unique parent IDs)
   const selectedCats = [...new Set(selectedSubcats.map((s) => s.categoryId))];
@@ -484,10 +429,9 @@ export default function AddServiceScreen() {
       bio,
       visitingCreditsType,
       visitingCreditsAmount,
-      workingDays,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSubcats, experience, selectedLangs, bio, visitingCreditsType, visitingCreditsAmount, workingDays]);
+  }, [selectedSubcats, experience, selectedLangs, bio, visitingCreditsType, visitingCreditsAmount]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -513,7 +457,6 @@ export default function AddServiceScreen() {
         languages: string[];
         bio?: string;
         visitingCredits: { type: "perVisit" | "perHour" | "perDay" | "perWeek"; amount: number };
-        workingDays: WorkingDay[];
       };
     }>("/partner/service")
       .then(({ data }) => {
@@ -529,7 +472,6 @@ export default function AddServiceScreen() {
         const bioVal = s.bio ?? "";
         const vcType = s.visitingCredits?.type ?? "perVisit";
         const vcAmt = s.visitingCredits?.amount != null ? String(s.visitingCredits.amount) : "";
-        const wdays = s.workingDays ?? [];
 
         setService({
           selectedCats: [...new Set(subs.map((x) => x.categoryId))],
@@ -539,7 +481,6 @@ export default function AddServiceScreen() {
           bio: bioVal,
           visitingCreditsType: vcType,
           visitingCreditsAmount: vcAmt,
-          workingDays: wdays,
         });
         setSelectedSubcatsLocal(subs);
         setExperienceLocal(expStr);
@@ -547,7 +488,6 @@ export default function AddServiceScreen() {
         setBioLocal(bioVal);
         setVisitingCreditsTypeLocal(vcType);
         setVisitingCreditsAmountLocal(vcAmt);
-        setWorkingDaysLocal(wdays);
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -563,12 +503,6 @@ export default function AddServiceScreen() {
 
   const toggleLang = (lang: string) =>
     setSelectedLangsLocal((p) => p.includes(lang) ? p.filter((l) => l !== lang) : [...p, lang]);
-
-  const addDay = (day: string) => setWorkingDaysLocal((p) => [...p, { day }]);
-  const removeDay = (day: string) => setWorkingDaysLocal((p) => p.filter((d) => d.day !== day));
-  const applyPreset = (days: readonly string[]) =>
-    setWorkingDaysLocal(days.map((day) => workingDays.find((d) => d.day === day) ?? { day }));
-  const clearDays = () => setWorkingDaysLocal([]);
 
   const isValid =
     selectedSubcats.length > 0 &&
@@ -588,7 +522,6 @@ export default function AddServiceScreen() {
         bio: bio.trim() || undefined,
         visitingCreditsType,
         visitingCreditsAmount: Number(visitingCreditsAmount),
-        workingDays: workingDays.length > 0 ? workingDays : undefined,
       });
       patchPartner({ isService: true });
       router.push(ROUTES.ONBOARDING.DOCUMENTS as any);
@@ -598,7 +531,7 @@ export default function AddServiceScreen() {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSubcats, selectedCats, experience, selectedLangs, bio, visitingCreditsType, visitingCreditsAmount, workingDays, patchPartner]);
+  }, [selectedSubcats, selectedCats, experience, selectedLangs, bio, visitingCreditsType, visitingCreditsAmount, patchPartner]);
 
   return (
     <SafeAreaView style={styles.safe} edges={["bottom"]}>
@@ -773,31 +706,6 @@ export default function AddServiceScreen() {
               {visitingCreditsType === "perWeek" && "Amount charged per week"}
             </Text>
 
-            {/* ── Working days ── */}
-            <View style={styles.sectionHeader}>
-              <SectionTitle icon="calendar-clock-outline" title="Working Schedule" subtitle="Select the days you're available" />
-            </View>
-            <View style={styles.presetRow}>
-              <Pressable style={styles.presetChip} onPress={() => applyPreset(WEEKDAYS)}>
-                <Text style={styles.presetChipText}>Weekdays</Text>
-              </Pressable>
-              <Pressable style={styles.presetChip} onPress={() => applyPreset(WEEKENDS)}>
-                <Text style={styles.presetChipText}>Weekends</Text>
-              </Pressable>
-              <Pressable style={styles.presetChip} onPress={() => applyPreset(ALL_DAYS)}>
-                <Text style={styles.presetChipText}>All days</Text>
-              </Pressable>
-              {workingDays.length > 0 && (
-                <Pressable style={styles.presetChipClear} onPress={clearDays}>
-                  <MaterialCommunityIcons name="close" size={13} color={colors.textSecondary} />
-                  <Text style={styles.presetChipText}>Clear</Text>
-                </Pressable>
-              )}
-            </View>
-            <View style={styles.fieldGap}>
-              <WorkingDaysGrid workingDays={workingDays} onAdd={addDay} onRemove={removeDay} />
-            </View>
-
             {/* ── Error banner ── */}
             {error ? (
               <View style={styles.errorBanner}>
@@ -965,21 +873,6 @@ const styles = StyleSheet.create({
   pricingModelCol: { width: 118, zIndex: 10 },
   pricingFeesCol: { flex: 1 },
   feesInput: { height: 48, borderRadius: radii.sm },
-
-  // Working day presets
-  presetRow: { flexDirection: "row", gap: spacing.xs, marginTop: spacing.xs, flexWrap: "wrap" },
-  presetChip: {
-    paddingHorizontal: spacing.sm + 2, paddingVertical: spacing.xs,
-    borderRadius: radii.pill, backgroundColor: colors.primary + "14",
-    borderWidth: 1, borderColor: colors.primary + "33",
-  },
-  presetChipClear: {
-    flexDirection: "row", alignItems: "center", gap: 3,
-    paddingHorizontal: spacing.sm + 2, paddingVertical: spacing.xs,
-    borderRadius: radii.pill, backgroundColor: colors.surface,
-    borderWidth: 1, borderColor: colors.navInactive,
-  },
-  presetChipText: { fontFamily: fonts.jostMedium, fontSize: 12, color: colors.primary },
 
   // Error / submit
   errorBanner: {
