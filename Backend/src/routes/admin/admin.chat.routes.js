@@ -5,6 +5,7 @@ import {
   adminGetPartnerConversations,
   adminGetConversationMessages,
   adminCloseConversation,
+  adminReopenConversation,
 } from "../../controllers/admin/admin.chat.controller.js";
 
 const router = express.Router();
@@ -23,5 +24,8 @@ router.get("/conversations/:conversationId/messages", adminGetConversationMessag
 
 // PATCH /api/admin/conversations/:conversationId/close         — close / lock a conversation
 router.patch("/conversations/:conversationId/close", adminCloseConversation);
+
+// PATCH /api/admin/conversations/:conversationId/reopen        — reopen a closed conversation
+router.patch("/conversations/:conversationId/reopen", adminReopenConversation);
 
 export default router;

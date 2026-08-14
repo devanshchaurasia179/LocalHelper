@@ -32,3 +32,9 @@ export const getConversationMessages = (conversationId, params = {}) =>
  */
 export const closeConversation = (conversationId) =>
   api.patch(`/admin/conversations/${conversationId}/close`).then((res) => res.data)
+
+/**
+ * PATCH /api/admin/conversations/:conversationId/reopen
+ */
+export const reopenConversation = (conversationId) =>
+  api.patch(`/admin/conversations/${conversationId}/reopen`).then((res) => res.data)

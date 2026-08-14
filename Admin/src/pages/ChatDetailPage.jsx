@@ -8,12 +8,13 @@ import {
   User,
   Clock,
   Lock,
+  LockOpen,
   Image as ImageIcon,
   Trash2,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
-import { getConversationMessages, closeConversation } from '@/api/chat.api'
+import { getConversationMessages, closeConversation, reopenConversation } from '@/api/chat.api'
 import Card from '@/components/ui/Card'
 import Button from '@/components/ui/Button'
 import Avatar from '@/components/ui/Avatar'

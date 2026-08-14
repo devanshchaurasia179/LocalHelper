@@ -181,3 +181,39 @@ export const adminCloseConversation = async (req, res) => {
     return res.status(500).json({ message: "Internal server error." });
   }
 };
+
+// ─── ADMIN: Reopen a conversation ─────────────────────────────────────────────
+/**
+ * PATCH /api/admin/conversations/:conversationId/reopen
+ * 🔒 admin_token
+ *
+ * Sets the conversation status back to "active" so both parties can
+ * resume messaging. Useful after a dispute is resolved or a chat was
+ * closed by mistake.
+ */
+export const adminReopenConversation = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+
+    const conversation = await Conversation.findById(conversationId);
+    if (!conversation) {
+      return res.status(404).json({ message: "Conversation not found." });
+    }
+
+    if (conversation.status === "active") {
+      return res.status(400).json({ message: "Conversation is already active." });
+    }
+
+    conversation.status = "active";
+    await conversation.save();
+
+    return res.status(200).json({
+      message: "Conversation reopened.",
+      conversationId: conversation._id,
+      status: conversation.status,
+    });
+  } catch (error) {
+    console.error("adminReopenConversation error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
