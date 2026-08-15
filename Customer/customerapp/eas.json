@@ -2,8 +2,7 @@
   "cli": {
     "version": ">= 20.1.0",
     "appVersionSource": "remote",
-    "requireCommit": true,
-    "projectRootDirectory": "Customer/customerapp"
+    "requireCommit": true
   },
   "build": {
     "development": {
