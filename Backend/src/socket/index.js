@@ -18,9 +18,16 @@ export const initSocket = (httpServer) => {
       origin: true,         // mirrors the Express cors({ origin: true }) setting
       credentials: true,
     },
-    // Websocket-only — matches the client config. Avoids sticky-session issues
-    // on AWS ELB that break long-polling across multiple requests.
-    transports: ["websocket"],
+    // Allow both transports — polling for initial handshake (works through ALB),
+    // then auto-upgrade to websocket for better performance.
+    transports: ["polling", "websocket"],
+    // Enable sticky sessions via cookie to ensure polling requests hit same instance
+    cookie: {
+      name: "io",
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+    },
   });
 
   // ── /chat namespace ───────────────────────────────────────────────────────

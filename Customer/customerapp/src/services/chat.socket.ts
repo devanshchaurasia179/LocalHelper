@@ -77,10 +77,10 @@ export async function connectChatSocket(): Promise<Socket> {
 
     _socket = io(`${SOCKET_BASE_URL}/chat`, {
       auth: { token },
-      // Websocket-only — skips the polling handshake that breaks on AWS ELB
-      // without sticky sessions. A single persistent WS connection is also
-      // faster and more reliable on mobile networks.
-      transports: ["websocket"],
+      // Start with polling to establish connection through ALB, then upgrade
+      // to websocket. This works around ALB WebSocket upgrade issues.
+      transports: ["polling", "websocket"],
+      upgrade: true,
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 2000,
