@@ -53,19 +53,24 @@ let _connecting = false;
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Connect (or return the existing connected socket).
- * Fetches a fresh socket-token from the server on every new connection.
+ * Connect (or return the existing socket — connected or reconnecting).
+ * Fetches a fresh socket-token from the server on every NEW connection only.
+ *
+ * Never rejects — always resolves with the socket instance so callers can
+ * attach listeners immediately. Socket.IO handles reconnection internally.
  */
 export async function connectChatSocket(): Promise<Socket> {
-  if (_socket?.connected) return _socket;
+  // Return existing socket regardless of connected state — Socket.IO will
+  // reconnect automatically; listeners survive reconnects on the same instance.
+  if (_socket) return _socket;
 
-  // Prevent race conditions with multiple callers
+  // Guard against concurrent calls
   if (_connecting) {
     return new Promise((resolve, reject) => {
       const check = setInterval(() => {
-        if (_socket?.connected) {
+        if (_socket) {
           clearInterval(check);
-          resolve(_socket!);
+          resolve(_socket);
         } else if (!_connecting) {
           clearInterval(check);
           reject(new Error("Socket connection failed"));
@@ -76,40 +81,48 @@ export async function connectChatSocket(): Promise<Socket> {
 
   _connecting = true;
 
-  // Disconnect any stale socket before creating a new one
-  if (_socket) {
-    _socket.disconnect();
-    _socket = null;
-  }
-
   try {
     const { data } = await getSocketToken();
     const { token } = data;
 
     _socket = io(`${SOCKET_BASE_URL}/chat`, {
       auth: { token },
-      transports: ["websocket", "polling"],
+      // polling first — works through all load balancers including AWS ELB.
+      // Socket.IO will auto-upgrade to websocket once polling is established.
+      transports: ["polling", "websocket"],
       reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1500,
-      timeout: 10000,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 10000,
+      timeout: 20000,
     });
 
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error("Socket connection timed out"));
-      }, 12000);
-
-      _socket!.once("connect", () => {
-        clearTimeout(timeout);
+    // Wait for first connection attempt — resolve either way so the caller
+    // always gets the socket back and can attach listeners.
+    await new Promise<void>((resolve) => {
+      const onConnect = () => {
         console.log("[ChatSocket] Connected:", _socket?.id);
+        cleanup();
         resolve();
-      });
+      };
+      const onError = (err: Error) => {
+        console.warn("[ChatSocket] Initial connect_error (will retry):", err.message);
+        cleanup();
+        resolve(); // don't reject — let reconnection handle it
+      };
+      const cleanup = () => {
+        _socket?.off("connect", onConnect);
+        _socket?.off("connect_error", onError);
+      };
 
-      _socket!.once("connect_error", (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
+      const timeout = setTimeout(() => {
+        console.warn("[ChatSocket] Initial connection timeout — continuing with reconnects");
+        cleanup();
+        resolve();
+      }, 15000);
+
+      _socket!.once("connect", () => { clearTimeout(timeout); onConnect(); });
+      _socket!.once("connect_error", (err) => { clearTimeout(timeout); onError(err); });
     });
 
     return _socket;
@@ -132,8 +145,17 @@ export function disconnectChatSocket(): void {
 }
 
 /**
- * Get the current socket, or null if not connected.
+ * Get the current socket instance, or null if never connected.
+ * The socket may be reconnecting — use getConnectedSocket() for sends.
  */
 export function getChatSocket(): Socket | null {
+  return _socket;
+}
+
+/**
+ * Get the socket only if it is currently connected.
+ * Use for fire-and-forget emits (typing, send_message).
+ */
+export function getConnectedSocket(): Socket | null {
   return _socket?.connected ? _socket : null;
 }

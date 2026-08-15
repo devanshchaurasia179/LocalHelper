@@ -8,15 +8,15 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "env": {
-        "MAPS_KEY": "AIzaSyB6Ol9ZmBqQL3yzCRhdiZRSTh7Id3Z22BQ"
-      }
+      "environment": "development"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "environment": "preview"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "environment": "production"
     }
   },
   "submit": {

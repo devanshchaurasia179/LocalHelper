@@ -117,7 +117,8 @@ export default function ChatScreen() {
     connectChatSocket()
       .then((socket) => {
         if (!mounted) return;
-        setSocketStatus("connected");
+        // Sync initial state — socket may or may not be connected yet
+        setSocketStatus(socket.connected ? "connected" : "connecting");
 
         socket.on("new_message", () => {
           refresh();
@@ -129,6 +130,10 @@ export default function ChatScreen() {
 
         socket.on("connect", () => {
           if (mounted) setSocketStatus("connected");
+        });
+
+        socket.on("connect_error", () => {
+          if (mounted && !socket.connected) setSocketStatus("error");
         });
       })
       .catch(() => {

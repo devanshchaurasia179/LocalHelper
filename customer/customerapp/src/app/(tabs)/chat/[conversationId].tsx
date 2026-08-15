@@ -66,9 +66,11 @@ const BRAND = "#16493c";
 function MessageBubble({
   msg,
   isMe,
+  showSeen,
 }: {
   msg: ChatMessage;
   isMe: boolean;
+  showSeen?: boolean;
 }) {
   const showStatus = isMe && (msg.isSending || msg.hasFailed);
 
@@ -118,6 +120,10 @@ function MessageBubble({
               ) : null}
             </View>
           )}
+          {/* Seen tick — only on last sent message once read */}
+          {!showStatus && showSeen && (
+            <Ionicons name="checkmark-done" size={14} color="rgba(255,255,255,0.9)" />
+          )}
         </View>
       </View>
     </View>
@@ -158,6 +164,7 @@ export default function ChatRoomScreen() {
     loadingMore,
     error,
     isConnected,
+    isOtherOnline,
     isTyping,
     sendMessage,
     sendImage,
@@ -188,10 +195,17 @@ export default function ChatRoomScreen() {
         !prevMsg ||
         !isSameDay(new Date(item.createdAt), new Date(prevMsg.createdAt));
 
+      // Show seen tick only on the last message sent by me
+      const isLastSentByMe =
+        isMe &&
+        messages
+          .slice(index + 1)
+          .every((m) => m.senderType !== "customer");
+
       return (
         <>
           {showDateSep && <DateSeparator dateStr={item.createdAt} />}
-          <MessageBubble msg={item} isMe={isMe} />
+          <MessageBubble msg={item} isMe={isMe} showSeen={isLastSentByMe && item.isRead} />
         </>
       );
     },
@@ -292,7 +306,7 @@ export default function ChatRoomScreen() {
   return (
     <SafeAreaView
       style={[styles.safe, { backgroundColor: colors.background }]}
-      edges={["top"]}
+      edges={["top", "bottom"]}
     >
       {/* Header */}
       <View
@@ -329,11 +343,11 @@ export default function ChatRoomScreen() {
                 <View
                   style={[
                     styles.headerDot,
-                    { backgroundColor: isConnected ? "#10B981" : "#9CA3AF" },
+                    { backgroundColor: isOtherOnline ? "#10B981" : "#9CA3AF" },
                   ]}
                 />
                 <Text style={[styles.headerStatus, { color: colors.textSecondary }]}>
-                  {isConnected ? "Online" : "Offline"}
+                  {isOtherOnline ? "Online" : "Offline"}
                 </Text>
               </View>
             )}
@@ -342,54 +356,54 @@ export default function ChatRoomScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      {/* Messages */}
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={BRAND} />
-        </View>
-      ) : error ? (
-        <View style={styles.center}>
-          <Ionicons name="alert-circle-outline" size={40} color="#EF4444" />
-          <Text style={[styles.errorText, { color: colors.textSecondary }]}>{error}</Text>
-        </View>
-      ) : (
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          keyExtractor={(item) => item._id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.5}
-          ListHeaderComponent={
-            loadingMore ? (
-              <ActivityIndicator
-                size="small"
-                color={BRAND}
-                style={{ paddingVertical: Spacing.three }}
-              />
-            ) : null
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyWrap}>
-              <Ionicons name="chatbubble-ellipses-outline" size={48} color="#B0B4BA" />
-              <Text style={[styles.emptyText, { color: colors.textPrimary }]}>
-                No messages yet
-              </Text>
-              <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
-                Start the conversation below
-              </Text>
-            </View>
-          }
-          showsVerticalScrollIndicator={false}
-        />
-      )}
-
-      {/* Input Bar */}
+      {/* Messages + Input wrapped together so keyboard shrinks the list */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
+        {loading ? (
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={BRAND} />
+          </View>
+        ) : error ? (
+          <View style={styles.center}>
+            <Ionicons name="alert-circle-outline" size={40} color="#EF4444" />
+            <Text style={[styles.errorText, { color: colors.textSecondary }]}>{error}</Text>
+          </View>
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            keyExtractor={(item) => item._id}
+            renderItem={renderItem}
+            contentContainerStyle={styles.listContent}
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.5}
+            ListHeaderComponent={
+              loadingMore ? (
+                <ActivityIndicator
+                  size="small"
+                  color={BRAND}
+                  style={{ paddingVertical: Spacing.three }}
+                />
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyWrap}>
+                <Ionicons name="chatbubble-ellipses-outline" size={48} color="#B0B4BA" />
+                <Text style={[styles.emptyText, { color: colors.textPrimary }]}>
+                  No messages yet
+                </Text>
+                <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
+                  Start the conversation below
+                </Text>
+              </View>
+            }
+            showsVerticalScrollIndicator={false}
+          />
+        )}
+
+        {/* Input Bar */}
         <View
           style={[
             styles.inputWrap,
@@ -446,6 +460,7 @@ export default function ChatRoomScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+  flex: { flex: 1 },
 
   header: {
     flexDirection: "row",

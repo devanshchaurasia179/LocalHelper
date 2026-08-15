@@ -58,7 +58,7 @@ function formatDateSeparator(dateStr: string): string {
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
-function MessageBubble({ msg, isMe }: { msg: ChatMessage; isMe: boolean }) {
+function MessageBubble({ msg, isMe, showSeen }: { msg: ChatMessage; isMe: boolean; showSeen?: boolean }) {
   const showStatus = isMe && (msg.isSending || msg.hasFailed);
 
   return (
@@ -96,6 +96,10 @@ function MessageBubble({ msg, isMe }: { msg: ChatMessage; isMe: boolean }) {
                 <Ionicons name="alert-circle" size={12} color={colors.error} />
               ) : null}
             </View>
+          )}
+          {/* Seen tick — only on last sent message once read */}
+          {!showStatus && showSeen && (
+            <Ionicons name="checkmark-done" size={14} color="rgba(255,255,255,0.9)" />
           )}
         </View>
       </View>
@@ -135,6 +139,7 @@ export default function ChatRoomScreen() {
     loadingMore,
     error,
     isConnected,
+    isOtherOnline,
     isTyping,
     sendMessage,
     sendImage,
@@ -165,10 +170,17 @@ export default function ChatRoomScreen() {
         !prevMsg ||
         !isSameDay(new Date(item.createdAt), new Date(prevMsg.createdAt));
 
+      // Show seen tick only on the last message sent by me
+      const isLastSentByMe =
+        isMe &&
+        messages
+          .slice(index + 1)
+          .every((m) => m.senderType !== "partner");
+
       return (
         <>
           {showDateSep && <DateSeparator dateStr={item.createdAt} />}
-          <MessageBubble msg={item} isMe={isMe} />
+          <MessageBubble msg={item} isMe={isMe} showSeen={isLastSentByMe && item.isRead} />
         </>
       );
     },
@@ -266,7 +278,7 @@ export default function ChatRoomScreen() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
+    <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={8} accessibilityLabel="Back">
@@ -288,9 +300,9 @@ export default function ChatRoomScreen() {
               <Text style={styles.headerTyping}>typing…</Text>
             ) : (
               <View style={styles.headerStatusRow}>
-                <View style={[styles.headerDot, isConnected && styles.headerDotOn]} />
+                <View style={[styles.headerDot, isOtherOnline && styles.headerDotOn]} />
                 <Text style={styles.headerStatus}>
-                  {isConnected ? "Online" : "Offline"}
+                  {isOtherOnline ? "Online" : "Offline"}
                 </Text>
               </View>
             )}
@@ -299,54 +311,55 @@ export default function ChatRoomScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      {/* Messages */}
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      ) : error ? (
-        <View style={styles.center}>
-          <Ionicons name="alert-circle-outline" size={40} color={colors.error} />
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      ) : (
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          keyExtractor={(item) => item._id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.5}
-          ListHeaderComponent={
-            loadingMore ? (
-              <ActivityIndicator
-                size="small"
-                color={colors.primary}
-                style={{ paddingVertical: spacing.md }}
-              />
-            ) : null
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyWrap}>
-              <Ionicons
-                name="chatbubble-ellipses-outline"
-                size={48}
-                color={colors.navInactive}
-              />
-              <Text style={styles.emptyText}>No messages yet</Text>
-              <Text style={styles.emptySub}>Start the conversation below</Text>
-            </View>
-          }
-          showsVerticalScrollIndicator={false}
-        />
-      )}
-
-      {/* Input Bar */}
+      {/* Messages + Input wrapped together so keyboard shrinks the list */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
       >
+        {loading ? (
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : error ? (
+          <View style={styles.center}>
+            <Ionicons name="alert-circle-outline" size={40} color={colors.error} />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            keyExtractor={(item) => item._id}
+            renderItem={renderItem}
+            contentContainerStyle={styles.listContent}
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.5}
+            ListHeaderComponent={
+              loadingMore ? (
+                <ActivityIndicator
+                  size="small"
+                  color={colors.primary}
+                  style={{ paddingVertical: spacing.md }}
+                />
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyWrap}>
+                <Ionicons
+                  name="chatbubble-ellipses-outline"
+                  size={48}
+                  color={colors.navInactive}
+                />
+                <Text style={styles.emptyText}>No messages yet</Text>
+                <Text style={styles.emptySub}>Start the conversation below</Text>
+              </View>
+            }
+            showsVerticalScrollIndicator={false}
+          />
+        )}
+
+        {/* Input Bar */}
         <View style={styles.inputWrap}>
           {/* Attach button */}
           <Pressable
@@ -388,6 +401,7 @@ export default function ChatRoomScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
 
   header: {
     flexDirection: "row",

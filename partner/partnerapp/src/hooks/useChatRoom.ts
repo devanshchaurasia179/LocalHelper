@@ -1,6 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { AppState } from "react-native";
-import { connectChatSocket, getChatSocket } from "@/services/chat.socket";
+import {
+  connectChatSocket,
+  getConnectedSocket,
+} from "@/services/chat.socket";
 import {
   fetchMessages,
   markConversationRead,
@@ -15,6 +18,7 @@ export interface UseChatRoomResult {
   loadingMore: boolean;
   error: string | null;
   isConnected: boolean;
+  isOtherOnline: boolean;  // true when the other party is in this conversation room
   isTyping: boolean; // other party typing?
   sendMessage: (text: string) => void;
   sendImage: (imageUri: string, mimeType?: string) => Promise<void>;
@@ -24,15 +28,11 @@ export interface UseChatRoomResult {
 }
 
 /**
- * useChatRoom
+ * useChatRoom — Partner App
  *
- * Manages the full state for a single chat conversation:
- *  - Fetches message history from REST
- *  - Connects to Socket.IO /chat and joins the conversation room
- *  - Receives new_message, typing_start/stop, messages_read events
- *  - Optimistic send via socket; falls back to failed state on error
- *  - Infinite scroll (load older messages)
- *  - Marks messages as read on mount and when app comes to foreground
+ * Manages real-time chat for a single conversation.
+ * The socket singleton persists across navigations; this hook attaches
+ * listeners on mount and removes them on unmount.
  */
 export function useChatRoom(conversationId: string): UseChatRoomResult {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -40,11 +40,13 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [isOtherOnline, setIsOtherOnline] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
 
   const paginationRef = useRef<MessagePagination>({ total: 0, page: 1, totalPages: 1 });
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const myTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
 
   // ── Load message history ──────────────────────────────────────────────────
 
@@ -72,7 +74,7 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
       setMessages((prev) => [...res.data.messages, ...prev]);
       paginationRef.current = res.data.pagination;
     } catch {
-      // silently fail — user can pull up again
+      // silently fail — user can retry
     } finally {
       setLoadingMore(false);
     }
@@ -81,107 +83,187 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
   // ── Socket connection + event handlers ───────────────────────────────────
 
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
 
     const setup = async () => {
       try {
+        // connectChatSocket() never rejects — always returns the socket instance
+        // even if still connecting. Socket.IO handles reconnection internally.
         const socket = await connectChatSocket();
-        if (!mounted) return;
+        if (!mountedRef.current) return;
 
-        setIsConnected(true);
+        // Sync initial connected state
+        setIsConnected(socket.connected);
 
-        // Join the room
-        socket.emit("join_conversation", { conversationId });
+        // ── Join the conversation room ─────────────────────────────────────
+        if (socket.connected) {
+          socket.emit("join_conversation", { conversationId });
+        }
 
-        // ── new_message (other party sent a message) ──────────────────────
-        socket.on("new_message", ({ message }: { message: ChatMessage }) => {
+        // ── connect (fired on initial + every reconnect) ───────────────────
+        const onConnect = () => {
+          if (!mountedRef.current) return;
+          setIsConnected(true);
+          socket.emit("join_conversation", { conversationId });
+        };
+
+        // ── disconnect ─────────────────────────────────────────────────────
+        const onDisconnect = () => {
+          if (mountedRef.current) setIsConnected(false);
+        };
+
+        // ── new_message ────────────────────────────────────────────────────
+        const onNewMessage = ({ message }: { message: ChatMessage }) => {
           if (message.conversation !== conversationId) return;
           setMessages((prev) => {
-            // avoid duplicates
             if (prev.some((m) => m._id === message._id)) return prev;
             return [...prev, message];
           });
-          // Auto-mark as read since the screen is open
           socket.emit("mark_read", { conversationId });
-        });
+        };
 
-        // ── message_sent (our own message confirmed by server) ─────────────
-        socket.on(
-          "message_sent",
-          ({ message, tempId }: { message: ChatMessage; tempId?: string }) => {
-            if (message.conversation !== conversationId) return;
-            setMessages((prev) => {
-              // Replace optimistic bubble with confirmed message
-              const withoutTemp = prev.filter(
-                (m) => !(m.tempId && m.tempId === tempId)
-              );
-              if (withoutTemp.some((m) => m._id === message._id)) return withoutTemp;
-              return [...withoutTemp, message];
-            });
-          }
-        );
+        // ── message_sent (own message confirmed) ───────────────────────────
+        const onMessageSent = ({
+          message,
+          tempId,
+        }: {
+          message: ChatMessage;
+          tempId?: string;
+        }) => {
+          if (message.conversation !== conversationId) return;
+          setMessages((prev) => {
+            const withoutTemp = prev.filter(
+              (m) => !(m.tempId && m.tempId === tempId)
+            );
+            if (withoutTemp.some((m) => m._id === message._id)) return withoutTemp;
+            return [...withoutTemp, message];
+          });
+        };
 
         // ── message_error ──────────────────────────────────────────────────
-        socket.on(
-          "message_error",
-          ({ tempId, error }: { tempId?: string; error: string }) => {
-            console.warn("[ChatRoom] message_error:", error);
-            if (tempId) {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.tempId === tempId ? { ...m, isSending: false, hasFailed: true } : m
-                )
-              );
-            }
+        const onMessageError = ({
+          tempId,
+          error: errMsg,
+        }: {
+          tempId?: string;
+          error: string;
+        }) => {
+          console.warn("[ChatRoom] message_error:", errMsg);
+          if (tempId) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.tempId === tempId
+                  ? { ...m, isSending: false, hasFailed: true }
+                  : m
+              )
+            );
           }
-        );
+        };
 
         // ── typing indicators ──────────────────────────────────────────────
-        socket.on("typing_start", ({ conversationId: cId }: { conversationId: string }) => {
+        const onTypingStart = ({
+          conversationId: cId,
+        }: {
+          conversationId: string;
+        }) => {
           if (cId !== conversationId) return;
           setIsTyping(true);
           if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-          // Auto-clear if no typing_stop arrives within 3s
-          typingTimerRef.current = setTimeout(() => setIsTyping(false), 3000);
-        });
+          typingTimerRef.current = setTimeout(
+            () => setIsTyping(false),
+            3000
+          );
+        };
 
-        socket.on("typing_stop", ({ conversationId: cId }: { conversationId: string }) => {
+        const onTypingStop = ({
+          conversationId: cId,
+        }: {
+          conversationId: string;
+        }) => {
           if (cId !== conversationId) return;
           if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
           setIsTyping(false);
-        });
+        };
 
-        // ── disconnect handling ────────────────────────────────────────────
-        socket.on("disconnect", () => {
-          if (mounted) setIsConnected(false);
-        });
-
-        socket.on("connect", () => {
-          if (mounted) {
-            setIsConnected(true);
-            // Re-join room after reconnect
-            socket.emit("join_conversation", { conversationId });
+        // ── user_presence ──────────────────────────────────────────────────
+        // Fired when the other party joins or leaves this conversation room.
+        // callerType in the event is the OTHER party's type (customer for partner app).
+        const onUserPresence = ({
+          conversationId: cId,
+          callerType: presenceType,
+          isOnline,
+        }: {
+          conversationId: string;
+          callerType: string;
+          isOnline: boolean;
+        }) => {
+          if (cId !== conversationId) return;
+          // Only update presence for the other party (customer), not ourselves
+          if (presenceType === "customer") {
+            setIsOtherOnline(isOnline);
           }
-        });
+        };
+
+        // ── messages_read ──────────────────────────────────────────────────
+        // Fired when the other party (customer) reads our messages.
+        const onMessagesRead = ({
+          conversationId: cId,
+          readBy,
+        }: {
+          conversationId: string;
+          readBy: string;
+        }) => {
+          if (cId !== conversationId) return;
+          // Mark all our (partner) sent messages as read
+          if (readBy === "customer") {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.senderType === "partner" && !m.isRead
+                  ? { ...m, isRead: true, readAt: new Date().toISOString() }
+                  : m
+              )
+            );
+          }
+        };
+
+        // Attach all listeners
+        socket.on("connect", onConnect);
+        socket.on("disconnect", onDisconnect);
+        socket.on("new_message", onNewMessage);
+        socket.on("message_sent", onMessageSent);
+        socket.on("message_error", onMessageError);
+        socket.on("typing_start", onTypingStart);
+        socket.on("typing_stop", onTypingStop);
+        socket.on("user_presence", onUserPresence);
+        socket.on("messages_read", onMessagesRead);
+
+        // Cleanup: detach only our handlers, don't disconnect the singleton
+        return () => {
+          socket.emit("leave_conversation", { conversationId });
+          socket.off("connect", onConnect);
+          socket.off("disconnect", onDisconnect);
+          socket.off("new_message", onNewMessage);
+          socket.off("message_sent", onMessageSent);
+          socket.off("message_error", onMessageError);
+          socket.off("typing_start", onTypingStart);
+          socket.off("typing_stop", onTypingStop);
+          socket.off("user_presence", onUserPresence);
+          socket.off("messages_read", onMessagesRead);
+        };
       } catch (err) {
         console.error("[ChatRoom] socket setup error:", err);
-        if (mounted) setIsConnected(false);
+        if (mountedRef.current) setIsConnected(false);
       }
     };
 
-    setup();
+    let cleanup: (() => void) | undefined;
+    setup().then((fn) => {
+      cleanup = fn;
+    });
 
     return () => {
-      mounted = false;
-      const socket = getChatSocket();
-      if (socket) {
-        socket.emit("leave_conversation", { conversationId });
-        socket.off("new_message");
-        socket.off("message_sent");
-        socket.off("message_error");
-        socket.off("typing_start");
-        socket.off("typing_stop");
-      }
+      mountedRef.current = false;
+      cleanup?.();
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
       if (myTypingTimerRef.current) clearTimeout(myTypingTimerRef.current);
     };
@@ -214,7 +296,6 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
 
       const tempId = `temp_${Date.now()}_${Math.random()}`;
 
-      // Optimistic bubble
       const optimistic: ChatMessage = {
         _id: tempId,
         conversation: conversationId,
@@ -234,11 +315,13 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
 
       setMessages((prev) => [...prev, optimistic]);
 
-      const socket = getChatSocket();
+      const socket = getConnectedSocket();
       if (!socket) {
         setMessages((prev) =>
           prev.map((m) =>
-            m.tempId === tempId ? { ...m, isSending: false, hasFailed: true } : m
+            m.tempId === tempId
+              ? { ...m, isSending: false, hasFailed: true }
+              : m
           )
         );
         return;
@@ -249,13 +332,12 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
     [conversationId]
   );
 
-  // ── Send image (REST multipart → optimistic bubble) ─────────────────────
+  // ── Send image (REST multipart → optimistic bubble) ──────────────────────
 
   const sendImage = useCallback(
     async (imageUri: string, mimeType = "image/jpeg") => {
       const tempId = `temp_img_${Date.now()}_${Math.random()}`;
 
-      // Optimistic bubble — show the local image immediately with a spinner
       const optimistic: ChatMessage = {
         _id: tempId,
         conversation: conversationId,
@@ -280,14 +362,17 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
         const confirmed = res.data.message;
         setMessages((prev) => {
           const withoutTemp = prev.filter((m) => m.tempId !== tempId);
-          if (withoutTemp.some((m) => m._id === confirmed._id)) return withoutTemp;
+          if (withoutTemp.some((m) => m._id === confirmed._id))
+            return withoutTemp;
           return [...withoutTemp, confirmed];
         });
       } catch (err) {
         console.error("[ChatRoom] sendImage error:", err);
         setMessages((prev) =>
           prev.map((m) =>
-            m.tempId === tempId ? { ...m, isSending: false, hasFailed: true } : m
+            m.tempId === tempId
+              ? { ...m, isSending: false, hasFailed: true }
+              : m
           )
         );
       }
@@ -298,10 +383,9 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
   // ── Typing indicators ─────────────────────────────────────────────────────
 
   const onTypingStart = useCallback(() => {
-    const socket = getChatSocket();
+    const socket = getConnectedSocket();
     if (!socket) return;
     socket.emit("typing_start", { conversationId });
-    // Auto send typing_stop after 2s of inactivity
     if (myTypingTimerRef.current) clearTimeout(myTypingTimerRef.current);
     myTypingTimerRef.current = setTimeout(() => {
       socket.emit("typing_stop", { conversationId });
@@ -309,7 +393,7 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
   }, [conversationId]);
 
   const onTypingStop = useCallback(() => {
-    const socket = getChatSocket();
+    const socket = getConnectedSocket();
     if (!socket) return;
     if (myTypingTimerRef.current) clearTimeout(myTypingTimerRef.current);
     socket.emit("typing_stop", { conversationId });
@@ -321,6 +405,7 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
     loadingMore,
     error,
     isConnected,
+    isOtherOnline,
     isTyping,
     sendMessage,
     sendImage,

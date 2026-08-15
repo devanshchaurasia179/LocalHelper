@@ -137,6 +137,13 @@ export const registerChatHandlers = (namespace) => {
 
         await socket.join(conversationRoom(conversationId));
         console.log(`[Socket] ${callerType}:${callerId} joined room conv:${conversationId}`);
+
+        // Notify the other party that this user is now present in the room
+        socket.to(conversationRoom(conversationId)).emit("user_presence", {
+          conversationId,
+          callerType,
+          isOnline: true,
+        });
       } catch (err) {
         console.error("[Socket] join_conversation error:", err.message);
         socket.emit("error", { message: "Failed to join conversation." });
@@ -148,6 +155,13 @@ export const registerChatHandlers = (namespace) => {
       if (conversationId) {
         socket.leave(conversationRoom(conversationId));
         console.log(`[Socket] ${callerType}:${callerId} left room conv:${conversationId}`);
+
+        // Notify the other party that this user has left the room
+        socket.to(conversationRoom(conversationId)).emit("user_presence", {
+          conversationId,
+          callerType,
+          isOnline: false,
+        });
       }
     });
 
@@ -275,6 +289,18 @@ export const registerChatHandlers = (namespace) => {
     // ── disconnect ──────────────────────────────────────────────────────────
     socket.on("disconnect", (reason) => {
       console.log(`[Socket] disconnected — ${callerType}:${callerId}  reason: ${reason}`);
+
+      // Notify all conversation rooms this socket was in that the user went offline
+      for (const room of socket.rooms) {
+        if (room.startsWith("conv:")) {
+          const conversationId = room.slice(5); // strip "conv:" prefix
+          namespace.to(room).emit("user_presence", {
+            conversationId,
+            callerType,
+            isOnline: false,
+          });
+        }
+      }
     });
   });
 };
