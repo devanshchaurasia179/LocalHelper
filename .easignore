@@ -1,7 +1,6 @@
-# Exclude other projects from EAS builds
+# Global exclusions for all EAS builds
 Admin/
 Backend/
-partner/
 vercel-proxy/
 
 # Exclude git and IDE folders

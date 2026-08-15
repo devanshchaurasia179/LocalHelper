@@ -1,0 +1,2 @@
+# Exclude customer app when building partner app  
+../../Customer/
