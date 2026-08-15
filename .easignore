@@ -1,0 +1,15 @@
+# Exclude other projects from EAS builds
+Admin/
+Backend/
+partner/
+vercel-proxy/
+
+# Exclude git and IDE folders
+.git/
+.github/
+.idea/
+.vscode/
+
+# Exclude documentation
+*.md
+README.md
