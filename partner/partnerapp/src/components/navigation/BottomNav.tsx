@@ -177,7 +177,7 @@ export default function BottomNav() {
   );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { bottom: Math.max(insets.bottom + 12, 16) }]}>
       {NAV_ITEMS.map((item) => (
         <NavItem
           key={item.route}
@@ -194,17 +194,16 @@ export default function BottomNav() {
 const styles = StyleSheet.create({
   container: {
     position: "absolute",
-    bottom: spacing.lg,
-    width: "92%",
-    alignSelf: "center",
+    bottom: 16, // overridden at render time via insets
+    left: "4%",
+    right: "4%",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "space-between",
     backgroundColor: colors.background,
     borderRadius: radii.pill,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
-    gap: spacing.xs,
     shadowColor: "#000",
     shadowOpacity: 0.1,
     shadowRadius: 16,
