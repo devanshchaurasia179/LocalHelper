@@ -2,6 +2,7 @@ import { useEffect, useCallback, useState } from "react";
 import { View, TouchableOpacity, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { usePathname, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -115,6 +116,7 @@ function NavItem({
 export default function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
 
   const activeRoute: TabRoute =

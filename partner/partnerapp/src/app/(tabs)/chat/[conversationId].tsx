@@ -58,8 +58,26 @@ function formatDateSeparator(dateStr: string): string {
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
-function MessageBubble({ msg, isMe, showSeen }: { msg: ChatMessage; isMe: boolean; showSeen?: boolean }) {
-  const showStatus = isMe && (msg.isSending || msg.hasFailed);
+function MessageBubble({ msg, isMe }: { msg: ChatMessage; isMe: boolean }) {
+  // Tick indicator for my own messages
+  const renderTick = () => {
+    if (!isMe) return null;
+
+    if (msg.isSending) {
+      // Clock — pending / optimistic
+      return <Ionicons name="time-outline" size={12} color="rgba(255,255,255,0.7)" />;
+    }
+    if (msg.hasFailed) {
+      // Red alert — send failed
+      return <Ionicons name="alert-circle" size={12} color={colors.error} />;
+    }
+    if (msg.isRead) {
+      // Double tick blue — seen by the other party
+      return <Ionicons name="checkmark-done" size={14} color="#60A5FA" />;
+    }
+    // Single tick — delivered (sent to server, not yet read)
+    return <Ionicons name="checkmark" size={14} color="rgba(255,255,255,0.7)" />;
+  };
 
   return (
     <View style={[styles.bubbleWrap, isMe ? styles.bubbleWrapMe : styles.bubbleWrapOther]}>
@@ -88,19 +106,7 @@ function MessageBubble({ msg, isMe, showSeen }: { msg: ChatMessage; isMe: boolea
           <Text style={[styles.bubbleTime, isMe && styles.bubbleTimeMe]}>
             {formatMessageTime(msg.createdAt)}
           </Text>
-          {showStatus && (
-            <View style={styles.statusIcon}>
-              {msg.isSending && !msg.mediaUrl ? (
-                <ActivityIndicator size={10} color={colors.white} />
-              ) : msg.hasFailed ? (
-                <Ionicons name="alert-circle" size={12} color={colors.error} />
-              ) : null}
-            </View>
-          )}
-          {/* Seen tick — only on last sent message once read */}
-          {!showStatus && showSeen && (
-            <Ionicons name="checkmark-done" size={14} color="rgba(255,255,255,0.9)" />
-          )}
+          {renderTick()}
         </View>
       </View>
     </View>
@@ -170,17 +176,10 @@ export default function ChatRoomScreen() {
         !prevMsg ||
         !isSameDay(new Date(item.createdAt), new Date(prevMsg.createdAt));
 
-      // Show seen tick only on the last message sent by me
-      const isLastSentByMe =
-        isMe &&
-        messages
-          .slice(index + 1)
-          .every((m) => m.senderType !== "partner");
-
       return (
         <>
           {showDateSep && <DateSeparator dateStr={item.createdAt} />}
-          <MessageBubble msg={item} isMe={isMe} showSeen={isLastSentByMe && item.isRead} />
+          <MessageBubble msg={item} isMe={isMe} />
         </>
       );
     },
@@ -538,12 +537,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   bubbleTimeMe: { color: "rgba(255,255,255,0.8)" },
-  statusIcon: {
-    width: 12,
-    height: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
 
   inputWrap: {
     flexDirection: "row",

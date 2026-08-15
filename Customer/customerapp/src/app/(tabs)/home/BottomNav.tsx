@@ -1,7 +1,8 @@
 import { useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -131,12 +132,17 @@ function NavItem({
 
 export default function BottomNav({ onNavigate }: BottomNavProps) {
   const pathname = usePathname();
+  const insets = useSafeAreaInsets();
 
   const activeRoute: NavRoute =
     NAV_ITEMS.find((item) => pathname.includes(`/${item.matchKey}`))?.route ?? 'home';
 
+  // Sit 12px above the safe-area bottom (gesture bar / home indicator),
+  // but never less than 16px from the physical edge.
+  const bottomOffset = Math.max(insets.bottom + 12, 16);
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { bottom: bottomOffset }]}>
       {NAV_ITEMS.map((item) => (
         <NavItem
           key={item.route}
@@ -152,17 +158,16 @@ export default function BottomNav({ onNavigate }: BottomNavProps) {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: spacing.lg,
-    width: '90%',
-    alignSelf: 'center',
+    bottom: 16, // overridden at render time via insets
+    left: '5%',
+    right: '5%',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     backgroundColor: colors.background,
     borderRadius: radii.pill,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
-    gap: spacing.sm,
     shadowColor: '#000',
     shadowOpacity: 0.10,
     shadowRadius: 16,
