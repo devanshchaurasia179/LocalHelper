@@ -18,8 +18,9 @@ export const initSocket = (httpServer) => {
       origin: true,         // mirrors the Express cors({ origin: true }) setting
       credentials: true,
     },
-    // Use websocket first; fall back to polling for environments that block WS
-    transports: ["websocket", "polling"],
+    // Websocket-only — matches the client config. Avoids sticky-session issues
+    // on AWS ELB that break long-polling across multiple requests.
+    transports: ["websocket"],
   });
 
   // ── /chat namespace ───────────────────────────────────────────────────────
