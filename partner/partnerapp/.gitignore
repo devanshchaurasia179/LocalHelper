@@ -40,4 +40,4 @@ example
 
 # generated native folders
 /ios
-/android
+# /android — committed for bare workflow (EAS build requires it)

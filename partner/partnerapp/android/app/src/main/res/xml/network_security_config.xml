@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext traffic for AWS Elastic Beanstalk backend -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhelperbackend-env.eba-xsu7rune.ap-south-1.elasticbeanstalk.com</domain>
+    </domain-config>
+</network-security-config>
