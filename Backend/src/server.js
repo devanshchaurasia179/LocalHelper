@@ -26,6 +26,7 @@ import adminCategoryRoutes from "./routes/admin/admin.category.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
 import adminChatRoutes from "./routes/admin/admin.chat.routes.js";
 import cloudinary from "./config/cloudinary.js";
+import callRoutes from "./routes/call.routes.js";
 import { initSocket } from "./socket/index.js";
 
 dotenv.config();
@@ -73,6 +74,7 @@ app.use("/api/admin/categories", adminCategoryRoutes);
 app.use("/api/admin", adminTransactionRoutes);
 app.use("/api/admin", adminChatRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/calls", callRoutes);
 
 // Initialise Socket.IO on the shared http server
 initSocket(httpServer);

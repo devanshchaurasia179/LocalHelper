@@ -1,3 +1,5 @@
+import mongoose from "mongoose";
+
 // Personal Information & Address fields
 const profileFields = {
   name: {
@@ -35,6 +37,14 @@ const profileFields = {
       type: [Number], // [longitude, latitude]
     },
   },
+
+  // Partners this customer has blocked — prevents them from calling each other
+  blockedPartners: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Partner",
+    },
+  ],
 
   // Multiple saved addresses — label is a free string (e.g. "Home", "Office", "Mom's Place")
   addresses: [

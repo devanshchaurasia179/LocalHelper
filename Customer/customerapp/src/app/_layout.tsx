@@ -8,6 +8,9 @@ import { useFonts as useJost, Jost_300Light, Jost_400Regular, Jost_500Medium, Jo
 import { useFonts as useArchivoBlack, ArchivoBlack_400Regular } from '@expo-google-fonts/archivo-black';
 
 import { AuthProvider } from '@/providers/AuthProvider';
+import { registerGlobals } from '@livekit/react-native';
+
+registerGlobals();
 
 SplashScreen.preventAutoHideAsync();
 

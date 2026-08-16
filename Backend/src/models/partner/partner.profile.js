@@ -1,3 +1,5 @@
+import mongoose from "mongoose";
+
 // Personal Information & Address fields
 const profileFields = {
   fullName: {
@@ -20,6 +22,14 @@ const profileFields = {
     state: String,
     pincode: String,
   },
+
+  // Customers this partner has blocked — prevents them from calling each other
+  blockedCustomers: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Customer",
+    },
+  ],
 
   // ── Wallet & Earnings ─────────────────────────────────────────────────────
   // Moved from rating.js since these are financial account data, not ratings.

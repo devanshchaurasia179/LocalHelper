@@ -30,6 +30,9 @@ import {
 
 import { AuthProvider } from "@/providers/AuthProvider";
 import { QueryProvider } from "@/providers/QueryProvider";
+import { registerGlobals } from "@livekit/react-native";
+
+registerGlobals();
 
 SplashScreen.preventAutoHideAsync();
 
