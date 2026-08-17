@@ -17,8 +17,7 @@ import cloudinary from "../config/cloudinary.js";
  *      { categoryId, subcategoryId } pair.
  *   2. visibleToCategories non-empty → partner must belong to at least
  *      one of those categories.
- *   3. Neither populated → document is HIDDEN from all partners.
- *      (Admin must explicitly select categories/subcategories)
+ *   3. Neither populated → visible to all.
  *
  * Same two-stage logic applies for requiredFor* (evaluated in buildDocumentObject).
  *

@@ -55,7 +55,7 @@ const schema = z.object({
       categoryId: z.string(),
       subcategoryId: z.string().optional(),
     })
-  ).min(1, 'Select at least one category or subcategory for visibility'),
+  ).default([]),
   requiredForCategories: z.array(
     z.object({
       type: z.enum(['category', 'subcategory']),
@@ -388,18 +388,13 @@ const DocumentTypeForm = ({
             title="Visibility — Who sees this document?"
             icon={<Eye className="w-3.5 h-3.5 text-slate-400" />}
           >
-            <div className="p-3 mb-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 leading-relaxed">
-              <strong className="text-amber-900">Required:</strong> You must select at least one category or subcategory.
+            <div className="p-3 mb-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 leading-relaxed">
+              Leave empty so <strong className="text-slate-700">all partners</strong> see this document.
               <br />
-              Documents with no visibility settings are <strong>hidden from all partners</strong>.
-              <br />
-              Select <strong>categories</strong> to show it to all partners in those categories, or drill down to specific <strong>subcategories</strong> (e.g. only Electricians, not all Home Service partners).
+              Select <strong>categories</strong> to show it only to partners in those categories, or drill down to specific <strong>subcategories</strong> (e.g. only Electricians, not all Home Service partners).
               <br />
               Example: "Driving License" → visible only to partners offering <em>Driver</em> services.
             </div>
-            {errors.visibleToCategories && (
-              <p className="text-xs text-red-600 mb-2">{errors.visibleToCategories.message}</p>
-            )}
             <Controller
               name="visibleToCategories"
               control={control}
@@ -407,8 +402,8 @@ const DocumentTypeForm = ({
                 <CategoryMultiSelect
                   value={field.value || []}
                   onChange={field.onChange}
-                  placeholder="Select categories or subcategories (required)"
-                  helperText="At least one category/subcategory must be selected"
+                  placeholder="All categories (visible to everyone)"
+                  helperText="Select categories or subcategories. Leave empty = all."
                 />
               )}
             />
