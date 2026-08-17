@@ -58,3 +58,29 @@ export const toggleCategory = (id) =>
  */
 export const deleteCategory = (id) =>
   api.delete(`/admin/categories/${id}`).then((res) => res.data)
+
+// ── Subcategory Management ──────────────────────────────────────────
+
+/**
+ * POST /api/admin/categories/:id/subcategories
+ * Body: { name*, description, icon }
+ * Response: { message, category }
+ */
+export const addSubcategory = (categoryId, data) =>
+  api.post(`/admin/categories/${categoryId}/subcategories`, data).then((res) => res.data)
+
+/**
+ * PATCH /api/admin/categories/:id/subcategories/:subId
+ * Body: { name, description, icon, isActive }
+ * Response: { message, category }
+ */
+export const updateSubcategory = (categoryId, subId, data) =>
+  api.patch(`/admin/categories/${categoryId}/subcategories/${subId}`, data).then((res) => res.data)
+
+/**
+ * DELETE /api/admin/categories/:id/subcategories/:subId
+ * Hard delete — blocked if partners reference this subcategory.
+ * Response: { message, category }
+ */
+export const deleteSubcategory = (categoryId, subId) =>
+  api.delete(`/admin/categories/${categoryId}/subcategories/${subId}`).then((res) => res.data)
