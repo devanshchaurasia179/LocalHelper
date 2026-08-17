@@ -5,5 +5,6 @@
         <domain includeSubdomains="true">localhelperbackend-env.eba-xsu7rune.ap-south-1.elasticbeanstalk.com</domain>
         <!-- Allow local network IP for development -->
         <domain includeSubdomains="true">10.10.213.145</domain>
+        <domain includeSubdomains="true">10.64.148.193</domain>
     </domain-config>
 </network-security-config>

@@ -233,6 +233,55 @@ export const createCallAsPartner = async (req, res) => {
   }
 };
 
+/**
+ * Debug endpoint to check socket connections
+ * GET /api/calls/debug/sockets/:partnerId
+ */
+export const debugSocketConnections = async (req, res) => {
+  try {
+    const { partnerId } = req.params;
+    
+    const io = getIO();
+    const chatNS = io.of("/chat");
+    
+    // Get all connected sockets
+    const allSockets = await chatNS.fetchSockets();
+    
+    // Get sockets in partner's personal room
+    const partnerRoom = `partner:${partnerId}`;
+    const socketsInRoom = await chatNS.in(partnerRoom).fetchSockets();
+    
+    const debugInfo = {
+      targetPartnerId: partnerId,
+      targetRoom: partnerRoom,
+      totalSocketsConnected: allSockets.length,
+      socketsInPartnerRoom: socketsInRoom.length,
+      allSockets: allSockets.map(s => ({
+        id: s.id,
+        connected: s.connected,
+        rooms: Array.from(s.rooms),
+        data: s.data,
+      })),
+      socketsInRoom: socketsInRoom.map(s => ({
+        id: s.id,
+        connected: s.connected,
+        rooms: Array.from(s.rooms),
+        data: s.data,
+      })),
+    };
+    
+    console.log('[Debug] Socket connections:', JSON.stringify(debugInfo, null, 2));
+    
+    return res.status(200).json({
+      success: true,
+      debug: debugInfo,
+    });
+  } catch (error) {
+    console.error("Debug sockets error:", error);
+    return res.status(500).json({ success: false, message: "Failed to debug sockets" });
+  }
+};
+
 // ─── Block / Unblock ──────────────────────────────────────────────────────────
 
 /**

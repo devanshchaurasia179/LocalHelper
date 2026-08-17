@@ -28,6 +28,7 @@ import { initiateCall } from '@/api/call.api';
 import type { CallResponse } from '@/api/call.api';
 import Toast from 'react-native-toast-message';
 import { colors, spacing, radii, typography } from '../home/theme';
+import { getChatSocket } from '@/services/chat.socket';
 
 // ─── Sort options ───────────────────────────────────────────────────────────
 
@@ -282,9 +283,19 @@ export default function CategoryPartnersScreen() {
     try {
       setInitiatingCall(true);
       
+      // Debug: Check socket connection status
+      const socket = getChatSocket();
+      console.log('[CategoryPartners] Initiating call to partner:', partner._id);
+      console.log('[CategoryPartners] Socket status:', {
+        exists: !!socket,
+        connected: socket?.connected,
+        id: socket?.id,
+      });
+      
       // Note: Since authentication uses httpOnly cookies, we don't need to pass a token
       // The cookie is automatically sent with the request via withCredentials: true
       const response = await initiateCall(partner._id, '');
+      console.log('[CategoryPartners] Call API response:', response);
       
       if (response.success && response.livekit) {
         setCallPartner(partner);
@@ -303,7 +314,7 @@ export default function CategoryPartnersScreen() {
         });
       }
     } catch (error: any) {
-      console.error('Call initiation error:', error);
+      console.error('[CategoryPartners] Call initiation error:', error);
       const errorMessage = error?.response?.data?.message || 'Failed to start call. Please try again.';
       Toast.show({
         type: 'error',

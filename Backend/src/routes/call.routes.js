@@ -9,11 +9,15 @@ import {
   acceptCall,
   rejectCall,
   endCall,
+  debugSocketConnections,
 } from "../controllers/call.controller.js";
 import protectCustomer from "../middleware/customer.auth.middleware.js";
 import protectPartner from "../middleware/partner.auth.middleware.js";
 
 const router = express.Router();
+
+// ── Debug endpoint (no auth for testing) ──────────────────────────────────────
+router.get("/debug/sockets/:partnerId", debugSocketConnections);
 
 // ── Customer initiates a call to a partner ────────────────────────────────────
 router.post("/", protectCustomer, createCall);
