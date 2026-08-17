@@ -17,7 +17,7 @@ import cloudinary from "../config/cloudinary.js";
  *      { categoryId, subcategoryId } pair.
  *   2. visibleToCategories non-empty → partner must belong to at least
  *      one of those categories.
- *   3. Neither populated → visible to all.
+ *   3. Neither populated → visible to all (global document).
  *
  * Same two-stage logic applies for requiredFor* (evaluated in buildDocumentObject).
  *
@@ -53,10 +53,8 @@ const getRelevantDocumentTypes = async (partnerCategories, partnerSubcategories 
       );
     }
 
-    // ── Stage 1c: No visibility rules set — hide from everyone ────────────
-    // Changed from "return true" to "return false"
-    // Empty arrays now mean "not visible to anyone" instead of "visible to all"
-    return false;
+    // ── Stage 1c: No visibility rules set → visible to all partners ───────
+    return true;
   });
 };
 

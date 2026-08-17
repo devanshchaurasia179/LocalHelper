@@ -55,7 +55,7 @@ const schema = z.object({
       categoryId: z.string(),
       subcategoryId: z.string().optional(),
     })
-  ).default([]),
+  ).min(1, 'Select at least one category or subcategory for visibility'),
   requiredForCategories: z.array(
     z.object({
       type: z.enum(['category', 'subcategory']),
@@ -388,10 +388,12 @@ const DocumentTypeForm = ({
             title="Visibility — Who sees this document?"
             icon={<Eye className="w-3.5 h-3.5 text-slate-400" />}
           >
-            <div className="p-3 mb-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 leading-relaxed">
-              Leave empty so <strong className="text-slate-700">all partners</strong> see this document.
+            <div className="p-3 mb-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 leading-relaxed">
+              <strong className="text-amber-900">Required:</strong> You must select at least one category or subcategory.
               <br />
-              Select <strong>categories</strong> to show it only to partners in those categories, or drill down to specific <strong>subcategories</strong> (e.g. only Electricians, not all Home Service partners).
+              Documents with no visibility settings are <strong>hidden from all partners</strong>.
+              <br />
+              Select <strong>categories</strong> to show it to all partners in those categories, or drill down to specific <strong>subcategories</strong> (e.g. only Electricians, not all Home Service partners).
               <br />
               Example: "Driving License" → visible only to partners offering <em>Driver</em> services.
             </div>
@@ -402,8 +404,8 @@ const DocumentTypeForm = ({
                 <CategoryMultiSelect
                   value={field.value || []}
                   onChange={field.onChange}
-                  placeholder="All categories (visible to everyone)"
-                  helperText="Select categories or subcategories. Leave empty = all."
+                  placeholder="Select categories or subcategories (required)"
+                  helperText="At least one category/subcategory must be selected"
                 />
               )}
             />
