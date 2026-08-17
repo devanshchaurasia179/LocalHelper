@@ -29,7 +29,10 @@ export default function useCallManager() {
     let mounted = true;
 
     const handleIncomingCall = (data: IncomingCall) => {
-      console.log('[CallManager] Incoming call:', data);
+      console.log('═══════════════════════════════════════════════════════');
+      console.log('[CallManager] INCOMING CALL RECEIVED');
+      console.log('[CallManager] Data:', JSON.stringify(data, null, 2));
+      console.log('═══════════════════════════════════════════════════════');
       if (!mounted) return;
       setIncomingCall(data);
       
@@ -67,12 +70,29 @@ export default function useCallManager() {
 
     const setupListeners = async () => {
       try {
+        console.log('═══════════════════════════════════════════════════════');
+        console.log('[CallManager] Setting up socket listeners...');
         // Ensure the socket is connected before attaching listeners
         const socket = await connectChatSocket();
         if (!mounted) return;
 
+        console.log('[CallManager] Socket instance:', {
+          id: socket.id,
+          connected: socket.connected,
+          disconnected: socket.disconnected,
+        });
+
+        // Log all socket events for debugging
+        socket.onAny((eventName, ...args) => {
+          console.log(`[CallManager] Socket event "${eventName}":`, args);
+        });
+
         socket.on('incoming_call', handleIncomingCall);
         socket.on('call_ended', handleCallEnded);
+
+        console.log('[CallManager] Listeners attached for incoming_call and call_ended');
+        console.log('[CallManager] Socket rooms:', Array.from(socket.rooms || []));
+        console.log('═══════════════════════════════════════════════════════');
       } catch (err) {
         console.warn('[CallManager] Failed to connect socket:', err);
       }
@@ -86,6 +106,7 @@ export default function useCallManager() {
       if (socket) {
         socket.off('incoming_call', handleIncomingCall);
         socket.off('call_ended', handleCallEnded);
+        socket.offAny(); // Remove the catch-all listener
       }
     };
   }, []);
