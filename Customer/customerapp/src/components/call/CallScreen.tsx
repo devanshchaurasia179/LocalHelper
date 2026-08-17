@@ -234,7 +234,10 @@ export default function CallScreen({
     let mounted = true;
 
     const handleCallAccepted = (data: { callId: string; roomName: string }) => {
-      console.log('[CallScreen] Partner accepted the call:', data);
+      console.log('═══════════════════════════════════════════════════════');
+      console.log('[CallScreen] CALL ACCEPTED EVENT RECEIVED');
+      console.log('[CallScreen] Data:', JSON.stringify(data, null, 2));
+      console.log('═══════════════════════════════════════════════════════');
       if (!mounted) return;
       // Partner accepted — now we connect to LiveKit
       setCallState('connecting');
@@ -250,10 +253,28 @@ export default function CallScreen({
 
     const setup = async () => {
       try {
+        console.log('═══════════════════════════════════════════════════════');
+        console.log('[CallScreen] Setting up call response listeners...');
         const socket = await connectChatSocket();
         if (!mounted) return;
+        
+        console.log('[CallScreen] Socket instance:', {
+          id: socket.id,
+          connected: socket.connected,
+          disconnected: socket.disconnected,
+        });
+        
+        // Log all socket events for debugging
+        socket.onAny((eventName, ...args) => {
+          console.log(`[CallScreen] Socket event "${eventName}":`, args);
+        });
+        
         socket.on('call_accepted', handleCallAccepted);
         socket.on('call_rejected', handleCallRejected);
+        
+        console.log('[CallScreen] Listeners attached for call_accepted and call_rejected');
+        console.log('[CallScreen] Socket rooms:', Array.from(socket.rooms || []));
+        console.log('═══════════════════════════════════════════════════════');
       } catch (err) {
         console.warn('[CallScreen] Socket setup error:', err);
       }
@@ -267,6 +288,7 @@ export default function CallScreen({
       if (socket) {
         socket.off('call_accepted', handleCallAccepted);
         socket.off('call_rejected', handleCallRejected);
+        socket.offAny(); // Remove the catch-all listener
       }
     };
   }, [visible, callState, onEndCall]);
