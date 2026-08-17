@@ -121,6 +121,13 @@ export const registerChatHandlers = (namespace) => {
     const { callerId, callerType } = socket.data;
     console.log(`[Socket] connected  — ${callerType}:${callerId}  (${socket.id})`);
 
+    // ── Auto-join personal room for direct notifications (calls, etc.) ──────
+    // This allows controllers to emit events to `partner:<id>` or `customer:<id>`
+    // without needing to know the socket ID.
+    const personalRoom = `${callerType}:${callerId}`;
+    socket.join(personalRoom);
+    console.log(`[Socket] ${callerType}:${callerId} joined personal room ${personalRoom}`);
+
     // ── join_conversation ───────────────────────────────────────────────────
     socket.on("join_conversation", async ({ conversationId } = {}) => {
       try {

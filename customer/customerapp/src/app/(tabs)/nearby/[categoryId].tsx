@@ -23,6 +23,11 @@ import { fetchActiveBookingsByPartner } from '@/constants/booking.api';
 import type { ActiveBookingStatus } from './PartnerCard';
 import PartnerCard from './PartnerCard';
 import PartnerDetailSheet from '../home/PartnerDetailSheet';
+import CallScreen from '@/components/call/CallScreen';
+import { initiateCall } from '@/api/call.api';
+import type { CallResponse } from '@/api/call.api';
+import { connectChatSocket, getChatSocket } from '@/services/chat.socket';
+import Toast from 'react-native-toast-message';
 import { colors, spacing, radii, typography } from '../home/theme';
 
 // ─── Sort options ───────────────────────────────────────────────────────────
@@ -172,6 +177,12 @@ export default function CategoryPartnersScreen() {
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('recommended');
 
+  // Call state
+  const [callVisible, setCallVisible] = useState(false);
+  const [callPartner, setCallPartner] = useState<NearbyPartner | null>(null);
+  const [callData, setCallData] = useState<CallResponse['livekit'] | null>(null);
+  const [initiatingCall, setInitiatingCall] = useState(false);
+
   // Active bookings map: partnerId → status (to prevent re-booking)
   const [activeBookings, setActiveBookings] = useState<Map<string, ActiveBookingStatus>>(new Map());
 
@@ -265,6 +276,105 @@ export default function CategoryPartnersScreen() {
     await load();
     setRefreshing(false);
   }, [load]);
+
+  const handleCallPress = async (partner: NearbyPartner) => {
+    if (initiatingCall) return;
+
+    try {
+      setInitiatingCall(true);
+      
+      // Note: Since authentication uses httpOnly cookies, we don't need to pass a token
+      // The cookie is automatically sent with the request via withCredentials: true
+      const response = await initiateCall(partner._id, '');
+      
+      if (response.success && response.livekit) {
+        setCallPartner(partner);
+        setCallData(response.livekit);
+        setCallVisible(true);
+        Toast.show({
+          type: 'success',
+          text1: 'Call Initiated',
+          text2: `Calling ${partner.fullName}...`,
+        });
+      } else {
+        Toast.show({
+          type: 'error',
+          text1: 'Call Failed',
+          text2: response.message || 'Unable to initiate call',
+        });
+      }
+    } catch (error: any) {
+      console.error('Call initiation error:', error);
+      const errorMessage = error?.response?.data?.message || 'Failed to start call. Please try again.';
+      Toast.show({
+        type: 'error',
+        text1: 'Call Failed',
+        text2: errorMessage,
+      });
+    } finally {
+      setInitiatingCall(false);
+    }
+  };
+
+  const handleEndCall = () => {
+    setCallVisible(false);
+    setCallPartner(null);
+    setCallData(null);
+  };
+
+  // Listen for partner rejecting/ending the call via socket
+  useEffect(() => {
+    let mounted = true;
+
+    const setupCallListeners = async () => {
+      try {
+        const socket = await connectChatSocket();
+        if (!mounted) return;
+
+        const handleCallRejected = (data: { callId: string }) => {
+          if (!mounted) return;
+          console.log('[Call] Partner rejected the call:', data);
+          setCallVisible(false);
+          setCallPartner(null);
+          setCallData(null);
+          Toast.show({
+            type: 'info',
+            text1: 'Call Declined',
+            text2: 'The partner declined your call',
+          });
+        };
+
+        const handleCallEnded = (data: { callId: string; duration: number; endedBy: string }) => {
+          if (!mounted) return;
+          console.log('[Call] Call ended by partner:', data);
+          setCallVisible(false);
+          setCallPartner(null);
+          setCallData(null);
+          Toast.show({
+            type: 'info',
+            text1: 'Call Ended',
+            text2: `Call duration: ${Math.floor(data.duration / 60)}m ${data.duration % 60}s`,
+          });
+        };
+
+        socket.on('call_rejected', handleCallRejected);
+        socket.on('call_ended', handleCallEnded);
+      } catch (err) {
+        console.warn('[Call] Failed to setup call socket listeners:', err);
+      }
+    };
+
+    setupCallListeners();
+
+    return () => {
+      mounted = false;
+      const socket = getChatSocket();
+      if (socket) {
+        socket.off('call_rejected');
+        socket.off('call_ended');
+      }
+    };
+  }, []);
 
   const visiblePartners = useMemo(() => {
     let list = partners;
@@ -453,12 +563,39 @@ export default function CategoryPartnersScreen() {
           }
           renderItem={({ item, index }) => (
             <AnimatedRow index={index}>
-              <PartnerCard
-                partner={item}
-                onPress={() => setSelectedPartner(item)}
-                activeBookingStatus={activeBookings.get(item._id) ?? null}
-                callMinutesLeft={callMinutesLeft.get(item._id) ?? null}
-              />
+              <View style={styles.cardWrapper}>
+                <View style={{ flex: 1 }}>
+                  <PartnerCard
+                    partner={item}
+                    onPress={() => setSelectedPartner(item)}
+                    activeBookingStatus={activeBookings.get(item._id) ?? null}
+                    callMinutesLeft={callMinutesLeft.get(item._id) ?? null}
+                  />
+                </View>
+                
+                {/* Test Call Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.callButton,
+                    (initiatingCall || !item.isOnline) && styles.callButtonDisabled,
+                  ]}
+                  onPress={() => handleCallPress(item)}
+                  disabled={initiatingCall || !item.isOnline}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={initiatingCall ? 'time-outline' : 'call-outline'}
+                    size={20}
+                    color={item.isOnline ? colors.white : '#9CA3AF'}
+                  />
+                  <Text style={[
+                    styles.callButtonText,
+                    !item.isOnline && styles.callButtonTextDisabled,
+                  ]}>
+                    {initiatingCall ? 'Calling...' : 'Test Call'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </AnimatedRow>
           )}
         />
@@ -481,6 +618,17 @@ export default function CategoryPartnersScreen() {
           });
         }}
       />
+
+      {/* ── Call Screen ── */}
+      {callVisible && callPartner && callData && (
+        <CallScreen
+          visible={callVisible}
+          partner={callPartner}
+          livekitUrl={callData.url}
+          livekitToken={callData.token}
+          onEndCall={handleEndCall}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -638,5 +786,38 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 260,
     lineHeight: 20,
+  },
+
+  // Call button
+  cardWrapper: {
+    gap: spacing.xs,
+  },
+  callButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: colors.primary,
+    borderRadius: radii.lg,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  callButtonDisabled: {
+    backgroundColor: '#E5E7EB',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  callButtonText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  callButtonTextDisabled: {
+    color: '#9CA3AF',
   },
 });
