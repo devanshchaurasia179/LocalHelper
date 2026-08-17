@@ -106,8 +106,13 @@ export const createCall = async (req, res) => {
       const io = getIO();
       const chatNS = io.of("/chat");
       
+      // Debug: check how many sockets are in the partner's personal room
+      const partnerRoom = `partner:${partnerId}`;
+      const socketsInRoom = await chatNS.in(partnerRoom).fetchSockets();
+      console.log(`[Call] Sockets in room ${partnerRoom}: ${socketsInRoom.length}`);
+      
       // Emit to the specific partner
-      chatNS.to(`partner:${partnerId}`).emit("incoming_call", {
+      chatNS.to(partnerRoom).emit("incoming_call", {
         callId: call._id.toString(),
         roomName: call.roomName,
         customerId: customerId.toString(),
@@ -115,7 +120,7 @@ export const createCall = async (req, res) => {
         timestamp: new Date(),
       });
       
-      console.log(`[Call] Emitted incoming_call to partner:${partnerId}`);
+      console.log(`[Call] Emitted incoming_call to ${partnerRoom}`);
     } catch (socketError) {
       console.error("[Call] Failed to emit socket event:", socketError);
       // Don't fail the call creation if socket emission fails
