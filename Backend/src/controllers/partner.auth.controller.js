@@ -248,11 +248,12 @@ export const completeProfile = async (req, res) => {
  *
  * Returns the partner's editable profile fields so the complete-profile
  * screen can pre-fill when navigating back to edit.
+ * Also returns profilePhoto, selfiePhoto, wallet, and earnings for profile page.
  */
 export const getProfile = async (req, res) => {
   try {
     const partner = await Partner.findById(req.partnerId).select(
-      "fullName gender dateOfBirth address serviceLocation serviceRadius"
+      "fullName gender dateOfBirth profilePhoto selfiePhoto address serviceLocation serviceRadius walletBalance totalEarnings"
     );
 
     if (!partner) {
@@ -265,18 +266,122 @@ export const getProfile = async (req, res) => {
       ? { longitude: coords[0], latitude: coords[1] }
       : null;
 
+    // profilePhoto defaults to selfiePhoto when not explicitly set
+    const effectiveProfilePhoto = partner.profilePhoto || partner.selfiePhoto || null;
+
     return res.status(200).json({
       profile: {
-        fullName:      partner.fullName ?? "",
-        gender:        partner.gender ?? null,
-        dateOfBirth:   partner.dateOfBirth ?? null,
-        address:       partner.address ?? null,
+        fullName:       partner.fullName ?? "",
+        gender:         partner.gender ?? null,
+        dateOfBirth:    partner.dateOfBirth ?? null,
+        profilePhoto:   effectiveProfilePhoto,
+        selfiePhoto:    partner.selfiePhoto ?? null,
+        address:        partner.address ?? null,
         location,
-        serviceRadius: partner.serviceRadius ?? 10,
+        serviceRadius:  partner.serviceRadius ?? 10,
+        walletBalance:  partner.walletBalance ?? 0,
+        totalEarnings:  partner.totalEarnings ?? 0,
       },
     });
   } catch (error) {
     console.error("getProfile error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+// ─── Update Profile (partial updates from profile page) ─────────────────────
+/**
+ * PUT /api/partner/auth/profile
+ * Headers: Cookie partner_token=<jwt>
+ * Body: Any subset of { fullName, gender, dateOfBirth, address, serviceRadius }
+ *
+ * Allows the partner to update individual sections from the profile tab
+ * without resubmitting the entire onboarding flow.
+ */
+export const updateProfile = async (req, res) => {
+  try {
+    const partner = await Partner.findById(req.partnerId);
+    if (!partner) {
+      return res.status(404).json({ message: "Partner not found." });
+    }
+
+    const { fullName, gender, dateOfBirth, address, serviceRadius } = req.body;
+
+    if (fullName !== undefined) {
+      if (!fullName.trim()) {
+        return res.status(400).json({ message: "Full name cannot be empty." });
+      }
+      partner.fullName = fullName.trim();
+    }
+
+    if (gender !== undefined) {
+      partner.gender = gender;
+    }
+
+    if (dateOfBirth !== undefined) {
+      partner.dateOfBirth = new Date(dateOfBirth);
+    }
+
+    if (address !== undefined) {
+      if (!address.city || !address.state || !address.pincode) {
+        return res.status(400).json({ message: "City, state, and pincode are required." });
+      }
+      if (!/^\d{6}$/.test(address.pincode)) {
+        return res.status(400).json({ message: "Pincode must be exactly 6 digits." });
+      }
+      partner.address = {
+        house:    address.house?.trim()    ?? "",
+        street:   address.street?.trim()   ?? "",
+        locality: address.locality?.trim() ?? "",
+        city:     address.city.trim(),
+        state:    address.state.trim(),
+        pincode:  address.pincode.trim(),
+      };
+    }
+
+    if (typeof serviceRadius === "number" && serviceRadius >= 1 && serviceRadius <= 100) {
+      partner.serviceRadius = serviceRadius;
+    }
+
+    await partner.save();
+
+    return res.status(200).json({ message: "Profile updated successfully." });
+  } catch (error) {
+    console.error("updateProfile error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+// ─── Upload Profile Photo ────────────────────────────────────────────────────
+/**
+ * POST /api/partner/auth/profile-photo
+ * Headers: Cookie partner_token=<jwt>
+ * Body: multipart/form-data with field "file"
+ *
+ * Uploads a new profile photo to Cloudinary and saves the URL.
+ */
+export const uploadProfilePhoto = async (req, res) => {
+  try {
+    const partner = await Partner.findById(req.partnerId);
+    if (!partner) {
+      return res.status(404).json({ message: "Partner not found." });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded." });
+    }
+
+    // req.file.path is the Cloudinary URL set by multer-storage-cloudinary
+    const profilePhoto = req.file.path;
+    partner.profilePhoto = profilePhoto;
+    await partner.save();
+
+    return res.status(200).json({
+      message: "Profile photo updated.",
+      profilePhoto,
+    });
+  } catch (error) {
+    console.error("uploadProfilePhoto error:", error);
     return res.status(500).json({ message: "Internal server error." });
   }
 };

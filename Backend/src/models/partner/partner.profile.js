@@ -12,7 +12,13 @@ const profileFields = {
     enum: ["Male", "Female", "Other"],
   },
   dateOfBirth: Date,
-  profilePhoto: String,
+  // Profile photo URL — defaults to selfiePhoto if not explicitly set
+  profilePhoto: {
+    type: String,
+    default: function () {
+      return this.selfiePhoto || null;
+    },
+  },
   selfiePhoto: String,
   address: {
     house: String,

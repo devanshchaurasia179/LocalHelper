@@ -13,6 +13,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
+  RefreshControl,
+  Dimensions,
 } from "react-native";
 import React from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -36,10 +38,10 @@ import { useConversations } from "@/hooks/useConversations";
 import { connectChatSocket, getChatSocket } from "@/services/chat.socket";
 import type { Conversation } from "@/api/chat.api";
 
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
 // ─── Completion Code Modal ────────────────────────────────────────────────────
 
-// We need to expose imperative controls to the parent. Use a ref-based approach
-// via a wrapper that exposes showSuccess / showError.
 type CompletionCodeModalHandle = {
   showError: (msg: string) => void;
   showSuccess: (onDone: () => void) => void;
@@ -56,10 +58,10 @@ function CompletionCodeModalControlled({
   onClose: () => void;
   onConfirm: (code: string) => void;
   isLoading: boolean;
-  controlRef: React.RefObject<CompletionCodeModalHandle>;
+  controlRef: React.RefObject<CompletionCodeModalHandle | null>;
 }) {
-  const [digits, setDigits]       = useState(["", "", "", ""]);
-  const [errorMsg, setErrorMsg]   = useState<string | null>(null);
+  const [digits, setDigits] = useState(["", "", "", ""]);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [succeeded, setSucceeded] = useState(false);
 
   const inputs = [
@@ -68,24 +70,23 @@ function CompletionCodeModalControlled({
     useRef<React.ElementRef<typeof TextInput>>(null),
     useRef<React.ElementRef<typeof TextInput>>(null),
   ];
-  const slideAnim      = useRef(new Animated.Value(60)).current;
-  const fadeAnim       = useRef(new Animated.Value(0)).current;
-  const shakeAnim      = useRef(new Animated.Value(0)).current;
-  const successScale   = useRef(new Animated.Value(0.7)).current;
+  const slideAnim = useRef(new Animated.Value(60)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+  const successScale = useRef(new Animated.Value(0.7)).current;
   const successOpacity = useRef(new Animated.Value(0)).current;
 
-  // Expose imperative API
   React.useImperativeHandle(controlRef, () => ({
     showError: (msg: string) => {
       setErrorMsg(msg);
       setDigits(["", "", "", ""]);
       shakeAnim.setValue(0);
       Animated.sequence([
-        Animated.timing(shakeAnim, { toValue:  8, duration: 60, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: 8, duration: 60, useNativeDriver: true }),
         Animated.timing(shakeAnim, { toValue: -8, duration: 60, useNativeDriver: true }),
-        Animated.timing(shakeAnim, { toValue:  6, duration: 50, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: 6, duration: 50, useNativeDriver: true }),
         Animated.timing(shakeAnim, { toValue: -6, duration: 50, useNativeDriver: true }),
-        Animated.timing(shakeAnim, { toValue:  0, duration: 40, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: 0, duration: 40, useNativeDriver: true }),
       ]).start(() => setTimeout(() => inputs[0].current?.focus(), 50));
     },
     showSuccess: (onDone: () => void) => {
@@ -93,7 +94,7 @@ function CompletionCodeModalControlled({
       successScale.setValue(0.7);
       successOpacity.setValue(0);
       Animated.parallel([
-        Animated.spring(successScale,   { toValue: 1, useNativeDriver: true, damping: 12, stiffness: 120 }),
+        Animated.spring(successScale, { toValue: 1, useNativeDriver: true, damping: 12, stiffness: 120 }),
         Animated.timing(successOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
       ]).start(() => setTimeout(onDone, 1500));
     },
@@ -110,7 +111,7 @@ function CompletionCodeModalControlled({
       successOpacity.setValue(0);
       Animated.parallel([
         Animated.timing(slideAnim, { toValue: 0, duration: 280, useNativeDriver: true }),
-        Animated.timing(fadeAnim,  { toValue: 1, duration: 220, useNativeDriver: true }),
+        Animated.timing(fadeAnim, { toValue: 1, duration: 220, useNativeDriver: true }),
       ]).start(() => setTimeout(() => inputs[0].current?.focus(), 50));
     }
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -143,25 +144,17 @@ function CompletionCodeModalControlled({
         </Animated.View>
 
         <Animated.View style={[modalStyles.sheet, { transform: [{ translateY: slideAnim }] }]}>
-
-          {/* ── Success overlay (sits on top of the sheet content) ── */}
           {succeeded && (
             <Animated.View
               pointerEvents="none"
-              style={[
-                StyleSheet.absoluteFill,
-                modalStyles.successOverlay,
-                { opacity: successOpacity },
-              ]}
+              style={[StyleSheet.absoluteFill, modalStyles.successOverlay, { opacity: successOpacity }]}
             >
               <Animated.View style={{ transform: [{ scale: successScale }], alignItems: "center" }}>
                 <View style={modalStyles.successIconWrap}>
                   <Ionicons name="checkmark-circle" size={72} color={colors.success} />
                 </View>
                 <Text style={modalStyles.successTitle}>Job Complete!</Text>
-                <Text style={modalStyles.successSub}>
-                  The booking has been marked as done.
-                </Text>
+                <Text style={modalStyles.successSub}>The booking has been marked as done.</Text>
               </Animated.View>
             </Animated.View>
           )}
@@ -175,10 +168,7 @@ function CompletionCodeModalControlled({
             Ask the customer for their 4-digit code to mark this job complete.
           </Text>
 
-          {/* OTP boxes — shake on wrong code */}
-          <Animated.View
-            style={[modalStyles.otpRow, { transform: [{ translateX: shakeAnim }] }]}
-          >
+          <Animated.View style={[modalStyles.otpRow, { transform: [{ translateX: shakeAnim }] }]}>
             {digits.map((d, i) => (
               <TextInput
                 key={i}
@@ -199,7 +189,6 @@ function CompletionCodeModalControlled({
             ))}
           </Animated.View>
 
-          {/* Inline error banner */}
           {errorMsg != null ? (
             <View style={modalStyles.errorBanner}>
               <Ionicons name="alert-circle" size={14} color={colors.error} />
@@ -235,8 +224,8 @@ function CompletionCodeModalControlled({
 }
 
 const modalStyles = StyleSheet.create({
-  overlay:            { flex: 1, justifyContent: "flex-end" },
-  backdrop:           { backgroundColor: "rgba(0,0,0,0.5)" },
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  backdrop: { backgroundColor: "rgba(0,0,0,0.5)" },
   sheet: {
     backgroundColor: colors.background,
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
@@ -246,51 +235,46 @@ const modalStyles = StyleSheet.create({
     shadowOpacity: 0.14, shadowRadius: 16, elevation: 24,
     overflow: "hidden",
   },
-  handle:             { width: 40, height: 4, backgroundColor: "#E5E7EB", borderRadius: 2, marginBottom: spacing.lg },
-  iconWrap:           { width: 64, height: 64, borderRadius: 32, backgroundColor: "#ECFDF5", alignItems: "center", justifyContent: "center", marginBottom: spacing.md },
-  title:              { fontFamily: fonts.oswaldBold, fontSize: 22, color: colors.textPrimary, marginBottom: spacing.xs },
-  subtitle:           { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, textAlign: "center", lineHeight: 19, marginBottom: spacing.lg + 4, paddingHorizontal: spacing.sm },
-  otpRow:             { flexDirection: "row", gap: spacing.md, marginBottom: spacing.sm },
-  otpBox:             { width: 62, height: 72, borderRadius: radii.md, borderWidth: 2, borderColor: "#D1D5DB", backgroundColor: colors.surface, textAlign: "center", fontFamily: fonts.oswaldBold, fontSize: 32, color: colors.textPrimary },
-  otpBoxFilled:       { borderColor: colors.primary, backgroundColor: "#ECFDF5", color: colors.primary },
-  otpBoxError:        { borderColor: colors.error, backgroundColor: colors.errorLight, color: colors.error },
-  errorBanner:        { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.errorLight, borderWidth: 1, borderColor: colors.errorBorder, borderRadius: radii.sm, paddingHorizontal: 12, paddingVertical: 8, marginBottom: spacing.md, alignSelf: "stretch" },
-  errorBannerText:    { fontFamily: fonts.jakartaMedium, fontSize: 13, color: colors.errorDark, flex: 1 },
+  handle: { width: 40, height: 4, backgroundColor: "#E5E7EB", borderRadius: 2, marginBottom: spacing.lg },
+  iconWrap: { width: 64, height: 64, borderRadius: 32, backgroundColor: "#ECFDF5", alignItems: "center", justifyContent: "center", marginBottom: spacing.md },
+  title: { fontFamily: fonts.oswaldBold, fontSize: 22, color: colors.textPrimary, marginBottom: spacing.xs },
+  subtitle: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, textAlign: "center", lineHeight: 19, marginBottom: spacing.lg + 4, paddingHorizontal: spacing.sm },
+  otpRow: { flexDirection: "row", gap: spacing.md, marginBottom: spacing.sm },
+  otpBox: { width: 62, height: 72, borderRadius: radii.md, borderWidth: 2, borderColor: "#D1D5DB", backgroundColor: colors.surface, textAlign: "center", fontFamily: fonts.oswaldBold, fontSize: 32, color: colors.textPrimary },
+  otpBoxFilled: { borderColor: colors.primary, backgroundColor: "#ECFDF5", color: colors.primary },
+  otpBoxError: { borderColor: colors.error, backgroundColor: colors.errorLight, color: colors.error },
+  errorBanner: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.errorLight, borderWidth: 1, borderColor: colors.errorBorder, borderRadius: radii.sm, paddingHorizontal: 12, paddingVertical: 8, marginBottom: spacing.md, alignSelf: "stretch" },
+  errorBannerText: { fontFamily: fonts.jakartaMedium, fontSize: 13, color: colors.errorDark, flex: 1 },
   errorBannerPlaceholder: { height: 36 + spacing.md },
-  actions:            { width: "100%", gap: spacing.sm },
-  confirmBtn:         { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: colors.primary, borderRadius: radii.pill, paddingVertical: 14 },
+  actions: { width: "100%", gap: spacing.sm },
+  confirmBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: colors.primary, borderRadius: radii.pill, paddingVertical: 14 },
   confirmBtnDisabled: { backgroundColor: "#9CA3AF" },
-  confirmBtnText:     { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.white },
-  cancelModalBtn:     { alignItems: "center", justifyContent: "center", paddingVertical: 12 },
+  confirmBtnText: { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.white },
+  cancelModalBtn: { alignItems: "center", justifyContent: "center", paddingVertical: 12 },
   cancelModalBtnText: { fontFamily: fonts.jakartaMedium, fontSize: 14, color: colors.textSecondary },
-  // Success overlay
   successOverlay: {
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
     backgroundColor: colors.background,
-    alignItems: "center", justifyContent: "center",
-    zIndex: 10,
+    alignItems: "center", justifyContent: "center", zIndex: 10,
   },
   successIconWrap: {
     width: 100, height: 100, borderRadius: 50,
     backgroundColor: colors.successLight,
-    alignItems: "center", justifyContent: "center",
-    marginBottom: spacing.md,
+    alignItems: "center", justifyContent: "center", marginBottom: spacing.md,
   },
   successTitle: { fontFamily: fonts.oswaldBold, fontSize: 26, color: colors.textPrimary, marginBottom: spacing.xs },
-  successSub:   { fontFamily: fonts.jostRegular, fontSize: 14, color: colors.textSecondary, textAlign: "center", lineHeight: 20 },
+  successSub: { fontFamily: fonts.jostRegular, fontSize: 14, color: colors.textSecondary, textAlign: "center", lineHeight: 20 },
 });
 
 // ─── Live Booking Card ────────────────────────────────────────────────────────
-// Shown on the home screen for all non-terminal bookings.
-// Supports: pending (accept/decline), accepted (start/cancel), in_progress (complete w/ OTP)
 
-const STATUS_META: Record<
+const BOOKING_STATUS_META: Record<
   "pending" | "accepted" | "in_progress",
   { label: string; accent: string; bg: string; border: string; icon: keyof typeof Ionicons.glyphMap }
 > = {
-  pending:     { label: "Awaiting acceptance", accent: "#F59E0B", bg: "#FFFBEB", border: "#FDE68A", icon: "time-outline"      },
-  accepted:    { label: "Accepted",             accent: "#3B82F6", bg: "#EFF6FF", border: "#BFDBFE", icon: "checkmark-circle-outline" },
-  in_progress: { label: "In Progress",          accent: "#8B5CF6", bg: "#F5F3FF", border: "#DDD6FE", icon: "construct-outline" },
+  pending: { label: "Awaiting acceptance", accent: "#F59E0B", bg: "#FFFBEB", border: "#FDE68A", icon: "time-outline" },
+  accepted: { label: "Accepted", accent: "#3B82F6", bg: "#EFF6FF", border: "#BFDBFE", icon: "checkmark-circle-outline" },
+  in_progress: { label: "In Progress", accent: "#8B5CF6", bg: "#F5F3FF", border: "#DDD6FE", icon: "construct-outline" },
 };
 
 function LiveBookingCard({
@@ -309,20 +293,19 @@ function LiveBookingCard({
   isActioning: boolean;
 }) {
   const status = booking.status as "pending" | "accepted" | "in_progress";
-  const meta   = STATUS_META[status];
+  const meta = BOOKING_STATUS_META[status];
 
   const scheduledDate = new Date(booking.scheduledAt);
   const dateStr = scheduledDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
   const timeStr = scheduledDate.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 
-  // Subtle pulse for pending cards
   const pulseAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     if (status !== "pending") return;
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 0.97, duration: 700, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1,    duration: 700, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
       ])
     );
     loop.start();
@@ -337,11 +320,9 @@ function LiveBookingCard({
         status === "pending" && liveStyles.cardPending,
       ]}
     >
-      {/* Left accent strip */}
       <View style={[liveStyles.strip, { backgroundColor: meta.accent }]} />
-
       <View style={liveStyles.body}>
-        {/* ── Row 1: status pill + emergency + credit ── */}
+        {/* Status + badges */}
         <View style={liveStyles.topRow}>
           <View style={[liveStyles.statusPill, { backgroundColor: meta.bg, borderColor: meta.border }]}>
             <Ionicons name={meta.icon} size={11} color={meta.accent} />
@@ -363,7 +344,7 @@ function LiveBookingCard({
           </View>
         </View>
 
-        {/* ── Row 2: customer + category ── */}
+        {/* Customer info */}
         <View style={liveStyles.customerRow}>
           <View style={liveStyles.avatar}>
             <Ionicons name="person" size={16} color={colors.white} />
@@ -378,7 +359,7 @@ function LiveBookingCard({
           </View>
         </View>
 
-        {/* ── Row 3: schedule + location ── */}
+        {/* Meta chips */}
         <View style={liveStyles.metaRow}>
           <View style={liveStyles.metaChip}>
             <Ionicons name="calendar-outline" size={12} color={colors.textSecondary} />
@@ -394,12 +375,11 @@ function LiveBookingCard({
           ) : null}
         </View>
 
-        {/* ── Description ── */}
         {booking.description ? (
           <Text style={liveStyles.description} numberOfLines={2}>{booking.description}</Text>
         ) : null}
 
-        {/* ── Actions ── */}
+        {/* Actions */}
         <View style={liveStyles.actionRow}>
           {status === "pending" && (
             <>
@@ -459,44 +439,37 @@ function LiveBookingCard({
 
 const liveStyles = StyleSheet.create({
   card: {
-    flexDirection: "row",
-    backgroundColor: colors.background,
-    borderRadius: radii.md,
-    borderWidth: 1.5,
-    marginBottom: spacing.sm,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.07,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
+    flexDirection: "row", backgroundColor: colors.background,
+    borderRadius: radii.md, borderWidth: 1.5, marginBottom: spacing.sm,
+    overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.07,
+    shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
   },
   cardPending: { backgroundColor: "#f0fdf8" },
-  strip:       { width: 4 },
-  body:        { flex: 1, padding: spacing.md, gap: spacing.sm },
-  topRow:      { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  topRight:    { flexDirection: "row", alignItems: "center", gap: spacing.xs },
-  statusPill:  { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.pill, borderWidth: 1 },
+  strip: { width: 4 },
+  body: { flex: 1, padding: spacing.md, gap: spacing.sm },
+  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  topRight: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  statusPill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.pill, borderWidth: 1 },
   statusPillText: { fontFamily: fonts.jakartaSemiBold, fontSize: 10 },
-  emergencyChip:  { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.errorLight, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.sm },
-  emergencyText:  { fontFamily: fonts.jakartaMedium, fontSize: 10, color: colors.error },
-  creditChip:     { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.successLight, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.sm },
-  creditText:     { fontFamily: fonts.jakartaSemiBold, fontSize: 11, color: colors.success },
-  customerRow:    { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  avatar:         { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-  customerName:   { fontFamily: fonts.jakartaSemiBold, fontSize: 14, color: colors.textPrimary },
-  categoryText:   { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: 1 },
-  metaRow:        { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
-  metaChip:       { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.sm },
-  metaText:       { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary },
-  description:    { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
-  actionRow:      { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
-  btn:            { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 16, paddingVertical: 9, borderRadius: radii.pill, flex: 1 },
-  btnAccept:      { backgroundColor: colors.primary },
-  btnDecline:     { backgroundColor: colors.error },
-  btnStart:       { backgroundColor: "#6366F1" },
-  btnComplete:    { backgroundColor: colors.success },
-  btnText:        { fontFamily: fonts.jakartaSemiBold, fontSize: 13, color: colors.white },
+  emergencyChip: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.errorLight, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.sm },
+  emergencyText: { fontFamily: fonts.jakartaMedium, fontSize: 10, color: colors.error },
+  creditChip: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.successLight, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.sm },
+  creditText: { fontFamily: fonts.jakartaSemiBold, fontSize: 11, color: colors.success },
+  customerRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  customerName: { fontFamily: fonts.jakartaSemiBold, fontSize: 14, color: colors.textPrimary },
+  categoryText: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: 1 },
+  metaRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
+  metaChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.sm },
+  metaText: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary },
+  description: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
+  actionRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
+  btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 16, paddingVertical: 9, borderRadius: radii.pill, flex: 1 },
+  btnAccept: { backgroundColor: colors.primary },
+  btnDecline: { backgroundColor: colors.error },
+  btnStart: { backgroundColor: "#6366F1" },
+  btnComplete: { backgroundColor: colors.success },
+  btnText: { fontFamily: fonts.jakartaSemiBold, fontSize: 13, color: colors.white },
 });
 
 // ─── Home Screen ──────────────────────────────────────────────────────────────
@@ -506,12 +479,11 @@ export default function HomeScreen() {
   const { data } = usePartnerStatus();
   const router = useRouter();
 
-  // ── Recent conversations ──────────────────────────────────────────────────
+  // Conversations
   const { conversations, refresh: refreshConversations } = useConversations();
   const recentConvs = conversations.slice(0, 3);
   const totalUnread = conversations.reduce((sum, c) => sum + (c.unreadByPartner ?? 0), 0);
 
-  // Listen to socket new_message to refresh the list in real time
   useEffect(() => {
     let mounted = true;
     connectChatSocket()
@@ -521,8 +493,7 @@ export default function HomeScreen() {
           if (mounted) refreshConversations();
         });
       })
-      .catch(() => {/* ignore */});
-
+      .catch(() => {});
     return () => {
       mounted = false;
       const socket = getChatSocket();
@@ -531,36 +502,40 @@ export default function HomeScreen() {
   }, [refreshConversations]);
 
   const { data: serviceData } = useServiceStatus();
-  const toggleOnlineMutation  = useToggleOnline();
-  const { data: dashboardStats } = useDashboardStats();
+  const toggleOnlineMutation = useToggleOnline();
+  const { data: dashboardStats, refetch: refetchDashboard } = useDashboardStats();
 
-  const { data: pendingData } = usePendingBookings();
-  const { data: activeData  } = useActiveBookings();
+  const { data: pendingData, refetch: refetchPending } = usePendingBookings();
+  const { data: activeData, refetch: refetchActive } = useActiveBookings();
 
-  const acceptMutation   = useAcceptBooking();
-  const startMutation    = useStartBooking();
+  const acceptMutation = useAcceptBooking();
+  const startMutation = useStartBooking();
   const completeMutation = useCompleteBooking();
-  const cancelMutation   = useCancelBooking();
+  const cancelMutation = useCancelBooking();
 
-  // OTP modal state
-  const [codeModalVisible,  setCodeModalVisible]  = useState(false);
+  // OTP modal
+  const [codeModalVisible, setCodeModalVisible] = useState(false);
   const [pendingCompleteId, setPendingCompleteId] = useState<string | null>(null);
   const modalControlRef = useRef<CompletionCodeModalHandle>(null);
 
-  const pendingBookings: Booking[] = pendingData?.bookings ?? [];
-  const activeBookings:  Booking[] = (activeData as any)?.bookings ?? [];
+  // Refresh
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Merge: pending first, then accepted/in_progress
+  const pendingBookings: Booking[] = pendingData?.bookings ?? [];
+  const activeBookings: Booking[] = (activeData as any)?.bookings ?? [];
   const liveBookings: Booking[] = [...pendingBookings, ...activeBookings];
   const liveCount = liveBookings.length;
 
   const isOnline = serviceData?.isOnline ?? false;
-  const name     = data?.name ?? partner?.fullName ?? "Partner";
+  const name = data?.name ?? partner?.fullName ?? "Partner";
   const greeting = getGreeting();
 
-  const todayBookings = dashboardStats?.todayBookings ?? pendingBookings.length;
+  const todayBookings = dashboardStats?.todayBookings ?? 0;
   const totalEarnings = dashboardStats?.totalEarnings ?? 0;
+  const walletBalance = dashboardStats?.walletBalance ?? 0;
   const averageRating = dashboardStats?.averageRating ?? 0;
+  const totalReviews = dashboardStats?.totalReviews ?? 0;
+  const completedJobs = dashboardStats?.completedJobs ?? 0;
 
   const handleViewAllBookings = useCallback(() => {
     router.replace("/(tabs)/bookings" as any);
@@ -570,7 +545,6 @@ export default function HomeScreen() {
     toggleOnlineMutation.mutate(!isOnline);
   }, [isOnline, toggleOnlineMutation]);
 
-  // Complete flow
   const handleCompletePress = useCallback((bookingId: string) => {
     setPendingCompleteId(bookingId);
     setCodeModalVisible(true);
@@ -604,63 +578,139 @@ export default function HomeScreen() {
     setPendingCompleteId(null);
   }, [completeMutation.isPending]);
 
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([refetchPending(), refetchActive(), refetchDashboard(), refreshConversations()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetchPending, refetchActive, refetchDashboard, refreshConversations]);
+
   const isActioning =
-    acceptMutation.isPending ||
-    startMutation.isPending  ||
-    cancelMutation.isPending;
+    acceptMutation.isPending || startMutation.isPending || cancelMutation.isPending;
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+        }
       >
         {/* ── Header ── */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>{greeting}</Text>
-            <Text style={styles.name}>{name}</Text>
+          <View style={styles.headerLeft}>
+            <Text style={styles.greeting}>{greeting},</Text>
+            <Text style={styles.name} numberOfLines={1}>{name}</Text>
           </View>
-          <Pressable style={styles.notificationBtn} accessibilityLabel="Notifications">
-            <Ionicons name="notifications-outline" size={24} color={colors.textPrimary} />
-            {liveCount > 0 && <View style={styles.notifDot} />}
+          <Pressable
+            style={styles.notificationBtn}
+            accessibilityLabel="Notifications"
+            onPress={() => router.push("/(tabs)/chat" as any)}
+          >
+            <Ionicons name="chatbubbles-outline" size={22} color={colors.textPrimary} />
+            {totalUnread > 0 && (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifBadgeText}>{totalUnread > 9 ? "9+" : totalUnread}</Text>
+              </View>
+            )}
           </Pressable>
         </View>
 
-        {/* ── Online toggle card ── */}
-        <View style={[styles.statusCard, !isOnline && styles.statusCardOffline]}>
-          <View style={styles.statusCardContent}>
-            <View>
-              <View style={styles.statusRow}>
-                <View style={[styles.statusDot, !isOnline && styles.statusDotOffline]} />
-                <Text style={styles.statusText}>
+        {/* ── Online/Offline Toggle Hero ── */}
+        <View style={[styles.heroCard, !isOnline && styles.heroCardOffline]}>
+          <View style={styles.heroCardInner}>
+            <View style={styles.heroLeft}>
+              <View style={styles.heroStatusRow}>
+                <View style={[styles.heroDot, !isOnline && styles.heroDotOffline]} />
+                <Text style={styles.heroStatusLabel}>
                   {isOnline ? "You're Online" : "You're Offline"}
                 </Text>
               </View>
-              <Text style={styles.statusSub}>
-                {isOnline ? "Ready to receive bookings" : "Toggle to start receiving bookings"}
+              <Text style={styles.heroSubtext}>
+                {isOnline
+                  ? "Customers can find and book you"
+                  : "Go online to start receiving bookings"}
               </Text>
             </View>
-            <View style={styles.toggleWrap}>
+            <View style={styles.heroToggle}>
               {toggleOnlineMutation.isPending ? (
                 <ActivityIndicator size="small" color={colors.white} />
               ) : (
                 <Switch
                   value={isOnline}
                   onValueChange={handleToggleOnline}
-                  trackColor={{ false: "rgba(255,255,255,0.3)", true: "#4ADE80" }}
-                  thumbColor={colors.white}
+                  trackColor={{ false: "rgba(255,255,255,0.25)", true: "rgba(74,222,128,0.5)" }}
+                  thumbColor={isOnline ? "#4ADE80" : "#E5E7EB"}
+                  ios_backgroundColor="rgba(255,255,255,0.2)"
                   accessibilityLabel={isOnline ? "Go offline" : "Go online"}
                 />
               )}
             </View>
           </View>
+
+          {/* Inline stats row within the hero */}
+          {isOnline && (
+            <View style={styles.heroStatsRow}>
+              <View style={styles.heroStatItem}>
+                <Text style={styles.heroStatValue}>{todayBookings}</Text>
+                <Text style={styles.heroStatLabel}>Today</Text>
+              </View>
+              <View style={styles.heroStatDivider} />
+              <View style={styles.heroStatItem}>
+                <Text style={styles.heroStatValue}>₹{walletBalance}</Text>
+                <Text style={styles.heroStatLabel}>Balance</Text>
+              </View>
+              <View style={styles.heroStatDivider} />
+              <View style={styles.heroStatItem}>
+                <Text style={styles.heroStatValue}>{averageRating > 0 ? averageRating.toFixed(1) : "--"}</Text>
+                <Text style={styles.heroStatLabel}>Rating</Text>
+              </View>
+            </View>
+          )}
         </View>
 
-        {/* ── Live bookings feed ── */}
+        {/* ── Performance Overview ── */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Performance</Text>
+          <View style={styles.performanceGrid}>
+            <View style={styles.perfCard}>
+              <View style={[styles.perfIconWrap, { backgroundColor: "#EEF2FF" }]}>
+                <Ionicons name="briefcase" size={18} color="#6366F1" />
+              </View>
+              <Text style={styles.perfValue}>{completedJobs}</Text>
+              <Text style={styles.perfLabel}>Jobs Done</Text>
+            </View>
+            <View style={styles.perfCard}>
+              <View style={[styles.perfIconWrap, { backgroundColor: "#ECFDF5" }]}>
+                <Ionicons name="cash" size={18} color={colors.success} />
+              </View>
+              <Text style={styles.perfValue}>₹{totalEarnings}</Text>
+              <Text style={styles.perfLabel}>Total Earned</Text>
+            </View>
+            <View style={styles.perfCard}>
+              <View style={[styles.perfIconWrap, { backgroundColor: "#FFFBEB" }]}>
+                <Ionicons name="star" size={18} color="#F59E0B" />
+              </View>
+              <Text style={styles.perfValue}>{averageRating > 0 ? averageRating.toFixed(1) : "--"}</Text>
+              <Text style={styles.perfLabel}>{totalReviews} Reviews</Text>
+            </View>
+            <View style={styles.perfCard}>
+              <View style={[styles.perfIconWrap, { backgroundColor: "#FEF2F2" }]}>
+                <Ionicons name="calendar" size={18} color="#EF4444" />
+              </View>
+              <Text style={styles.perfValue}>{todayBookings}</Text>
+              <Text style={styles.perfLabel}>Today</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ── Live Bookings Feed ── */}
         {liveCount > 0 && (
           <View style={styles.section}>
-            <View style={styles.sectionHeader}>
+            <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionTitleRow}>
                 <Text style={styles.sectionTitle}>Live Bookings</Text>
                 <View style={styles.countBadge}>
@@ -689,9 +739,9 @@ export default function HomeScreen() {
         {/* ── Recent Messages ── */}
         {recentConvs.length > 0 && (
           <View style={styles.section}>
-            <View style={styles.sectionHeader}>
+            <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionTitleRow}>
-                <Text style={styles.sectionTitle}>Recent Messages</Text>
+                <Text style={styles.sectionTitle}>Messages</Text>
                 {totalUnread > 0 && (
                   <View style={styles.countBadge}>
                     <Text style={styles.countBadgeText}>{totalUnread > 99 ? "99+" : totalUnread}</Text>
@@ -702,46 +752,39 @@ export default function HomeScreen() {
                 <Text style={styles.viewAllText}>View All</Text>
               </Pressable>
             </View>
-            {recentConvs.map((conv) => (
-              <RecentMessageRow
-                key={conv._id}
-                conv={conv}
-                onPress={() => router.push({
-                  pathname: "/(tabs)/chat/[conversationId]" as any,
-                  params: {
-                    conversationId: conv._id,
-                    customerName: conv.customer?.fullName ?? conv.customer?.name ?? "Customer",
-                    customerPhoto: conv.customer?.profilePhoto ?? "",
-                  },
-                })}
-              />
-            ))}
+            <View style={styles.messagesCard}>
+              {recentConvs.map((conv, idx) => (
+                <React.Fragment key={conv._id}>
+                  <RecentMessageRow
+                    conv={conv}
+                    onPress={() => router.push({
+                      pathname: "/(tabs)/chat/[conversationId]" as any,
+                      params: {
+                        conversationId: conv._id,
+                        customerName: conv.customer?.fullName ?? conv.customer?.name ?? "Customer",
+                        customerPhoto: conv.customer?.profilePhoto ?? "",
+                      },
+                    })}
+                  />
+                  {idx < recentConvs.length - 1 && <View style={styles.msgDivider} />}
+                </React.Fragment>
+              ))}
+            </View>
           </View>
         )}
-
-        {/* ── Today's Overview ── */}
-        <Text style={styles.sectionTitle}>Today's Overview</Text>
-        <View style={styles.statsRow}>
-          <StatCard icon="calendar"  iconColor="#6366F1" iconBg="#EEF2FF"  label="Bookings" value={String(todayBookings)} />
-          <StatCard icon="cash"      iconColor="#10B981" iconBg="#ECFDF5"  label="Earnings" value={`₹${totalEarnings}`} />
-          <StatCard icon="star"      iconColor="#F59E0B" iconBg="#FFFBEB"  label="Rating"   value={averageRating > 0 ? averageRating.toFixed(1) : "--"} />
-        </View>
-
-        {/* ── Quick Actions ── */}
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.actionsGrid}>
-          <ActionCard icon="time-outline"          label="Availability" color="#6366F1" />
-          <ActionCard icon="pricetag-outline"      label="My Services"  color="#10B981" />
-          <ActionCard icon="document-text-outline" label="Documents"    color="#F59E0B" />
-          <ActionCard icon="help-circle-outline"   label="Support"      color="#EF4444" />
-        </View>
 
         {/* ── Empty state (no live bookings) ── */}
         {liveCount === 0 && (
           <View style={styles.emptyCard}>
-            <Ionicons name="folder-open-outline" size={40} color={colors.navInactive} />
-            <Text style={styles.emptyText}>No active bookings</Text>
-            <Text style={styles.emptySubtext}>New booking requests will appear here</Text>
+            <View style={styles.emptyIconWrap}>
+              <Ionicons name="hourglass-outline" size={36} color={colors.primary} />
+            </View>
+            <Text style={styles.emptyTitle}>No active bookings</Text>
+            <Text style={styles.emptySubtext}>
+              {isOnline
+                ? "You're all set! New booking requests will appear here."
+                : "Go online to start receiving booking requests from customers."}
+            </Text>
           </View>
         )}
 
@@ -763,8 +806,6 @@ export default function HomeScreen() {
 
 // ─── Sub-Components ───────────────────────────────────────────────────────────
 
-// ─── Recent Message Row ───────────────────────────────────────────────────────
-
 function formatTime(dateStr: string | null): string {
   if (!dateStr) return "";
   const d = new Date(dateStr);
@@ -773,7 +814,7 @@ function formatTime(dateStr: string | null): string {
   const diffDays = Math.floor(diffMs / 86400000);
   if (diffDays === 0) return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
   if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7)  return d.toLocaleDateString("en-IN", { weekday: "short" });
+  if (diffDays < 7) return d.toLocaleDateString("en-IN", { weekday: "short" });
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
@@ -797,7 +838,6 @@ function RecentMessageRow({ conv, onPress }: { conv: Conversation; onPress: () =
       accessibilityRole="button"
       accessibilityLabel={`Chat with ${name}`}
     >
-      {/* Avatar */}
       <View style={styles.msgAvatarWrap}>
         {customer?.profilePhoto ? (
           <Image source={{ uri: customer.profilePhoto }} style={styles.msgAvatar} />
@@ -808,57 +848,20 @@ function RecentMessageRow({ conv, onPress }: { conv: Conversation; onPress: () =
         )}
         {hasUnread && <View style={styles.msgUnreadDot} />}
       </View>
-      {/* Content */}
       <View style={styles.msgContent}>
         <View style={styles.msgTop}>
           <Text style={[styles.msgName, hasUnread && styles.msgNameBold]} numberOfLines={1}>{name}</Text>
           <Text style={styles.msgTime}>{formatTime(conv.lastMessage?.sentAt ?? null)}</Text>
         </View>
-        <Text
-          style={[styles.msgPreview, hasUnread && styles.msgPreviewBold]}
-          numberOfLines={1}
-        >
+        <Text style={[styles.msgPreview, hasUnread && styles.msgPreviewBold]} numberOfLines={1}>
           {isFromMe ? `You: ${lastText}` : lastText}
         </Text>
       </View>
-      {/* Unread badge */}
       {hasUnread && (
         <View style={styles.msgBadge}>
           <Text style={styles.msgBadgeText}>{unread > 99 ? "99+" : unread}</Text>
         </View>
       )}
-    </Pressable>
-  );
-}
-
-function StatCard({
-  icon, iconColor, iconBg, label, value,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  iconColor: string; iconBg: string; label: string; value: string;
-}) {
-  return (
-    <View style={styles.statCard}>
-      <View style={[styles.statIconWrap, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={20} color={iconColor} />
-      </View>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
-function ActionCard({
-  icon, label, color,
-}: {
-  icon: keyof typeof Ionicons.glyphMap; label: string; color: string;
-}) {
-  return (
-    <Pressable style={styles.actionCard} accessibilityLabel={label}>
-      <View style={[styles.actionIconWrap, { backgroundColor: `${color}14` }]}>
-        <Ionicons name={icon} size={22} color={color} />
-      </View>
-      <Text style={styles.actionLabel}>{label}</Text>
     </Pressable>
   );
 }
@@ -875,62 +878,109 @@ function getGreeting(): string {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safe:          { flex: 1, backgroundColor: colors.background },
+  safe: { flex: 1, backgroundColor: colors.background },
   scrollContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
 
-  header:          { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.lg },
-  greeting:        { fontFamily: fonts.jostRegular,   fontSize: 14, color: colors.textSecondary },
-  name:            { fontFamily: fonts.oswaldBold,    fontSize: 26, color: colors.textPrimary, marginTop: 2 },
-  notificationBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" },
-  notifDot:        { position: "absolute", top: 10, right: 11, width: 8, height: 8, borderRadius: 4, backgroundColor: colors.error, borderWidth: 2, borderColor: colors.surface },
+  // Header
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.lg },
+  headerLeft: { flex: 1 },
+  greeting: { fontFamily: fonts.jostRegular, fontSize: 14, color: colors.textSecondary },
+  name: { fontFamily: fonts.oswaldBold, fontSize: 28, color: colors.textPrimary, marginTop: 2 },
+  notificationBtn: {
+    width: 46, height: 46, borderRadius: 23,
+    backgroundColor: colors.surface, alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: "#F3F4F6",
+  },
+  notifBadge: {
+    position: "absolute", top: 6, right: 6,
+    minWidth: 18, height: 18, borderRadius: 9,
+    backgroundColor: colors.error, alignItems: "center", justifyContent: "center",
+    paddingHorizontal: 4, borderWidth: 2, borderColor: colors.background,
+  },
+  notifBadgeText: { fontFamily: fonts.jakartaBold, fontSize: 9, color: colors.white },
 
-  statusCard:        { backgroundColor: colors.primary, borderRadius: radii.lg, padding: spacing.md, marginBottom: spacing.lg },
-  statusCardOffline: { backgroundColor: "#4B5563" },
-  statusCardContent: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  statusRow:         { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: 4 },
-  statusDot:         { width: 10, height: 10, borderRadius: 5, backgroundColor: "#4ADE80" },
-  statusDotOffline:  { backgroundColor: "#9CA3AF" },
-  statusText:        { fontFamily: fonts.jakartaSemiBold, fontSize: 16, color: colors.white },
-  statusSub:         { fontFamily: fonts.jostRegular,    fontSize: 13, color: "rgba(255,255,255,0.7)", marginLeft: 18 },
-  toggleWrap:        { minWidth: 51, alignItems: "center", justifyContent: "center" },
+  // Hero Card (Online Toggle)
+  heroCard: {
+    backgroundColor: colors.primary,
+    borderRadius: radii.lg, padding: spacing.lg,
+    marginBottom: spacing.lg,
+    shadowColor: colors.primary, shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25, shadowRadius: 16, elevation: 8,
+  },
+  heroCardOffline: { backgroundColor: "#374151" },
+  heroCardInner: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  heroLeft: { flex: 1 },
+  heroStatusRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: 6 },
+  heroDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#4ADE80" },
+  heroDotOffline: { backgroundColor: "#6B7280" },
+  heroStatusLabel: { fontFamily: fonts.jakartaSemiBold, fontSize: 17, color: colors.white },
+  heroSubtext: { fontFamily: fonts.jostRegular, fontSize: 13, color: "rgba(255,255,255,0.7)", marginLeft: 18 },
+  heroToggle: { minWidth: 51, alignItems: "center", justifyContent: "center" },
+  heroStatsRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-around",
+    marginTop: spacing.lg, paddingTop: spacing.md,
+    borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.15)",
+  },
+  heroStatItem: { alignItems: "center" },
+  heroStatValue: { fontFamily: fonts.oswaldSemiBold, fontSize: 20, color: colors.white },
+  heroStatLabel: { fontFamily: fonts.jostRegular, fontSize: 11, color: "rgba(255,255,255,0.65)", marginTop: 2 },
+  heroStatDivider: { width: 1, height: 30, backgroundColor: "rgba(255,255,255,0.15)" },
 
-  section:       { marginBottom: spacing.lg },
-  sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.md },
+  // Sections
+  section: { marginBottom: spacing.lg },
+  sectionHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.md },
   sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  sectionTitle:  { fontFamily: fonts.jakartaSemiBold, fontSize: 16, color: colors.textPrimary, marginBottom: spacing.md },
-  countBadge:    { backgroundColor: colors.error, borderRadius: 10, minWidth: 20, height: 20, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
-  countBadgeText:{ fontFamily: fonts.jakartaSemiBold, fontSize: 11, color: colors.white },
-  viewAllText:   { fontFamily: fonts.jakartaMedium, fontSize: 13, color: colors.primary },
+  sectionTitle: { fontFamily: fonts.jakartaSemiBold, fontSize: 16, color: colors.textPrimary },
+  countBadge: { backgroundColor: colors.error, borderRadius: 10, minWidth: 20, height: 20, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  countBadgeText: { fontFamily: fonts.jakartaSemiBold, fontSize: 11, color: colors.white },
+  viewAllText: { fontFamily: fonts.jakartaMedium, fontSize: 13, color: colors.primary },
 
-  statsRow:    { flexDirection: "row", gap: spacing.sm, marginBottom: spacing.lg },
-  statCard:    { flex: 1, backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md, alignItems: "center" },
-  statIconWrap:{ width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", marginBottom: spacing.sm },
-  statValue:   { fontFamily: fonts.oswaldSemiBold, fontSize: 20, color: colors.textPrimary },
-  statLabel:   { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  // Performance Grid
+  performanceGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  perfCard: {
+    width: (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm) / 2 - 0.5,
+    backgroundColor: colors.surface, borderRadius: radii.md,
+    padding: spacing.md, gap: spacing.xs,
+  },
+  perfIconWrap: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  perfValue: { fontFamily: fonts.oswaldSemiBold, fontSize: 22, color: colors.textPrimary, marginTop: spacing.xs },
+  perfLabel: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary },
 
-  actionsGrid:   { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.lg },
-  actionCard:    { width: "48%", flexGrow: 1, backgroundColor: colors.surface, borderRadius: radii.md, padding: spacing.md, alignItems: "center", gap: spacing.sm },
-  actionIconWrap:{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
-  actionLabel:   { fontFamily: fonts.jakartaMedium, fontSize: 13, color: colors.textPrimary },
+  // Messages card wrapper
+  messagesCard: {
+    backgroundColor: colors.surface, borderRadius: radii.md,
+    overflow: "hidden",
+  },
+  msgDivider: { height: 1, backgroundColor: "#F3F4F6", marginHorizontal: spacing.md },
 
-  emptyCard:    { backgroundColor: colors.surface, borderRadius: radii.lg, padding: spacing.xl, alignItems: "center", justifyContent: "center" },
-  emptyText:    { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.textPrimary, marginTop: spacing.md },
-  emptySubtext: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, marginTop: spacing.xs, textAlign: "center" },
+  // Empty State
+  emptyCard: {
+    backgroundColor: colors.surface, borderRadius: radii.lg,
+    paddingVertical: spacing.xl + spacing.sm, paddingHorizontal: spacing.lg,
+    alignItems: "center", justifyContent: "center",
+  },
+  emptyIconWrap: {
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: "#ECFDF5", alignItems: "center", justifyContent: "center",
+    marginBottom: spacing.md,
+  },
+  emptyTitle: { fontFamily: fonts.jakartaSemiBold, fontSize: 16, color: colors.textPrimary, marginBottom: spacing.xs },
+  emptySubtext: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, textAlign: "center", lineHeight: 19, maxWidth: 260 },
 
-  // ── Recent message row styles ────────────────────────────────────────────
-  msgRow:              { flexDirection: "row", alignItems: "center", paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radii.md, gap: spacing.md, backgroundColor: colors.background },
-  msgAvatarWrap:       { position: "relative" },
-  msgAvatar:           { width: 44, height: 44, borderRadius: 22 },
-  msgAvatarFallback:   { backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-  msgAvatarInitials:   { fontFamily: fonts.jakartaBold, fontSize: 15, color: colors.white },
-  msgUnreadDot:        { position: "absolute", top: 0, right: 0, width: 11, height: 11, borderRadius: 6, backgroundColor: colors.error, borderWidth: 2, borderColor: colors.background },
-  msgContent:          { flex: 1, gap: 2 },
-  msgTop:              { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  msgName:             { fontFamily: fonts.jakartaMedium, fontSize: 14, color: colors.textPrimary, flex: 1 },
-  msgNameBold:         { fontFamily: fonts.jakartaBold },
-  msgTime:             { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary, marginLeft: 4 },
-  msgPreview:          { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary },
-  msgPreviewBold:      { fontFamily: fonts.jostMedium, color: colors.textPrimary },
-  msgBadge:            { backgroundColor: colors.error, borderRadius: radii.pill, minWidth: 20, height: 20, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
-  msgBadgeText:        { fontFamily: fonts.jakartaBold, fontSize: 11, color: colors.white },
+  // Message row styles
+  msgRow: { flexDirection: "row", alignItems: "center", paddingVertical: spacing.sm + 2, paddingHorizontal: spacing.md, gap: spacing.md },
+  msgAvatarWrap: { position: "relative" },
+  msgAvatar: { width: 44, height: 44, borderRadius: 22 },
+  msgAvatarFallback: { backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  msgAvatarInitials: { fontFamily: fonts.jakartaBold, fontSize: 15, color: colors.white },
+  msgUnreadDot: { position: "absolute", top: 0, right: 0, width: 11, height: 11, borderRadius: 6, backgroundColor: colors.error, borderWidth: 2, borderColor: colors.surface },
+  msgContent: { flex: 1, gap: 2 },
+  msgTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  msgName: { fontFamily: fonts.jakartaMedium, fontSize: 14, color: colors.textPrimary, flex: 1 },
+  msgNameBold: { fontFamily: fonts.jakartaBold },
+  msgTime: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary, marginLeft: 4 },
+  msgPreview: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary },
+  msgPreviewBold: { fontFamily: fonts.jostMedium, color: colors.textPrimary },
+  msgBadge: { backgroundColor: colors.error, borderRadius: radii.pill, minWidth: 20, height: 20, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
+  msgBadgeText: { fontFamily: fonts.jakartaBold, fontSize: 11, color: colors.white },
 });
