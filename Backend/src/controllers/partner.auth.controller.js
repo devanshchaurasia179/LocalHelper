@@ -292,7 +292,7 @@ export const getProfile = async (req, res) => {
 export const getMe = async (req, res) => {
   try {
     const partner = await Partner.findById(req.partnerId).select(
-      "_id phone fullName verification.phoneVerified verificationStatus rejectionReason isProfile isService isDocument categories accountStatus statusReason"
+      "_id phone fullName verification.phoneVerified verificationStatus rejectionReason isProfile isService isDocument categories subcategories accountStatus statusReason"
     );
 
     if (!partner) {
@@ -311,7 +311,8 @@ export const getMe = async (req, res) => {
       // every partner must upload it before they can proceed.
       const hasMissingDocs = await checkForMissingRequiredDocuments(
         partner._id,
-        partner.categories
+        partner.categories,
+        partner.subcategories
       );
       if (hasMissingDocs) {
         // Reset the flag so the partner is sent back to upload-documents
@@ -326,7 +327,8 @@ export const getMe = async (req, res) => {
         // active documents only (ignores rejected docs for disabled types)
         const computedStatus = await computeEffectiveVerificationStatus(
           partner._id,
-          partner.categories
+          partner.categories,
+          partner.subcategories
         );
         if (computedStatus !== partner.verificationStatus) {
           effectiveVerificationStatus = computedStatus;
@@ -341,14 +343,16 @@ export const getMe = async (req, res) => {
       // Re-check: if all required docs are now satisfied, restore the flag.
       const hasMissingDocs = await checkForMissingRequiredDocuments(
         partner._id,
-        partner.categories
+        partner.categories,
+        partner.subcategories
       );
       if (!hasMissingDocs) {
         effectiveIsDocument = true;
         // Compute status based only on active document types
         effectiveVerificationStatus = await computeEffectiveVerificationStatus(
           partner._id,
-          partner.categories
+          partner.categories,
+          partner.subcategories
         );
         await Partner.findByIdAndUpdate(partner._id, {
           $set: { isDocument: true, verificationStatus: effectiveVerificationStatus },
@@ -378,13 +382,13 @@ export const getMe = async (req, res) => {
 };
 
 /**
- * checkForMissingRequiredDocuments(partnerId, partnerCategories)
+ * checkForMissingRequiredDocuments(partnerId, partnerCategories, partnerSubcategories)
  *
  * Returns true if the partner is missing at least one required document upload
  * for currently ACTIVE document types only.
  */
-const checkForMissingRequiredDocuments = async (partnerId, partnerCategories) => {
-  const requiredTypes = await getActiveRequiredDocTypes(partnerCategories);
+const checkForMissingRequiredDocuments = async (partnerId, partnerCategories, partnerSubcategories) => {
+  const requiredTypes = await getActiveRequiredDocTypes(partnerCategories, partnerSubcategories);
   if (requiredTypes.length === 0) return false;
 
   const uploads = await PartnerDocument.find({
@@ -417,7 +421,7 @@ const checkForMissingRequiredDocuments = async (partnerId, partnerCategories) =>
 };
 
 /**
- * computeEffectiveVerificationStatus(partnerId, partnerCategories)
+ * computeEffectiveVerificationStatus(partnerId, partnerCategories, partnerSubcategories)
  *
  * Computes the correct verificationStatus based ONLY on active document types.
  * Ignores uploads for disabled/deleted document types entirely.
@@ -429,8 +433,8 @@ const checkForMissingRequiredDocuments = async (partnerId, partnerCategories) =>
  *   - All active required docs are uploaded (none missing) → "Under Review"
  *   - Some active required docs are missing → "Pending"
  */
-const computeEffectiveVerificationStatus = async (partnerId, partnerCategories) => {
-  const requiredTypes = await getActiveRequiredDocTypes(partnerCategories);
+const computeEffectiveVerificationStatus = async (partnerId, partnerCategories, partnerSubcategories) => {
+  const requiredTypes = await getActiveRequiredDocTypes(partnerCategories, partnerSubcategories);
 
   // No required documents → partner is good to go
   if (requiredTypes.length === 0) return "Approved";
@@ -480,24 +484,67 @@ const computeEffectiveVerificationStatus = async (partnerId, partnerCategories) 
 };
 
 /**
- * getActiveRequiredDocTypes(partnerCategories)
+ * getActiveRequiredDocTypes(partnerCategories, partnerSubcategories)
  *
- * Returns the list of active, required DocumentTypes relevant to this partner.
+ * Returns the list of active DocumentTypes that are both:
+ *   1. VISIBLE to this partner (mirrors getRelevantDocumentTypes logic)
+ *   2. REQUIRED for this partner (category/subcategory-scoped requirement check)
+ *
+ * Visibility precedence (same as getRelevantDocumentTypes):
+ *   - visibleToSubcategories non-empty → partner must have matching subcategory pair
+ *   - visibleToCategories non-empty    → partner must belong to one of those categories
+ *   - Neither populated                → visible to all
+ *
+ * Requirement precedence (mirrors buildDocumentObject):
+ *   - requiredForSubcategories non-empty → subcategory-level check takes precedence
+ *   - requiredForCategories non-empty    → category-level check
+ *   - Neither populated                  → uses docType.isRequired
  */
-const getActiveRequiredDocTypes = async (partnerCategories) => {
+const getActiveRequiredDocTypes = async (partnerCategories, partnerSubcategories = []) => {
   const allActive = await DocumentType.find({ isActive: true }).lean();
+
   const partnerCatStrings = (partnerCategories || []).map((c) => c.toString());
 
-  const relevant = allActive.filter((docType) => {
-    if (!docType.requiredForCategories || docType.requiredForCategories.length === 0) {
-      return true;
-    }
-    return docType.requiredForCategories.some((catId) =>
-      partnerCatStrings.includes(catId.toString())
-    );
-  });
+  // Build a Set of "catId_subId" strings for O(1) subcategory membership checks
+  const partnerSubKeys = new Set(
+    (partnerSubcategories || []).map(
+      (s) => `${s.categoryId.toString()}_${s.subcategoryId.toString()}`
+    )
+  );
 
-  return relevant.filter((dt) => dt.isRequired);
+  return allActive.filter((docType) => {
+    // ── Step 1: Is this document visible to this partner? ─────────────────
+    let isVisible;
+
+    if (docType.visibleToSubcategories && docType.visibleToSubcategories.length > 0) {
+      isVisible = docType.visibleToSubcategories.some((pair) =>
+        partnerSubKeys.has(`${pair.categoryId.toString()}_${pair.subcategoryId.toString()}`)
+      );
+    } else if (docType.visibleToCategories && docType.visibleToCategories.length > 0) {
+      isVisible = docType.visibleToCategories.some((catId) =>
+        partnerCatStrings.includes(catId.toString())
+      );
+    } else {
+      isVisible = true; // no visibility restriction = global
+    }
+
+    if (!isVisible) return false;
+
+    // ── Step 2: Is this document required for this partner? ───────────────
+    if (docType.requiredForSubcategories && docType.requiredForSubcategories.length > 0) {
+      return docType.requiredForSubcategories.some((pair) =>
+        partnerSubKeys.has(`${pair.categoryId.toString()}_${pair.subcategoryId.toString()}`)
+      );
+    }
+
+    if (docType.requiredForCategories && docType.requiredForCategories.length > 0) {
+      return docType.requiredForCategories.some((catId) =>
+        partnerCatStrings.includes(catId.toString())
+      );
+    }
+
+    return docType.isRequired;
+  });
 };
 
 // ─── Logout ─────────────────────────────────────────────────────────────────
