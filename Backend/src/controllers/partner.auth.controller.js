@@ -4,6 +4,7 @@ import Partner from "../models/partner/Partner.js";
 import DocumentType from "../models/verification/DocumentType.js";
 import PartnerDocument from "../models/verification/PartnerDocument.js";
 import { sendOtpViaSms } from "../services/apitxt.js";
+import { uploadToCloudinary } from "../middleware/upload.middleware.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -371,14 +372,18 @@ export const uploadProfilePhoto = async (req, res) => {
       return res.status(400).json({ message: "No file uploaded." });
     }
 
-    // req.file.path is the Cloudinary URL set by multer-storage-cloudinary
-    const profilePhoto = req.file.path;
-    partner.profilePhoto = profilePhoto;
+    // Upload buffer to Cloudinary (memoryStorage doesn't set req.file.path)
+    const result = await uploadToCloudinary(
+      req.file.buffer,
+      `partners/${req.partnerId}/profile`
+    );
+
+    partner.profilePhoto = result.url;
     await partner.save();
 
     return res.status(200).json({
       message: "Profile photo updated.",
-      profilePhoto,
+      profilePhoto: result.url,
     });
   } catch (error) {
     console.error("uploadProfilePhoto error:", error);
