@@ -398,10 +398,18 @@ export default function UploadDocumentsScreen() {
     (d) => d.isRequired && d.uploadStatus === "missing"
   ).length;
 
-  // Ready to submit when all required slots have at least one photo (pending)
-  // and the session hasn't already been submitted (Under Review).
-  const canSubmit = missingRequired === 0 && data.sessionStatus !== "Under Review";
-  const alreadyUnderReview = data.sessionStatus === "Under Review";
+  // True if any previously-rejected doc has been re-uploaded (now "pending")
+  // — in that case we must show the submit button even when sessionStatus is
+  // "Under Review", because the partner needs to re-submit for review.
+  const hasResubmittedDocs = actionableDocuments.some(
+    (d) => d.uploadStatus === "pending"
+  );
+
+  // Ready to submit when all required slots have at least one photo uploaded
+  // and either the session is not yet under review, or the partner has
+  // re-uploaded rejected documents that are now pending re-review.
+  const canSubmit = missingRequired === 0 && (data.sessionStatus !== "Under Review" || hasResubmittedDocs);
+  const alreadyUnderReview = data.sessionStatus === "Under Review" && !hasResubmittedDocs;
 
   // ── Main render ──────────────────────────────────────────────────────────
   return (

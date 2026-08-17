@@ -677,7 +677,7 @@ export const uploadDocument = async (req, res) => {
 
     // ── 8. Load partner to get categories for session logic ────────────────
     const partner = await Partner.findById(req.partnerId)
-      .select("categories verification")
+      .select("categories subcategories verification")
       .lean();
 
     if (!partner) {
@@ -794,7 +794,7 @@ export const uploadDocument = async (req, res) => {
 
     // Rebuild the upload map to include the new document for status calculation
     const uploadMap = await getActiveUploads(req.partnerId);
-    const relevantDocTypes = await getRelevantDocumentTypes(partner.categories);
+    const relevantDocTypes = await getRelevantDocumentTypes(partner.categories, partner.subcategories);
     const newSessionStatus = syncSessionStatus(session, relevantDocTypes, uploadMap);
 
     // Push a history entry if the status changed
@@ -878,7 +878,7 @@ export const uploadDocument = async (req, res) => {
 export const submitVerification = async (req, res) => {
   try {
     const partner = await Partner.findById(req.partnerId)
-      .select("categories verificationStatus")
+      .select("categories subcategories verificationStatus")
       .lean();
 
     if (!partner) {
@@ -905,12 +905,25 @@ export const submitVerification = async (req, res) => {
     }
 
     // Load relevant document types for this partner
-    const relevantDocTypes = await getRelevantDocumentTypes(partner.categories);
+    const relevantDocTypes = await getRelevantDocumentTypes(partner.categories, partner.subcategories);
 
     // Compute effective isRequired per-partner (mirrors buildDocumentObject logic).
-    // requiredForCategories overrides the base isRequired flag when populated.
+    // Subcategory-level check takes precedence over category-level.
     const partnerCatStrings = (partner.categories || []).map((c) => c.toString());
+    const partnerSubKeys = new Set(
+      (partner.subcategories || []).map(
+        (s) => `${s.categoryId.toString()}_${s.subcategoryId.toString()}`
+      )
+    );
+
     const requiredDocTypes = relevantDocTypes.filter((dt) => {
+      // Subcategory-level requiredFor takes highest precedence
+      if (dt.requiredForSubcategories && dt.requiredForSubcategories.length > 0) {
+        return dt.requiredForSubcategories.some((pair) =>
+          partnerSubKeys.has(`${pair.categoryId.toString()}_${pair.subcategoryId.toString()}`)
+        );
+      }
+      // Category-level requiredFor
       if (dt.requiredForCategories && dt.requiredForCategories.length > 0) {
         return dt.requiredForCategories.some((catId) =>
           partnerCatStrings.includes(catId.toString())
