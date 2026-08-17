@@ -46,14 +46,11 @@ export const createCall = async (req, res) => {
       });
     }
 
-    // 1. Load customer (to check if they've blocked this partner)
     const customer = await Customer.findById(customerId).select("blockedPartners name");
-
     if (!customer) {
       return res.status(404).json({ success: false, message: "Customer not found" });
     }
 
-    // 2. Block check — customer has blocked this partner
     if (customer.blockedPartners?.some((id) => id.equals(partnerId))) {
       return res.status(403).json({
         success: false,
@@ -61,14 +58,11 @@ export const createCall = async (req, res) => {
       });
     }
 
-    // 3. Load partner (to check if they've blocked this customer)
     const partner = await Partner.findById(partnerId).select("blockedCustomers accountStatus fullName");
-
     if (!partner) {
       return res.status(404).json({ success: false, message: "Partner not found" });
     }
 
-    // 4. Block check — partner has blocked this customer
     if (partner.blockedCustomers?.some((id) => id.equals(customerId))) {
       return res.status(403).json({
         success: false,
@@ -76,7 +70,6 @@ export const createCall = async (req, res) => {
       });
     }
 
-    // 5. Partner account must be active
     if (partner.accountStatus !== "Active") {
       return res.status(403).json({
         success: false,
@@ -84,7 +77,7 @@ export const createCall = async (req, res) => {
       });
     }
 
-    // 6. Create room & call record
+    // Create room & call record
     const roomName = `call_${crypto.randomUUID()}`;
 
     const call = await Call.create({
@@ -94,34 +87,24 @@ export const createCall = async (req, res) => {
       status: "ringing",
     });
 
-    // 7. LiveKit token for customer
+    // LiveKit token for customer
     const jwt = await buildLiveKitToken({
       identity: `customer_${customerId}`,
       displayName: customer.name || "Customer",
       roomName,
     });
 
-    // 8. Emit socket event to notify partner of incoming call
+    // Notify partner of incoming call via socket
     try {
       const io = getIO();
       const chatNS = io.of("/chat");
-      
-      // Debug: check how many sockets are in the partner's personal room
       const partnerRoom = `partner:${partnerId}`;
       const socketsInRoom = await chatNS.in(partnerRoom).fetchSockets();
-      console.log(`[Call] ══════════════════════════════════════════════════════`);
-      console.log(`[Call] INCOMING CALL DEBUG`);
-      console.log(`[Call] Partner ID: ${partnerId}`);
-      console.log(`[Call] Partner Room: ${partnerRoom}`);
-      console.log(`[Call] Sockets in room: ${socketsInRoom.length}`);
-      if (socketsInRoom.length > 0) {
-        socketsInRoom.forEach((s, i) => {
-          console.log(`[Call]   Socket ${i + 1}: ${s.id} | Connected: ${s.connected} | Rooms:`, Array.from(s.rooms));
-        });
-      }
-      console.log(`[Call] ══════════════════════════════════════════════════════`);
       
-      // Emit to the specific partner
+      if (socketsInRoom.length === 0) {
+        console.warn(`[Call] No sockets in room ${partnerRoom} — partner may be offline`);
+      }
+
       chatNS.to(partnerRoom).emit("incoming_call", {
         callId: call._id.toString(),
         roomName: call.roomName,
@@ -129,11 +112,8 @@ export const createCall = async (req, res) => {
         customerName: customer.name || "Customer",
         timestamp: new Date(),
       });
-      
-      console.log(`[Call] Emitted incoming_call to ${partnerRoom}`);
     } catch (socketError) {
       console.error("[Call] Failed to emit socket event:", socketError);
-      // Don't fail the call creation if socket emission fails
     }
 
     return res.status(201).json({
@@ -168,14 +148,11 @@ export const createCallAsPartner = async (req, res) => {
       });
     }
 
-    // 1. Load partner (to check if they've blocked this customer)
     const partner = await Partner.findById(partnerId).select("blockedCustomers fullName");
-
     if (!partner) {
       return res.status(404).json({ success: false, message: "Partner not found" });
     }
 
-    // 2. Block check — partner has blocked this customer
     if (partner.blockedCustomers?.some((id) => id.equals(customerId))) {
       return res.status(403).json({
         success: false,
@@ -183,14 +160,11 @@ export const createCallAsPartner = async (req, res) => {
       });
     }
 
-    // 4. Load customer (to check if they've blocked this partner)
     const customer = await Customer.findById(customerId).select("blockedPartners name");
-
     if (!customer) {
       return res.status(404).json({ success: false, message: "Customer not found" });
     }
 
-    // 5. Block check — customer has blocked this partner
     if (customer.blockedPartners?.some((id) => id.equals(partnerId))) {
       return res.status(403).json({
         success: false,
@@ -198,7 +172,6 @@ export const createCallAsPartner = async (req, res) => {
       });
     }
 
-    // 6. Create room & call record
     const roomName = `call_${crypto.randomUUID()}`;
 
     const call = await Call.create({
@@ -208,7 +181,7 @@ export const createCallAsPartner = async (req, res) => {
       status: "ringing",
     });
 
-    // 7. LiveKit token for partner
+    // LiveKit token for partner
     const jwt = await buildLiveKitToken({
       identity: `partner_${partnerId}`,
       displayName: partner.fullName || "Partner",
@@ -233,61 +206,8 @@ export const createCallAsPartner = async (req, res) => {
   }
 };
 
-/**
- * Debug endpoint to check socket connections
- * GET /api/calls/debug/sockets/:partnerId
- */
-export const debugSocketConnections = async (req, res) => {
-  try {
-    const { partnerId } = req.params;
-    
-    const io = getIO();
-    const chatNS = io.of("/chat");
-    
-    // Get all connected sockets
-    const allSockets = await chatNS.fetchSockets();
-    
-    // Get sockets in partner's personal room
-    const partnerRoom = `partner:${partnerId}`;
-    const socketsInRoom = await chatNS.in(partnerRoom).fetchSockets();
-    
-    const debugInfo = {
-      targetPartnerId: partnerId,
-      targetRoom: partnerRoom,
-      totalSocketsConnected: allSockets.length,
-      socketsInPartnerRoom: socketsInRoom.length,
-      allSockets: allSockets.map(s => ({
-        id: s.id,
-        connected: s.connected,
-        rooms: Array.from(s.rooms),
-        data: s.data,
-      })),
-      socketsInRoom: socketsInRoom.map(s => ({
-        id: s.id,
-        connected: s.connected,
-        rooms: Array.from(s.rooms),
-        data: s.data,
-      })),
-    };
-    
-    console.log('[Debug] Socket connections:', JSON.stringify(debugInfo, null, 2));
-    
-    return res.status(200).json({
-      success: true,
-      debug: debugInfo,
-    });
-  } catch (error) {
-    console.error("Debug sockets error:", error);
-    return res.status(500).json({ success: false, message: "Failed to debug sockets" });
-  }
-};
-
 // ─── Block / Unblock ──────────────────────────────────────────────────────────
 
-/**
- * Customer blocks a partner.
- * POST /api/calls/block/partner/:partnerId
- */
 export const blockPartner = async (req, res) => {
   try {
     const customerId = req.customerId;
@@ -309,10 +229,6 @@ export const blockPartner = async (req, res) => {
   }
 };
 
-/**
- * Customer unblocks a partner.
- * DELETE /api/calls/block/partner/:partnerId
- */
 export const unblockPartner = async (req, res) => {
   try {
     const customerId = req.customerId;
@@ -329,10 +245,6 @@ export const unblockPartner = async (req, res) => {
   }
 };
 
-/**
- * Partner blocks a customer.
- * POST /api/calls/block/customer/:customerId
- */
 export const blockCustomer = async (req, res) => {
   try {
     const partnerId = req.partnerId;
@@ -354,10 +266,6 @@ export const blockCustomer = async (req, res) => {
   }
 };
 
-/**
- * Partner unblocks a customer.
- * DELETE /api/calls/block/customer/:customerId
- */
 export const unblockCustomer = async (req, res) => {
   try {
     const partnerId = req.partnerId;
@@ -376,17 +284,13 @@ export const unblockCustomer = async (req, res) => {
 
 // ─── Accept / Reject Call ─────────────────────────────────────────────────────
 
-/**
- * Partner accepts an incoming call.
- * POST /api/calls/:callId/accept
- */
 export const acceptCall = async (req, res) => {
   try {
     const partnerId = req.partnerId;
     const { callId } = req.params;
 
     const call = await Call.findById(callId);
-    
+
     if (!call) {
       return res.status(404).json({ success: false, message: "Call not found" });
     }
@@ -396,9 +300,9 @@ export const acceptCall = async (req, res) => {
     }
 
     if (call.status !== "ringing") {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Call cannot be accepted (current status: ${call.status})` 
+      return res.status(400).json({
+        success: false,
+        message: `Call cannot be accepted (current status: ${call.status})`,
       });
     }
 
@@ -407,7 +311,6 @@ export const acceptCall = async (req, res) => {
     call.startedAt = new Date();
     await call.save();
 
-    // Load partner details for token generation
     const partner = await Partner.findById(partnerId).select("fullName");
 
     // Generate LiveKit token for partner
@@ -417,11 +320,10 @@ export const acceptCall = async (req, res) => {
       roomName: call.roomName,
     });
 
-    // Notify customer via socket
+    // Notify customer via socket that call was accepted
     try {
       const io = getIO();
       const chatNS = io.of("/chat");
-      
       chatNS.to(`customer:${call.customer}`).emit("call_accepted", {
         callId: call._id.toString(),
         roomName: call.roomName,
@@ -429,8 +331,6 @@ export const acceptCall = async (req, res) => {
         partnerName: partner?.fullName || "Partner",
         timestamp: new Date(),
       });
-      
-      console.log(`[Call] Emitted call_accepted to customer:${call.customer}`);
     } catch (socketError) {
       console.error("[Call] Failed to emit socket event:", socketError);
     }
@@ -453,17 +353,13 @@ export const acceptCall = async (req, res) => {
   }
 };
 
-/**
- * Partner rejects an incoming call.
- * POST /api/calls/:callId/reject
- */
 export const rejectCall = async (req, res) => {
   try {
     const partnerId = req.partnerId;
     const { callId } = req.params;
 
     const call = await Call.findById(callId);
-    
+
     if (!call) {
       return res.status(404).json({ success: false, message: "Call not found" });
     }
@@ -473,13 +369,12 @@ export const rejectCall = async (req, res) => {
     }
 
     if (call.status !== "ringing") {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Call cannot be rejected (current status: ${call.status})` 
+      return res.status(400).json({
+        success: false,
+        message: `Call cannot be rejected (current status: ${call.status})`,
       });
     }
 
-    // Update call status
     call.status = "rejected";
     call.endedAt = new Date();
     await call.save();
@@ -488,19 +383,16 @@ export const rejectCall = async (req, res) => {
     try {
       const io = getIO();
       const chatNS = io.of("/chat");
-      
       chatNS.to(`customer:${call.customer}`).emit("call_rejected", {
         callId: call._id.toString(),
         timestamp: new Date(),
       });
-      
-      console.log(`[Call] Emitted call_rejected to customer:${call.customer}`);
     } catch (socketError) {
       console.error("[Call] Failed to emit socket event:", socketError);
     }
 
-    return res.status(200).json({ 
-      success: true, 
+    return res.status(200).json({
+      success: true,
       message: "Call rejected",
       call: {
         id: call._id,
@@ -513,10 +405,6 @@ export const rejectCall = async (req, res) => {
   }
 };
 
-/**
- * End an ongoing call (can be called by either customer or partner).
- * POST /api/calls/:callId/end
- */
 export const endCall = async (req, res) => {
   try {
     const { callId } = req.params;
@@ -524,13 +412,12 @@ export const endCall = async (req, res) => {
     const userType = req.customerId ? "customer" : "partner";
 
     const call = await Call.findById(callId);
-    
+
     if (!call) {
       return res.status(404).json({ success: false, message: "Call not found" });
     }
 
-    // Check authorization
-    const isAuthorized = 
+    const isAuthorized =
       (userType === "customer" && call.customer.equals(userId)) ||
       (userType === "partner" && call.partner.equals(userId));
 
@@ -539,47 +426,43 @@ export const endCall = async (req, res) => {
     }
 
     if (!["accepted", "ongoing"].includes(call.status)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Call cannot be ended (current status: ${call.status})` 
+      return res.status(400).json({
+        success: false,
+        message: `Call cannot be ended (current status: ${call.status})`,
       });
     }
 
-    // Calculate duration
     const endTime = new Date();
-    const duration = call.startedAt 
-      ? Math.floor((endTime - call.startedAt) / 1000) 
+    const duration = call.startedAt
+      ? Math.floor((endTime - call.startedAt) / 1000)
       : 0;
 
-    // Update call
     call.status = "completed";
     call.endedAt = endTime;
     call.duration = duration;
     await call.save();
 
-    // Notify the other party via socket
+    // Notify the other party
     try {
       const io = getIO();
       const chatNS = io.of("/chat");
-      
-      const targetRoom = userType === "customer" 
-        ? `partner:${call.partner}` 
-        : `customer:${call.customer}`;
-      
+      const targetRoom =
+        userType === "customer"
+          ? `partner:${call.partner}`
+          : `customer:${call.customer}`;
+
       chatNS.to(targetRoom).emit("call_ended", {
         callId: call._id.toString(),
         duration,
         endedBy: userType,
         timestamp: endTime,
       });
-      
-      console.log(`[Call] Emitted call_ended to ${targetRoom}`);
     } catch (socketError) {
       console.error("[Call] Failed to emit socket event:", socketError);
     }
 
-    return res.status(200).json({ 
-      success: true, 
+    return res.status(200).json({
+      success: true,
       message: "Call ended",
       call: {
         id: call._id,

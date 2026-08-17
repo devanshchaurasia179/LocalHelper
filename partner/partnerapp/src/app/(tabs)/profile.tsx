@@ -23,6 +23,8 @@ import { colors, fonts, spacing, radii } from "@/constants/theme";
 import BottomNav from "@/components/navigation/BottomNav";
 import { useAuth } from "@/providers/AuthProvider";
 import { api } from "@/constants/api";
+import { router } from "expo-router";
+import { ROUTES } from "@/constants/routes";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -169,7 +171,7 @@ function InfoRow({ icon, label, value, multiline }: {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ProfileScreen() {
-  const { partner, patchPartner } = useAuth();
+  const { partner, patchPartner, signOut } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -296,7 +298,7 @@ export default function ProfileScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -1097,6 +1099,35 @@ export default function ProfileScreen() {
           </View>
         )}
 
+        {/* ── Logout ─────────────────────────────────────────────── */}
+        <View style={styles.logoutSection}>
+          <Pressable
+            style={styles.logoutBtn}
+            onPress={() => {
+              Alert.alert(
+                "Log Out",
+                "Are you sure you want to log out?",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Log Out",
+                    style: "destructive",
+                    onPress: async () => {
+                      await signOut();
+                      router.replace(ROUTES.AUTH.SEND_OTP as any);
+                    },
+                  },
+                ]
+              );
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Log out"
+          >
+            <MaterialCommunityIcons name="logout" size={18} color={colors.error} />
+            <Text style={styles.logoutBtnText}>Log Out</Text>
+          </Pressable>
+        </View>
+
         {/* Bottom spacing */}
         <View style={{ height: spacing.xl }} />
       </ScrollView>
@@ -1562,6 +1593,28 @@ const styles = StyleSheet.create({
   docNumberRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: spacing.xs },
   docNumber: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary },
   docDate: { fontFamily: fonts.jostRegular, fontSize: 10, color: colors.navInactive, marginTop: 4 },
+
+  // Logout
+  logoutSection: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+  },
+  logoutBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.errorLight,
+    borderRadius: radii.md,
+    paddingVertical: spacing.md,
+    borderWidth: 1.5,
+    borderColor: colors.errorBorder,
+  },
+  logoutBtnText: {
+    fontFamily: fonts.jostSemiBold,
+    fontSize: 15,
+    color: colors.error,
+  },
 
   // Live selfie
   selfieRow: {

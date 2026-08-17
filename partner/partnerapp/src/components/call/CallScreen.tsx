@@ -28,45 +28,24 @@ function CallControls({
   onEndCall,
   customerName,
 }: {
-  room: Room | null;
+  room: Room;
   onEndCall: () => void;
   customerName: string;
 }) {
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
-  const [peerJoined, setPeerJoined] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Detect when the remote participant (customer) connects
+  // Start timer immediately — we only render this when peer is in the room
   useEffect(() => {
-    if (!room) return;
-
-    // Check if already has remote participants
-    if (room.remoteParticipants.size > 0) {
-      setPeerJoined(true);
-    }
-
-    const handleParticipantConnected = () => {
-      setPeerJoined(true);
-    };
-
-    room.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
-    return () => {
-      room.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
-    };
-  }, [room]);
-
-  // Start timer ONLY when peer has joined
-  useEffect(() => {
-    if (!peerJoined) return;
     timerRef.current = setInterval(() => {
       setCallDuration((d) => d + 1);
     }, 1000);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [peerJoined]);
+  }, []);
 
   const formatDuration = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -75,10 +54,8 @@ function CallControls({
   };
 
   const toggleMute = async () => {
-    if (room) {
-      await room.localParticipant.setMicrophoneEnabled(isMuted);
-      setIsMuted(!isMuted);
-    }
+    await room.localParticipant.setMicrophoneEnabled(isMuted);
+    setIsMuted(!isMuted);
   };
 
   const toggleSpeaker = () => {
@@ -103,9 +80,7 @@ function CallControls({
           <Ionicons name="person" size={60} color="#fff" />
         </View>
         <Text style={styles.customerName}>{customerName}</Text>
-        <Text style={styles.callStatus}>
-          {peerJoined ? formatDuration(callDuration) : 'Waiting for customer...'}
-        </Text>
+        <Text style={styles.callStatus}>{formatDuration(callDuration)}</Text>
       </View>
 
       {/* Call Controls */}
@@ -162,12 +137,12 @@ export default function CallScreen({
 
   useEffect(() => {
     if (visible && !hasStartedAudio.current) {
-      AudioSession.startAudioSession().catch(console.error);
+      AudioSession.startAudioSession().catch(() => {});
       hasStartedAudio.current = true;
     }
     return () => {
       if (hasStartedAudio.current) {
-        AudioSession.stopAudioSession().catch(console.error);
+        AudioSession.stopAudioSession().catch(() => {});
         hasStartedAudio.current = false;
       }
     };
@@ -182,7 +157,8 @@ export default function CallScreen({
     }
   }, [visible]);
 
-  // Connect to LiveKit immediately (partner already accepted)
+  // Connect to LiveKit immediately (partner already accepted).
+  // Timer starts when the remote participant (customer) joins via ParticipantConnected.
   useEffect(() => {
     if (!visible || callState !== 'connecting') return;
 
@@ -200,7 +176,15 @@ export default function CallScreen({
       }
     };
 
+    // When the customer joins the room → call is live, start timer
+    const handleParticipantConnected = () => {
+      if (mounted) {
+        setCallState('connected');
+      }
+    };
+
     lkRoom.on(RoomEvent.Disconnected, handleDisconnected);
+    lkRoom.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
 
     lkRoom
       .connect(livekitUrl, livekitToken, { autoSubscribe: true })
@@ -209,12 +193,24 @@ export default function CallScreen({
           lkRoom.disconnect();
           return;
         }
-        await lkRoom.localParticipant.setMicrophoneEnabled(true);
         setRoom(lkRoom);
-        setCallState('connected');
+
+        // Enable mic after signal connection stabilizes
+        setTimeout(async () => {
+          if (!mounted) return;
+          try {
+            await lkRoom.localParticipant.setMicrophoneEnabled(true);
+          } catch {
+            // Non-fatal
+          }
+        }, 500);
+
+        // If customer already connected before we finished setup
+        if (lkRoom.remoteParticipants.size > 0) {
+          setCallState('connected');
+        }
       })
-      .catch((err) => {
-        console.error('[CallScreen] LiveKit connect error:', err);
+      .catch(() => {
         if (mounted) {
           setCallState('ended');
           setTimeout(() => onEndCall(), 1500);
@@ -224,6 +220,7 @@ export default function CallScreen({
     return () => {
       mounted = false;
       lkRoom.off(RoomEvent.Disconnected, handleDisconnected);
+      lkRoom.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
       lkRoom.disconnect().catch(() => {});
       roomRef.current = null;
     };
@@ -239,7 +236,7 @@ export default function CallScreen({
     }
 
     if (hasStartedAudio.current) {
-      AudioSession.stopAudioSession().catch(console.error);
+      AudioSession.stopAudioSession().catch(() => {});
       hasStartedAudio.current = false;
     }
 
@@ -263,7 +260,7 @@ export default function CallScreen({
           </View>
         )}
 
-        {callState === 'connected' && (
+        {callState === 'connected' && room && (
           <CallControls room={room} onEndCall={handleEndCall} customerName={customerName} />
         )}
 

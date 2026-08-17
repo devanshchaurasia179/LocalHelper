@@ -9,15 +9,11 @@ import {
   acceptCall,
   rejectCall,
   endCall,
-  debugSocketConnections,
 } from "../controllers/call.controller.js";
 import protectCustomer from "../middleware/customer.auth.middleware.js";
 import protectPartner from "../middleware/partner.auth.middleware.js";
 
 const router = express.Router();
-
-// ── Debug endpoint (no auth for testing) ──────────────────────────────────────
-router.get("/debug/sockets/:partnerId", debugSocketConnections);
 
 // ── Customer initiates a call to a partner ────────────────────────────────────
 router.post("/", protectCustomer, createCall);
@@ -39,21 +35,17 @@ router.post("/:callId/reject", protectPartner, rejectCall);
 
 // Allow both customer and partner to end a call
 const protectEither = (req, res, next) => {
-  // Try customer auth first — clone the res to prevent it from sending a response
   const customerToken = req.cookies?.customer_token;
   const partnerToken = req.cookies?.partner_token;
 
   if (customerToken) {
-    // Has customer cookie — try customer auth
     return protectCustomer(req, res, next);
   }
 
   if (partnerToken) {
-    // Has partner cookie — try partner auth
     return protectPartner(req, res, next);
   }
 
-  // Neither cookie present
   return res.status(401).json({ message: "Unauthorized. Please log in." });
 };
 router.post("/:callId/end", protectEither, endCall);

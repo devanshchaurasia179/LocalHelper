@@ -57,7 +57,10 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "build:dev": "set EAS_NO_VCS=1 && eas build --platform android --profile development",
+    "build:preview": "set EAS_NO_VCS=1 && eas build --platform android --profile preview",
+    "build:prod": "set EAS_NO_VCS=1 && eas build --platform android --profile production"
   },
   "private": true
 }

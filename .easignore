@@ -9,6 +9,8 @@ vercel-proxy/
 .idea/
 .vscode/
 
-# Exclude documentation
+# Exclude documentation (but keep package.json at root)
 *.md
-README.md
+
+# Exclude node_modules at root level (workspace installs per-project)
+node_modules/

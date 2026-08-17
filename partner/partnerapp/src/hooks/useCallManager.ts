@@ -29,13 +29,8 @@ export default function useCallManager() {
     let mounted = true;
 
     const handleIncomingCall = (data: IncomingCall) => {
-      console.log('═══════════════════════════════════════════════════════');
-      console.log('[CallManager] INCOMING CALL RECEIVED');
-      console.log('[CallManager] Data:', JSON.stringify(data, null, 2));
-      console.log('═══════════════════════════════════════════════════════');
       if (!mounted) return;
       setIncomingCall(data);
-      
       Toast.show({
         type: 'info',
         text1: 'Incoming Call',
@@ -45,23 +40,21 @@ export default function useCallManager() {
     };
 
     const handleCallEnded = (data: { callId: string; duration: number; endedBy: string }) => {
-      console.log('[CallManager] Call ended:', data);
       if (!mounted) return;
-      
-      // Clear active call if it matches
+
       setActiveCall((current) => {
         if (current?.callId === data.callId) {
           Toast.show({
             type: 'info',
             text1: 'Call Ended',
-            text2: `Call duration: ${Math.floor(data.duration / 60)}m ${data.duration % 60}s`,
+            text2: `Duration: ${Math.floor(data.duration / 60)}m ${data.duration % 60}s`,
           });
           return null;
         }
         return current;
       });
 
-      // Also clear incoming call if it matches (customer hung up before we answered)
+      // Customer hung up before we answered
       setIncomingCall((current) => {
         if (current?.callId === data.callId) return null;
         return current;
@@ -70,31 +63,12 @@ export default function useCallManager() {
 
     const setupListeners = async () => {
       try {
-        console.log('═══════════════════════════════════════════════════════');
-        console.log('[CallManager] Setting up socket listeners...');
-        // Ensure the socket is connected before attaching listeners
         const socket = await connectChatSocket();
         if (!mounted) return;
-
-        console.log('[CallManager] Socket instance:', {
-          id: socket.id,
-          connected: socket.connected,
-          disconnected: socket.disconnected,
-        });
-
-        // Log all socket events for debugging
-        socket.onAny((eventName, ...args) => {
-          console.log(`[CallManager] Socket event "${eventName}":`, args);
-        });
-
         socket.on('incoming_call', handleIncomingCall);
         socket.on('call_ended', handleCallEnded);
-
-        console.log('[CallManager] Listeners attached for incoming_call and call_ended');
-        console.log('[CallManager] Socket rooms:', Array.from(socket.rooms || []));
-        console.log('═══════════════════════════════════════════════════════');
-      } catch (err) {
-        console.warn('[CallManager] Failed to connect socket:', err);
+      } catch {
+        // Socket will retry automatically
       }
     };
 
@@ -106,7 +80,6 @@ export default function useCallManager() {
       if (socket) {
         socket.off('incoming_call', handleIncomingCall);
         socket.off('call_ended', handleCallEnded);
-        socket.offAny(); // Remove the catch-all listener
       }
     };
   }, []);
@@ -128,17 +101,10 @@ export default function useCallManager() {
           livekitToken: response.livekit.token,
         });
         setIncomingCall(null);
-        
-        Toast.show({
-          type: 'success',
-          text1: 'Call Accepted',
-          text2: `Connected to ${incomingCall.customerName}`,
-        });
       } else {
         throw new Error(response.message || 'Failed to accept call');
       }
     } catch (error: any) {
-      console.error('[CallManager] Accept error:', error);
       Toast.show({
         type: 'error',
         text1: 'Call Failed',
@@ -158,15 +124,7 @@ export default function useCallManager() {
       setProcessing(true);
       await rejectCall(incomingCall.callId);
       setIncomingCall(null);
-      
-      Toast.show({
-        type: 'info',
-        text1: 'Call Declined',
-        text2: 'You declined the call',
-      });
-    } catch (error: any) {
-      console.error('[CallManager] Reject error:', error);
-      // Still clear the incoming call even if API fails
+    } catch {
       setIncomingCall(null);
     } finally {
       setProcessing(false);
@@ -179,18 +137,10 @@ export default function useCallManager() {
 
     try {
       await endCallApi(activeCall.callId);
-      setActiveCall(null);
-      
-      Toast.show({
-        type: 'info',
-        text1: 'Call Ended',
-        text2: 'You ended the call',
-      });
-    } catch (error: any) {
-      console.error('[CallManager] End call error:', error);
-      // Still clear the active call even if API fails
-      setActiveCall(null);
+    } catch {
+      // Clear anyway
     }
+    setActiveCall(null);
   }, [activeCall]);
 
   return {

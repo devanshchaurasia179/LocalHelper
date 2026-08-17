@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Modal,
-  ActivityIndicator,
   Animated,
   Easing,
 } from 'react-native';
@@ -24,9 +23,7 @@ interface CallScreenProps {
   onEndCall: () => void;
 }
 
-// ─── Call States ──────────────────────────────────────────────────────────────
-
-type CallState = 'dialling' | 'connecting' | 'connected' | 'ended';
+type CallState = 'dialling' | 'connected' | 'ended';
 
 // ─── Dialling UI (pulsing ring animation) ─────────────────────────────────────
 
@@ -74,44 +71,24 @@ function CallControls({
   onEndCall,
   partnerName,
 }: {
-  room: Room | null;
+  room: Room;
   onEndCall: () => void;
   partnerName: string;
 }) {
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [callDuration, setCallDuration] = useState(0);
-  const [peerJoined, setPeerJoined] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Detect when the remote participant (partner) is in the room
+  // Start timer immediately — we only render this component when peer joined
   useEffect(() => {
-    if (!room) return;
-
-    if (room.remoteParticipants.size > 0) {
-      setPeerJoined(true);
-    }
-
-    const handleParticipantConnected = () => {
-      setPeerJoined(true);
-    };
-
-    room.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
-    return () => {
-      room.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
-    };
-  }, [room]);
-
-  // Timer starts only when peer has joined
-  useEffect(() => {
-    if (!peerJoined) return;
     timerRef.current = setInterval(() => {
       setCallDuration((d) => d + 1);
     }, 1000);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [peerJoined]);
+  }, []);
 
   const formatDuration = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -120,10 +97,8 @@ function CallControls({
   };
 
   const toggleMute = async () => {
-    if (room) {
-      await room.localParticipant.setMicrophoneEnabled(isMuted);
-      setIsMuted(!isMuted);
-    }
+    await room.localParticipant.setMicrophoneEnabled(isMuted);
+    setIsMuted(!isMuted);
   };
 
   const toggleSpeaker = () => {
@@ -147,9 +122,7 @@ function CallControls({
           <Ionicons name="person" size={60} color={colors.white} />
         </View>
         <Text style={styles.partnerName}>{partnerName}</Text>
-        <Text style={styles.callStatus}>
-          {peerJoined ? formatDuration(callDuration) : 'Waiting for partner...'}
-        </Text>
+        <Text style={styles.callStatus}>{formatDuration(callDuration)}</Text>
       </View>
 
       <View style={styles.controlsContainer}>
@@ -206,12 +179,12 @@ export default function CallScreen({
   // Start audio session when visible
   useEffect(() => {
     if (visible && !hasStartedAudio.current) {
-      AudioSession.startAudioSession().catch(console.error);
+      AudioSession.startAudioSession().catch(() => {});
       hasStartedAudio.current = true;
     }
     return () => {
       if (hasStartedAudio.current) {
-        AudioSession.stopAudioSession().catch(console.error);
+        AudioSession.stopAudioSession().catch(() => {});
         hasStartedAudio.current = false;
       }
     };
@@ -226,76 +199,12 @@ export default function CallScreen({
     }
   }, [visible]);
 
-  // Listen for call_accepted / call_rejected via socket
-  // When partner accepts → connect to LiveKit
+  // Connect to LiveKit immediately on mount.
+  // Customer joins the room and waits for partner to join (ParticipantConnected).
+  // This uses LiveKit's WebSocket as the signaling layer — fast and direct.
+  // Also listens for call_rejected via Socket.IO in case partner declines.
   useEffect(() => {
     if (!visible || callState !== 'dialling') return;
-
-    let mounted = true;
-
-    const handleCallAccepted = (data: { callId: string; roomName: string }) => {
-      console.log('═══════════════════════════════════════════════════════');
-      console.log('[CallScreen] CALL ACCEPTED EVENT RECEIVED');
-      console.log('[CallScreen] Data:', JSON.stringify(data, null, 2));
-      console.log('═══════════════════════════════════════════════════════');
-      if (!mounted) return;
-      // Partner accepted — now we connect to LiveKit
-      setCallState('connecting');
-    };
-
-    const handleCallRejected = (data: { callId: string }) => {
-      console.log('[CallScreen] Partner rejected the call:', data);
-      if (!mounted) return;
-      setCallState('ended');
-      // Small delay so user sees "ended" state before modal closes
-      setTimeout(() => onEndCall(), 1500);
-    };
-
-    const setup = async () => {
-      try {
-        console.log('═══════════════════════════════════════════════════════');
-        console.log('[CallScreen] Setting up call response listeners...');
-        const socket = await connectChatSocket();
-        if (!mounted) return;
-        
-        console.log('[CallScreen] Socket instance:', {
-          id: socket.id,
-          connected: socket.connected,
-          disconnected: socket.disconnected,
-        });
-        
-        // Log all socket events for debugging
-        socket.onAny((eventName, ...args) => {
-          console.log(`[CallScreen] Socket event "${eventName}":`, args);
-        });
-        
-        socket.on('call_accepted', handleCallAccepted);
-        socket.on('call_rejected', handleCallRejected);
-        
-        console.log('[CallScreen] Listeners attached for call_accepted and call_rejected');
-        console.log('[CallScreen] Socket rooms:', Array.from(socket.rooms || []));
-        console.log('═══════════════════════════════════════════════════════');
-      } catch (err) {
-        console.warn('[CallScreen] Socket setup error:', err);
-      }
-    };
-
-    setup();
-
-    return () => {
-      mounted = false;
-      const socket = getChatSocket();
-      if (socket) {
-        socket.off('call_accepted', handleCallAccepted);
-        socket.off('call_rejected', handleCallRejected);
-        socket.offAny(); // Remove the catch-all listener
-      }
-    };
-  }, [visible, callState, onEndCall]);
-
-  // Connect to LiveKit ONLY when callState becomes 'connecting'
-  useEffect(() => {
-    if (callState !== 'connecting') return;
 
     let mounted = true;
     const lkRoom = new Room({
@@ -311,7 +220,15 @@ export default function CallScreen({
       }
     };
 
+    // When partner joins the LiveKit room → call is connected, start timer
+    const handleParticipantConnected = () => {
+      if (mounted) {
+        setCallState('connected');
+      }
+    };
+
     lkRoom.on(RoomEvent.Disconnected, handleDisconnected);
+    lkRoom.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
 
     lkRoom
       .connect(livekitUrl, livekitToken, { autoSubscribe: true })
@@ -320,25 +237,59 @@ export default function CallScreen({
           lkRoom.disconnect();
           return;
         }
-        await lkRoom.localParticipant.setMicrophoneEnabled(true);
         setRoom(lkRoom);
-        setCallState('connected');
+
+        // Enable mic only after signal connection is confirmed
+        // Use a small delay to let the signaling channel stabilize
+        setTimeout(async () => {
+          if (!mounted) return;
+          try {
+            await lkRoom.localParticipant.setMicrophoneEnabled(true);
+          } catch {
+            // Non-fatal — mic will be enabled when call connects
+          }
+        }, 500);
+
+        // If partner already connected before we finished setup
+        if (lkRoom.remoteParticipants.size > 0) {
+          setCallState('connected');
+        }
       })
-      .catch((err) => {
-        console.error('[CallScreen] LiveKit connect error:', err);
+      .catch(() => {
         if (mounted) {
           setCallState('ended');
           setTimeout(() => onEndCall(), 1500);
         }
       });
 
+    // Listen for partner rejection via Socket.IO
+    const handleCallRejected = () => {
+      if (!mounted) return;
+      setCallState('ended');
+      lkRoom.disconnect().catch(() => {});
+      setTimeout(() => onEndCall(), 1500);
+    };
+
+    connectChatSocket()
+      .then((socket) => {
+        if (!mounted) return;
+        socket.on('call_rejected', handleCallRejected);
+      })
+      .catch(() => {});
+
     return () => {
       mounted = false;
       lkRoom.off(RoomEvent.Disconnected, handleDisconnected);
+      lkRoom.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
       lkRoom.disconnect().catch(() => {});
       roomRef.current = null;
+
+      const socket = getChatSocket();
+      if (socket) {
+        socket.off('call_rejected', handleCallRejected);
+      }
     };
-  }, [callState, livekitUrl, livekitToken, onEndCall]);
+  }, [visible, callState, livekitUrl, livekitToken, onEndCall]);
 
   const handleEndCall = useCallback(() => {
     setCallState('ended');
@@ -350,7 +301,7 @@ export default function CallScreen({
     }
 
     if (hasStartedAudio.current) {
-      AudioSession.stopAudioSession().catch(console.error);
+      AudioSession.stopAudioSession().catch(() => {});
       hasStartedAudio.current = false;
     }
 
@@ -375,14 +326,7 @@ export default function CallScreen({
           <DiallingView partnerName={getPartnerName()} onCancel={handleEndCall} />
         )}
 
-        {callState === 'connecting' && (
-          <View style={styles.connectingContainer}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.connectingText}>Connecting...</Text>
-          </View>
-        )}
-
-        {callState === 'connected' && (
+        {callState === 'connected' && room && (
           <CallControls room={room} onEndCall={handleEndCall} partnerName={getPartnerName()} />
         )}
 
