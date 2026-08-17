@@ -258,6 +258,8 @@ interface PartnerDetailSheetProps {
   onBooked: () => void;
   /** Called after a successful call deduction — passes partnerId and minutes unlocked */
   onCallPaid?: (partnerId: string, durationMinutes: number) => void;
+  /** Called to initiate a real-time LiveKit call to the partner */
+  onCallInitiate?: (partner: NearbyPartner) => void;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -332,6 +334,7 @@ export default function PartnerDetailSheet({
   onClose,
   onBooked,
   onCallPaid,
+  onCallInitiate,
 }: PartnerDetailSheetProps) {
   const { booking, error, book, reset } = useBookPartner();
   const router = useRouter();
@@ -498,15 +501,17 @@ export default function PartnerDetailSheet({
           onPress: async () => {
             setCallLoading(true);
             try {
-              const res = await initiateCall(partner._id);
-              setCallDuration(res.durationMinutes);
-              onCallPaid?.(partner._id, res.durationMinutes);
-              Alert.alert(
-                'Call Ready',
-                res.charge > 0
-                  ? `₹${res.charge} deducted. You have ${res.durationMinutes} min. Wallet: ₹${res.walletBalance}`
-                  : `Call started. Duration: ${res.durationMinutes} min`,
-              );
+              // 1. Deduct call charges from wallet (if applicable)
+              if (charge > 0) {
+                const res = await initiateCall(partner._id);
+                setCallDuration(res.durationMinutes);
+                onCallPaid?.(partner._id, res.durationMinutes);
+              }
+
+              // 2. Initiate the actual real-time call via LiveKit
+              //    The parent handles connecting to LiveKit and showing CallScreen
+              onClose();
+              onCallInitiate?.(partner);
             } catch (err: any) {
               const msg = err?.response?.data?.message ?? 'Could not initiate call. Try again.';
               Alert.alert(
@@ -520,7 +525,7 @@ export default function PartnerDetailSheet({
         },
       ],
     );
-  }, [partner]);
+  }, [partner, onCallPaid, onCallInitiate, onClose]);
 
   // ── Book handler ───────────────────────────────────────────────────────────
   const handleBook = useCallback(async () => {

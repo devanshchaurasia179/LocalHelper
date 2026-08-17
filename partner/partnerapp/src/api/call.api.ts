@@ -1,18 +1,4 @@
-import axios from "axios";
-import Constants from "expo-constants";
-
-const devHost = Constants.expoConfig?.hostUri?.split(":")[0] ?? "localhost";
-export const BASE_URL =
-  process.env.EXPO_PUBLIC_BACKEND_URL ?? `http://${devHost}:5001/api`;
-
-const api = axios.create({
-  baseURL: BASE_URL,
-  headers: {
-    "Content-Type": "application/json",
-  },
-  timeout: 8000,
-  withCredentials: true,
-});
+import { api } from "@/constants/api";
 
 export interface CallResponse {
   success: boolean;

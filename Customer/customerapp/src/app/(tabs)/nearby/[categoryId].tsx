@@ -26,7 +26,6 @@ import PartnerDetailSheet from '../home/PartnerDetailSheet';
 import CallScreen from '@/components/call/CallScreen';
 import { initiateCall } from '@/api/call.api';
 import type { CallResponse } from '@/api/call.api';
-import { connectChatSocket, getChatSocket } from '@/services/chat.socket';
 import Toast from 'react-native-toast-message';
 import { colors, spacing, radii, typography } from '../home/theme';
 
@@ -322,60 +321,6 @@ export default function CategoryPartnersScreen() {
     setCallData(null);
   };
 
-  // Listen for partner rejecting/ending the call via socket
-  useEffect(() => {
-    let mounted = true;
-
-    const setupCallListeners = async () => {
-      try {
-        const socket = await connectChatSocket();
-        if (!mounted) return;
-
-        const handleCallRejected = (data: { callId: string }) => {
-          if (!mounted) return;
-          console.log('[Call] Partner rejected the call:', data);
-          setCallVisible(false);
-          setCallPartner(null);
-          setCallData(null);
-          Toast.show({
-            type: 'info',
-            text1: 'Call Declined',
-            text2: 'The partner declined your call',
-          });
-        };
-
-        const handleCallEnded = (data: { callId: string; duration: number; endedBy: string }) => {
-          if (!mounted) return;
-          console.log('[Call] Call ended by partner:', data);
-          setCallVisible(false);
-          setCallPartner(null);
-          setCallData(null);
-          Toast.show({
-            type: 'info',
-            text1: 'Call Ended',
-            text2: `Call duration: ${Math.floor(data.duration / 60)}m ${data.duration % 60}s`,
-          });
-        };
-
-        socket.on('call_rejected', handleCallRejected);
-        socket.on('call_ended', handleCallEnded);
-      } catch (err) {
-        console.warn('[Call] Failed to setup call socket listeners:', err);
-      }
-    };
-
-    setupCallListeners();
-
-    return () => {
-      mounted = false;
-      const socket = getChatSocket();
-      if (socket) {
-        socket.off('call_rejected');
-        socket.off('call_ended');
-      }
-    };
-  }, []);
-
   const visiblePartners = useMemo(() => {
     let list = partners;
 
@@ -616,6 +561,9 @@ export default function CategoryPartnersScreen() {
             next.set(partnerId, durationMinutes);
             return next;
           });
+        }}
+        onCallInitiate={(partner) => {
+          handleCallPress(partner);
         }}
       />
 
