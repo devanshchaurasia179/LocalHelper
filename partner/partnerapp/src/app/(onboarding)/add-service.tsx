@@ -34,7 +34,7 @@ type Category = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const LANGUAGES = ["Hindi","English","Tamil","Telugu","Kannada","Bengali","Marathi","Gujarati","Punjabi"] as const;
+const LANGUAGES = ["Hindi","English","Punjabi","Tamil","Telugu","Kannada","Bengali","Marathi","Gujarati"] as const;
 
 // ─── FieldLabel ───────────────────────────────────────────────────────────────
 
@@ -99,7 +99,6 @@ function NestedCategoryPicker({
   const [outerOpen, setOuterOpen] = useState(false);
   const [activeCatId, setActiveCatId] = useState<string | null>(null);
 
-  // Resolve the currently selected service name for the trigger label
   const selected = selectedSubcats[0] ?? null;
   const selectedLabel = (() => {
     if (!selected) return null;
@@ -127,84 +126,88 @@ function NestedCategoryPicker({
         accessibilityRole="button"
         accessibilityLabel="Select service"
       >
-        <MaterialCommunityIcons
-          name="shape-outline"
-          size={17}
-          color={outerOpen ? colors.white : colors.primary}
-        />
+        <View style={[nd.triggerIconWrap, outerOpen && nd.triggerIconWrapOpen]}>
+          <MaterialCommunityIcons
+            name="shape-outline"
+            size={16}
+            color={outerOpen ? colors.primary : colors.textSecondary}
+          />
+        </View>
         <View style={nd.triggerContent}>
           {selectedLabel ? (
-            <>
-              <Text style={[nd.triggerSub, outerOpen && nd.triggerTextOpen]} numberOfLines={1}>
-                {selectedLabel.subName}
-              </Text>
-              <Text style={[nd.triggerCat, outerOpen && nd.triggerCatOpen]} numberOfLines={1}>
-                {selectedLabel.catName}
-              </Text>
-            </>
+            <View style={nd.selectedPill}>
+              <Text style={nd.selectedPillSub} numberOfLines={1}>{selectedLabel.subName}</Text>
+              <Text style={nd.selectedPillCat} numberOfLines={1}> · {selectedLabel.catName}</Text>
+            </View>
           ) : (
-            <Text style={[nd.triggerPlaceholder, outerOpen && nd.triggerTextOpen]}>
-              Select your service
-            </Text>
+            <Text style={nd.triggerPlaceholder}>Tap to pick your service</Text>
           )}
         </View>
-        <MaterialCommunityIcons
-          name={outerOpen ? "chevron-up" : "chevron-down"}
-          size={18}
-          color={outerOpen ? "rgba(255,255,255,0.8)" : colors.textSecondary}
-        />
+        <View style={[nd.chevronWrap, outerOpen && nd.chevronWrapOpen]}>
+          <MaterialCommunityIcons
+            name={outerOpen ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={outerOpen ? colors.primary : colors.textSecondary}
+          />
+        </View>
       </Pressable>
 
-      {/* ── Outer panel (categories) ── */}
+      {/* ── Panel ── */}
       {outerOpen && (
-        <View style={nd.outerPanel}>
-          {categories.map((cat) => {
+        <View style={nd.panel}>
+          {categories.map((cat, catIdx) => {
             const isCatActive = activeCatId === cat._id;
+            const isLast = catIdx === categories.length - 1;
             return (
               <View key={cat._id}>
                 {/* Category row */}
                 <Pressable
-                  style={[nd.catRow, isCatActive && nd.catRowActive]}
+                  style={[nd.catRow, isCatActive && nd.catRowActive, isLast && !isCatActive && nd.catRowLast]}
                   onPress={() => setActiveCatId(isCatActive ? null : cat._id)}
                   accessibilityRole="button"
                 >
-                  <MaterialCommunityIcons
-                    name={(cat.icon as any) || "tools"}
-                    size={16}
-                    color={isCatActive ? colors.primary : colors.textSecondary}
-                  />
+                  <View style={[nd.catAccent, isCatActive && nd.catAccentActive]} />
+                  <View style={[nd.catIconBadge, isCatActive && nd.catIconBadgeActive]}>
+                    <MaterialCommunityIcons
+                      name={(cat.icon as any) || "briefcase-outline"}
+                      size={15}
+                      color={isCatActive ? colors.primary : colors.textSecondary}
+                    />
+                  </View>
                   <Text style={[nd.catRowText, isCatActive && nd.catRowTextActive]} numberOfLines={1}>
                     {cat.name}
                   </Text>
+                  <View style={[nd.catBadge, isCatActive && nd.catBadgeActive]}>
+                    <Text style={[nd.catBadgeText, isCatActive && nd.catBadgeTextActive]}>
+                      {cat.subcategories.length}
+                    </Text>
+                  </View>
                   <MaterialCommunityIcons
                     name={isCatActive ? "chevron-up" : "chevron-right"}
-                    size={16}
-                    color={isCatActive ? colors.primary : colors.textSecondary}
+                    size={15}
+                    color={isCatActive ? colors.primary : colors.textSecondary + "99"}
                   />
                 </Pressable>
 
-                {/* ── Inner panel (subcategories) ── */}
+                {/* ── Subcategory chip grid ── */}
                 {isCatActive && (
-                  <View style={nd.innerPanel}>
+                  <View style={nd.subGrid}>
                     {cat.subcategories.map((sub) => {
                       const active = isSelected(cat._id, sub._id);
                       return (
                         <Pressable
                           key={sub._id}
-                          style={[nd.subRow, active && nd.subRowActive]}
+                          style={[nd.subChip, active && nd.subChipActive]}
                           onPress={() => handleSubPress(cat._id, sub._id)}
                           accessibilityRole="radio"
                           accessibilityState={{ selected: active }}
                         >
-                          <View style={[nd.radio, active && nd.radioActive]}>
-                            {active && <View style={nd.radioDot} />}
-                          </View>
-                          <Text style={[nd.subRowText, active && nd.subRowTextActive]}>
+                          {active && (
+                            <MaterialCommunityIcons name="check-circle" size={13} color={colors.primary} />
+                          )}
+                          <Text style={[nd.subChipText, active && nd.subChipTextActive]} numberOfLines={1}>
                             {sub.name}
                           </Text>
-                          {active && (
-                            <MaterialCommunityIcons name="check-circle" size={15} color={colors.primary} />
-                          )}
                         </Pressable>
                       );
                     })}
@@ -222,175 +225,164 @@ function NestedCategoryPicker({
 const nd = StyleSheet.create({
   root: { marginTop: spacing.xs },
 
+  // Trigger
   trigger: {
     flexDirection: "row", alignItems: "center", gap: spacing.sm,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 4,
+    paddingHorizontal: spacing.sm, paddingVertical: spacing.sm + 2,
     borderRadius: radii.md, borderWidth: 1.5,
-    borderColor: colors.navInactive + "88",
-    backgroundColor: colors.surface,
+    borderColor: colors.navInactive + "55",
+    backgroundColor: colors.white,
+    minHeight: 52,
   },
   triggerOpen: {
-    backgroundColor: colors.primary, borderColor: colors.primary,
+    borderColor: colors.primary,
     borderBottomLeftRadius: 0, borderBottomRightRadius: 0,
+    backgroundColor: colors.primary + "05",
   },
+  triggerIconWrap: {
+    width: 34, height: 34, borderRadius: radii.sm,
+    backgroundColor: colors.surface,
+    alignItems: "center", justifyContent: "center",
+  },
+  triggerIconWrapOpen: { backgroundColor: colors.primary + "15" },
   triggerContent: { flex: 1 },
-  triggerSub: { fontFamily: fonts.jostMedium, fontSize: 14, color: colors.textPrimary },
-  triggerCat: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary, marginTop: 1 },
-  triggerCatOpen: { color: "rgba(255,255,255,0.7)" },
+  selectedPill: { flexDirection: "row", alignItems: "center", flexWrap: "wrap" },
+  selectedPillSub: { fontFamily: fonts.jostMedium, fontSize: 14, color: colors.textPrimary },
+  selectedPillCat: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary },
   triggerPlaceholder: { fontFamily: fonts.jostRegular, fontSize: 14, color: colors.textSecondary },
-  triggerTextOpen: { color: colors.white },
+  chevronWrap: {
+    width: 28, height: 28, borderRadius: radii.sm,
+    backgroundColor: colors.surface,
+    alignItems: "center", justifyContent: "center",
+  },
+  chevronWrapOpen: { backgroundColor: colors.primary + "15" },
 
-  outerPanel: {
+  // Panel
+  panel: {
     borderWidth: 1.5, borderTopWidth: 0, borderColor: colors.primary,
     borderBottomLeftRadius: radii.md, borderBottomRightRadius: radii.md,
     backgroundColor: colors.white, overflow: "hidden",
   },
 
+  // Category rows
   catRow: {
     flexDirection: "row", alignItems: "center", gap: spacing.sm,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 4,
-    borderBottomWidth: 1, borderBottomColor: colors.navInactive + "33",
+    paddingRight: spacing.md, paddingVertical: 13,
+    borderBottomWidth: 1, borderBottomColor: colors.navInactive + "22",
     backgroundColor: colors.white,
   },
-  catRowActive: { backgroundColor: colors.primary + "0A" },
+  catRowActive: { backgroundColor: colors.primary + "06" },
+  catRowLast: { borderBottomWidth: 0 },
+  catAccent: { width: 3, height: "100%", borderRadius: 2, backgroundColor: "transparent" },
+  catAccentActive: { backgroundColor: colors.primary },
+  catIconBadge: {
+    width: 32, height: 32, borderRadius: radii.sm,
+    backgroundColor: colors.surface,
+    alignItems: "center", justifyContent: "center",
+  },
+  catIconBadgeActive: { backgroundColor: colors.primary + "15" },
   catRowText: { flex: 1, fontFamily: fonts.jostMedium, fontSize: 14, color: colors.textPrimary },
   catRowTextActive: { color: colors.primary },
-
-  innerPanel: {
+  catBadge: {
+    paddingHorizontal: 7, paddingVertical: 2, borderRadius: radii.pill,
     backgroundColor: colors.surface,
-    borderBottomWidth: 1, borderBottomColor: colors.navInactive + "33",
   },
-  subRow: {
-    flexDirection: "row", alignItems: "center", gap: spacing.sm,
-    paddingHorizontal: spacing.lg + 4, paddingVertical: spacing.sm + 2,
+  catBadgeActive: { backgroundColor: colors.primary + "18" },
+  catBadgeText: { fontFamily: fonts.jostMedium, fontSize: 11, color: colors.textSecondary },
+  catBadgeTextActive: { color: colors.primary },
+
+  // Subcategory chip grid
+  subGrid: {
+    flexDirection: "row", flexWrap: "wrap", gap: spacing.xs,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2,
+    paddingLeft: spacing.md + 35,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1, borderBottomColor: colors.navInactive + "22",
   },
-  subRowActive: { backgroundColor: colors.primary + "08" },
-  radio: {
-    width: 18, height: 18, borderRadius: 9, borderWidth: 1.5,
-    borderColor: colors.navInactive, alignItems: "center", justifyContent: "center",
+  subChip: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: spacing.sm + 2, paddingVertical: spacing.xs + 2,
+    borderRadius: radii.pill, borderWidth: 1.5,
+    borderColor: colors.navInactive + "55",
     backgroundColor: colors.white,
   },
-  radioActive: { borderColor: colors.primary },
-  radioDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary },
-  subRowText: { flex: 1, fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textPrimary },
-  subRowTextActive: { fontFamily: fonts.jostMedium, color: colors.primary },
+  subChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary + "0D",
+  },
+  subChipText: { fontFamily: fonts.jostRegular, fontSize: 12.5, color: colors.textPrimary },
+  subChipTextActive: { fontFamily: fonts.jostMedium, color: colors.primary },
 });
 
-// ─── PricingTypeDropdown ──────────────────────────────────────────────────────
+// ─── PricingTypeSelector ─────────────────────────────────────────────────────
+// Segmented pill selector — no dropdown, all options visible at once.
 
 const PRICING_OPTIONS = [
-  { value: "perVisit" as const, label: "Per Visit",  hint: "Fixed amount per customer visit" },
-  { value: "perHour" as const,  label: "Per Hour",   hint: "Hourly billing" },
-  { value: "perDay" as const,   label: "Per Day",    hint: "Full day rate" },
-  { value: "perWeek" as const,  label: "Per Week",   hint: "Weekly engagement" },
+  { value: "perVisit" as const, label: "Per Visit",  icon: "walk" as const },
+  { value: "perHour" as const,  label: "Per Hour",   icon: "clock-outline" as const },
+  { value: "perDay" as const,   label: "Per Day",    icon: "weather-sunny" as const },
+  { value: "perWeek" as const,  label: "Per Week",   icon: "calendar-week" as const },
 ];
 
-function PricingTypeDropdown({
+function PricingTypeSelector({
   value,
   onChange,
 }: {
   value: "perVisit" | "perHour" | "perDay" | "perWeek";
   onChange: (v: "perVisit" | "perHour" | "perDay" | "perWeek") => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const selected = PRICING_OPTIONS.find((o) => o.value === value)!;
-
   return (
-    <View style={pd.root}>
-      <Pressable
-        style={[pd.trigger, open && pd.triggerOpen]}
-        onPress={() => setOpen((v) => !v)}
-        accessibilityRole="button"
-        accessibilityLabel="Select pricing model"
-      >
-        <View style={pd.triggerContent}>
-          <Text style={[pd.triggerLabel, open && pd.triggerLabelOpen]} numberOfLines={1}>
-            {selected.label}
-          </Text>
-        </View>
-        <MaterialCommunityIcons
-          name={open ? "chevron-up" : "chevron-down"}
-          size={16}
-          color={open ? "rgba(255,255,255,0.8)" : colors.textSecondary}
-        />
-      </Pressable>
-
-      {open && (
-        <View style={pd.panel}>
-          {PRICING_OPTIONS.map((opt) => {
-            const isActive = opt.value === value;
-            return (
-              <Pressable
-                key={opt.value}
-                style={[pd.option, isActive && pd.optionActive]}
-                onPress={() => { onChange(opt.value); setOpen(false); }}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: isActive }}
-              >
-                <View style={[pd.radio, isActive && pd.radioActive]}>
-                  {isActive && <View style={pd.radioDot} />}
-                </View>
-                <View style={pd.optionText}>
-                  <Text style={[pd.optionLabel, isActive && pd.optionLabelActive]}>{opt.label}</Text>
-                  <Text style={pd.optionHint}>{opt.hint}</Text>
-                </View>
-                {isActive && (
-                  <MaterialCommunityIcons name="check-circle" size={16} color={colors.primary} />
-                )}
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
+    <View style={ps.wrap}>
+      {PRICING_OPTIONS.map((opt, idx) => {
+        const isActive = opt.value === value;
+        const isFirst = idx === 0;
+        const isLast = idx === PRICING_OPTIONS.length - 1;
+        return (
+          <Pressable
+            key={opt.value}
+            style={[
+              ps.seg,
+              isActive && ps.segActive,
+              isFirst && ps.segFirst,
+              isLast && ps.segLast,
+              !isLast && ps.segBorder,
+            ]}
+            onPress={() => onChange(opt.value)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: isActive }}
+          >
+            <MaterialCommunityIcons
+              name={opt.icon}
+              size={14}
+              color={isActive ? colors.primary : colors.textSecondary}
+            />
+            <Text style={[ps.segText, isActive && ps.segTextActive]}>{opt.label}</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
 
-const pd = StyleSheet.create({
-  root: { marginTop: 0, position: "relative", zIndex: 10 },
-  trigger: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: spacing.sm,
-    height: 48,
+const ps = StyleSheet.create({
+  wrap: {
+    flexDirection: "row",
     borderRadius: radii.sm, borderWidth: 1.5,
-    borderColor: colors.navInactive + "66", backgroundColor: colors.surface,
+    borderColor: colors.navInactive + "55",
+    overflow: "hidden",
+    backgroundColor: colors.surface,
+    height: 48,
   },
-  triggerOpen: {
-    backgroundColor: colors.primary, borderColor: colors.primary,
-    borderBottomLeftRadius: 0, borderBottomRightRadius: 0,
+  seg: {
+    flex: 1, flexDirection: "column", alignItems: "center", justifyContent: "center",
+    gap: 2, backgroundColor: colors.surface,
   },
-  triggerContent: { flex: 1 },
-  triggerLabel: { fontFamily: fonts.jostMedium, fontSize: 13, color: colors.textPrimary },
-  triggerLabelOpen: { color: colors.white },
-  triggerHint: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary, marginTop: 1 },
-  triggerHintOpen: { color: "rgba(255,255,255,0.7)" },
-  panel: {
-    borderWidth: 1.5, borderTopWidth: 0, borderColor: colors.primary,
-    borderBottomLeftRadius: radii.md, borderBottomRightRadius: radii.md,
-    backgroundColor: colors.white, overflow: "hidden",
-    position: "absolute", top: 48, right: 0, width: 200, zIndex: 100,
-    // Shadow so it lifts above surrounding content
-    shadowColor: "#000", shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12, shadowRadius: 8, elevation: 8,
-  },
-  option: {
-    flexDirection: "row", alignItems: "center", gap: spacing.sm,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 4,
-    borderBottomWidth: 1, borderBottomColor: colors.navInactive + "33",
-  },
-  optionActive: { backgroundColor: colors.primary + "08" },
-  radio: {
-    width: 18, height: 18, borderRadius: 9, borderWidth: 1.5,
-    borderColor: colors.navInactive, alignItems: "center", justifyContent: "center",
-    backgroundColor: colors.white,
-  },
-  radioActive: { borderColor: colors.primary },
-  radioDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary },
-  optionText: { flex: 1 },
-  optionLabel: { fontFamily: fonts.jostMedium, fontSize: 14, color: colors.textPrimary },
-  optionLabelActive: { color: colors.primary },
-  optionHint: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary, marginTop: 1 },
+  segActive: { backgroundColor: colors.primary + "12" },
+  segFirst: { borderTopLeftRadius: radii.sm - 2, borderBottomLeftRadius: radii.sm - 2 },
+  segLast: { borderTopRightRadius: radii.sm - 2, borderBottomRightRadius: radii.sm - 2 },
+  segBorder: { borderRightWidth: 1.5, borderRightColor: colors.navInactive + "44" },
+  segText: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary },
+  segTextActive: { fontFamily: fonts.jostMedium, color: colors.primary },
 });
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
@@ -653,7 +645,7 @@ export default function AddServiceScreen() {
                   ))}
                 </View>
               )}
-              <Text style={styles.hint}>Add or remove languages to communicate with customers</Text>
+              <Text style={styles.hint}>Tap languages to select or deselect</Text>
             </View>
 
             {/* ── Bio ── */}
@@ -676,28 +668,24 @@ export default function AddServiceScreen() {
             <View style={styles.sectionHeader}>
               <SectionTitle icon="currency-inr" title="Pricing & Availability" />
             </View>
-            <View style={[styles.fieldGap, styles.pricingRow]}>
-              {/* Fees input — fills remaining space */}
-              <View style={styles.pricingFeesCol}>
-                <FieldLabel label="Fees (₹)" required />
-                <TextInput
-                  style={[styles.input, styles.feesInput, visitingCreditsAmount.length > 0 && isNaN(Number(visitingCreditsAmount)) && styles.inputError]}
-                  placeholder="e.g. 150"
-                  placeholderTextColor={colors.textSecondary}
-                  keyboardType="number-pad"
-                  value={visitingCreditsAmount}
-                  onChangeText={(t) => { setError(null); setVisitingCreditsAmountLocal(t.replace(/\D/g, "")); }}
-                  accessibilityLabel="Pricing amount in rupees"
-                />
-              </View>
-              {/* Pricing model dropdown — compact, right side */}
-              <View style={styles.pricingModelCol}>
-                <FieldLabel label="Model" required />
-                <PricingTypeDropdown
-                  value={visitingCreditsType}
-                  onChange={(t) => { setError(null); setVisitingCreditsTypeLocal(t); }}
-                />
-              </View>
+            <View style={styles.fieldGap}>
+              <FieldLabel label="Fees (₹)" required />
+              <TextInput
+                style={[styles.input, styles.feesInput, visitingCreditsAmount.length > 0 && isNaN(Number(visitingCreditsAmount)) && styles.inputError]}
+                placeholder="e.g. 150"
+                placeholderTextColor={colors.textSecondary}
+                keyboardType="number-pad"
+                value={visitingCreditsAmount}
+                onChangeText={(t) => { setError(null); setVisitingCreditsAmountLocal(t.replace(/\D/g, "")); }}
+                accessibilityLabel="Pricing amount in rupees"
+              />
+            </View>
+            <View style={styles.fieldGap}>
+              <FieldLabel label="Billing model" required />
+              <PricingTypeSelector
+                value={visitingCreditsType}
+                onChange={(t) => { setError(null); setVisitingCreditsTypeLocal(t); }}
+              />
             </View>
             <Text style={styles.hint}>
               {visitingCreditsType === "perVisit" && "Amount charged per visit to the customer"}
@@ -834,44 +822,44 @@ const styles = StyleSheet.create({
   hint: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary, marginTop: 3 },
   charCount: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary, textAlign: "right", marginTop: 3 },
 
-  // Error / submit
+  // Language dropdown
   dropdownBtn: {
     flexDirection: "row", alignItems: "center", gap: spacing.sm,
-    backgroundColor: colors.surface, borderRadius: radii.md,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.md - 2,
-    borderWidth: 1.5, borderColor: colors.navInactive + "66", marginTop: spacing.xs,
+    backgroundColor: colors.white, borderRadius: radii.md,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.md,
+    borderWidth: 1.5, borderColor: colors.navInactive + "55",
+    minHeight: 52,
   },
   dropdownBtnText: { flex: 1, fontFamily: fonts.jostRegular, fontSize: 14, color: colors.textPrimary },
   dropdownMenuWrapper: {
     marginTop: spacing.xs, borderRadius: radii.md, overflow: "hidden",
-    borderWidth: 1.5, borderColor: colors.navInactive + "66",
+    borderWidth: 1.5, borderColor: colors.primary,
+    backgroundColor: colors.white,
   },
-  dropdownMenu: { maxHeight: 200, backgroundColor: colors.white },
+  dropdownMenu: { maxHeight: 220, backgroundColor: colors.white },
   dropdownItem: {
     flexDirection: "row", alignItems: "center", gap: spacing.sm,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2,
-    borderBottomWidth: 1, borderBottomColor: colors.navInactive + "33",
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 3,
+    borderBottomWidth: 1, borderBottomColor: colors.navInactive + "22",
   },
-  dropdownItemActive: { backgroundColor: colors.primary + "0D" },
+  dropdownItemActive: { backgroundColor: colors.primary + "08" },
   dropdownCheckbox: {
-    width: 20, height: 20, borderRadius: 4, borderWidth: 1.5,
-    borderColor: colors.navInactive, alignItems: "center", justifyContent: "center",
+    width: 22, height: 22, borderRadius: 5, borderWidth: 1.5,
+    borderColor: colors.navInactive + "77", alignItems: "center", justifyContent: "center",
+    backgroundColor: colors.surface,
   },
   dropdownCheckboxActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   dropdownItemText: { fontFamily: fonts.jostRegular, fontSize: 14, color: colors.textPrimary },
   dropdownItemTextActive: { fontFamily: fonts.jostMedium, color: colors.primary },
   selectedLangsWrap: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginTop: spacing.sm },
   selectedLangChip: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: spacing.sm, paddingVertical: 3,
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: spacing.sm + 2, paddingVertical: 5,
     borderRadius: radii.pill, backgroundColor: colors.primary,
   },
   selectedLangText: { fontFamily: fonts.jostMedium, fontSize: 12, color: colors.white },
 
-  // Pricing row
-  pricingRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start", zIndex: 10 },
-  pricingModelCol: { width: 118, zIndex: 10 },
-  pricingFeesCol: { flex: 1 },
+  // Fees input
   feesInput: { height: 48, borderRadius: radii.sm },
 
   // Error / submit

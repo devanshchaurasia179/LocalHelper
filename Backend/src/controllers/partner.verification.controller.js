@@ -8,52 +8,52 @@ import cloudinary from "../config/cloudinary.js";
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 /**
- * getRelevantDocumentTypes(partnerCategories)
+ * getRelevantDocumentTypes(partnerCategories, partnerSubcategories)
  *
  * Returns all active DocumentTypes that apply to this partner.
  *
- * Two-stage filter:
+ * Visibility precedence (first matching rule wins):
+ *   1. visibleToSubcategories non-empty → partner must have a matching
+ *      { categoryId, subcategoryId } pair.
+ *   2. visibleToCategories non-empty → partner must belong to at least
+ *      one of those categories.
+ *   3. Neither populated → visible to all.
  *
- * Stage 1 — Visibility (visibleToCategories):
- *   - Empty array = shown to ALL partners (global document)
- *   - Populated   = shown ONLY if partner has at least one matching category
- *   Example: Driving License with visibleToCategories: [driverCatId]
- *            → only appears for partners in the driver category
+ * Same two-stage logic applies for requiredFor* (evaluated in buildDocumentObject).
  *
- * Stage 2 — Requirement (requiredForCategories):
- *   Applied AFTER visibility. Controls whether the document is required
- *   or optional for the filtered set of partners.
- *   - Empty array = required for ALL partners who can see it
- *   - Populated   = required only for partners in those categories
- *                   (others see it but as optional)
- *   Example: GST Certificate visible to all, but requiredForCategories: [commercial]
- *            → commercial partners must upload it; others see it as optional
- *
- * @param {ObjectId[]} partnerCategories - partner.categories array
- * @returns {DocumentType[]}
+ * @param {ObjectId[]} partnerCategories     - partner.categories
+ * @param {object[]}   partnerSubcategories  - partner.subcategories [{ categoryId, subcategoryId }]
  */
-const getRelevantDocumentTypes = async (partnerCategories) => {
+const getRelevantDocumentTypes = async (partnerCategories, partnerSubcategories = []) => {
   const allActive = await DocumentType.find({ isActive: true })
     .sort({ displayOrder: 1 })
     .lean();
 
-  // Convert partner categories to string for comparison (ObjectId vs string safe)
   const partnerCatStrings = (partnerCategories || []).map((c) => c.toString());
 
+  // Build a Set of "catId_subId" strings for O(1) subcategory membership checks
+  const partnerSubKeys = new Set(
+    (partnerSubcategories || []).map(
+      (s) => `${s.categoryId.toString()}_${s.subcategoryId.toString()}`
+    )
+  );
+
   return allActive.filter((docType) => {
-    // ── Stage 1: Visibility check ─────────────────────────────────────────
-    // If visibleToCategories is populated, partner must belong to at least one
-    // of those categories to see this document at all.
-    if (docType.visibleToCategories && docType.visibleToCategories.length > 0) {
-      const isVisible = docType.visibleToCategories.some((catId) =>
-        partnerCatStrings.includes(catId.toString())
+    // ── Stage 1a: Subcategory-level visibility ─────────────────────────────
+    if (docType.visibleToSubcategories && docType.visibleToSubcategories.length > 0) {
+      return docType.visibleToSubcategories.some((pair) =>
+        partnerSubKeys.has(`${pair.categoryId.toString()}_${pair.subcategoryId.toString()}`)
       );
-      if (!isVisible) return false; // completely hidden from this partner
     }
 
-    // ── Stage 2: Document passes visibility — include it ──────────────────
-    // The isRequired flag + requiredForCategories will be evaluated separately
-    // in syncSessionStatus / progress calculation. Here we just decide visibility.
+    // ── Stage 1b: Category-level visibility ───────────────────────────────
+    if (docType.visibleToCategories && docType.visibleToCategories.length > 0) {
+      return docType.visibleToCategories.some((catId) =>
+        partnerCatStrings.includes(catId.toString())
+      );
+    }
+
+    // ── Stage 1c: Global — visible to everyone ────────────────────────────
     return true;
   });
 };
@@ -229,7 +229,7 @@ const syncPartnerVerificationStatus = async (partnerId, sessionStatus) => {
 export const getVerificationStatus = async (req, res) => {
   try {
     const partner = await Partner.findById(req.partnerId)
-      .select("categories verification verificationStatus fullName")
+      .select("categories subcategories verification verificationStatus fullName")
       .lean();
 
     if (!partner) {
@@ -237,7 +237,10 @@ export const getVerificationStatus = async (req, res) => {
     }
 
     // ── 1. Load relevant document types for this partner ───────────────────
-    const relevantDocTypes = await getRelevantDocumentTypes(partner.categories);
+    const relevantDocTypes = await getRelevantDocumentTypes(
+      partner.categories,
+      partner.subcategories
+    );
 
     // ── 2. Load all active uploads for this partner ────────────────────────
     const uploadMap = await getActiveUploads(req.partnerId);
@@ -255,18 +258,23 @@ export const getVerificationStatus = async (req, res) => {
     // ── 4. Build the document list ─────────────────────────────────────────
     const documents = [];
     const partnerCatStrings = (partner.categories || []).map((c) => c.toString());
+    const partnerSubKeys = new Set(
+      (partner.subcategories || []).map(
+        (s) => `${s.categoryId.toString()}_${s.subcategoryId.toString()}`
+      )
+    );
 
     for (const docType of relevantDocTypes) {
       if (docType.isMultiPage) {
         for (const side of ["front", "back"]) {
           const uploadKey = `${docType._id.toString()}_${side}`;
           const upload    = uploadMap.get(uploadKey) || null;
-          documents.push(buildDocumentObject(docType, upload, side, partnerCatStrings));
+          documents.push(buildDocumentObject(docType, upload, side, partnerCatStrings, partnerSubKeys));
         }
       } else {
         const uploadKey = `${docType._id.toString()}_single`;
         const upload    = uploadMap.get(uploadKey) || null;
-        documents.push(buildDocumentObject(docType, upload, "single", partnerCatStrings));
+        documents.push(buildDocumentObject(docType, upload, "single", partnerCatStrings, partnerSubKeys));
       }
     }
 
@@ -381,48 +389,27 @@ const buildBanner = (overallStatus, sessionStatus, summary) => {
 };
 
 /**
- * buildDocumentObject(docType, upload, side, partnerCatStrings)
+ * buildDocumentObject(docType, upload, side, partnerCatStrings, partnerSubKeys)
  *
  * The definitive UI contract for a single document card.
  * Every field the frontend needs to render a document card is present here.
- *
- * Frontend usage:
- *   documents.map(doc => <DocumentCard doc={doc} />)
- *
- * Key derived fields:
- *
- *   uploadStatus — string enum for selecting the card variant:
- *     "missing"      → empty state, show upload prompt
- *     "under_review" → uploaded, show waiting state
- *     "approved"     → show green approved state
- *     "rejected"     → show red rejected state with rejectionReason
- *
- *   badge — pre-computed status chip:
- *     { label: "Approved", color: "green" }
- *     The frontend renders: <Badge label={doc.badge.label} color={doc.badge.color} />
- *
- *   action — what the primary CTA button should do:
- *     { type: "upload",  label: "Upload"  }  — no file yet
- *     { type: "replace", label: "Replace" }  — has file (any status except approved)
- *     { type: "view",    label: "View"    }  — approved, view-only
- *     { type: "none",    label: null      }  — under review, no action available
- *
- *   requiredLabel — chip text: "Required" or "Optional"
- *
- *   version — null if first upload, "v2" / "v3" for re-uploads
  *
  * @param {object}   docType           - DocumentType lean object
  * @param {object}   upload            - PartnerDocument lean object or null
  * @param {string}   side              - "single" | "front" | "back"
  * @param {string[]} partnerCatStrings - partner category IDs as strings
+ * @param {Set}      partnerSubKeys    - Set of "catId_subId" strings
  */
-const buildDocumentObject = (docType, upload, side, partnerCatStrings = []) => {
+const buildDocumentObject = (docType, upload, side, partnerCatStrings = [], partnerSubKeys = new Set()) => {
   // ── Resolve effective isRequired ────────────────────────────────────────
-  // docType.isRequired is the base flag.
-  // If requiredForCategories is populated, override isRequired based on
-  // whether the partner belongs to one of those categories.
+  // Subcategory-level check takes precedence over category-level.
   let effectiveIsRequired = docType.isRequired;
-  if (docType.requiredForCategories && docType.requiredForCategories.length > 0) {
+
+  if (docType.requiredForSubcategories && docType.requiredForSubcategories.length > 0) {
+    effectiveIsRequired = docType.requiredForSubcategories.some((pair) =>
+      partnerSubKeys.has(`${pair.categoryId.toString()}_${pair.subcategoryId.toString()}`)
+    );
+  } else if (docType.requiredForCategories && docType.requiredForCategories.length > 0) {
     effectiveIsRequired = docType.requiredForCategories.some((catId) =>
       partnerCatStrings.includes(catId.toString())
     );

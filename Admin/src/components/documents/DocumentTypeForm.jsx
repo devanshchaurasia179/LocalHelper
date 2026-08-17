@@ -2,10 +2,11 @@ import { useEffect } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Info } from 'lucide-react'
+import { Info, Eye, ShieldCheck } from 'lucide-react'
 import Modal from '@/components/ui/Modal'
 import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
+import CategoryMultiSelect from '@/components/ui/CategoryMultiSelect'
 import { cn } from '@/utils/cn'
 
 /**
@@ -48,6 +49,20 @@ const schema = z.object({
   numberFieldValidationRegex: z.string().max(200).optional(),
   numberFieldValidationMessage: z.string().max(200).optional(),
   acceptedFileTypes:  z.array(z.string()).min(1, 'Select at least one file type'),
+  visibleToCategories:  z.array(
+    z.object({
+      type: z.enum(['category', 'subcategory']),
+      categoryId: z.string(),
+      subcategoryId: z.string().optional(),
+    })
+  ).default([]),
+  requiredForCategories: z.array(
+    z.object({
+      type: z.enum(['category', 'subcategory']),
+      categoryId: z.string(),
+      subcategoryId: z.string().optional(),
+    })
+  ).default([]),
 })
 
 const DEFAULTS = {
@@ -67,6 +82,8 @@ const DEFAULTS = {
   numberFieldValidationRegex: '',
   numberFieldValidationMessage: '',
   acceptedFileTypes: ['image/jpeg', 'image/png', 'image/webp'],
+  visibleToCategories: [],
+  requiredForCategories: [],
 }
 
 const DocumentTypeForm = ({
@@ -96,11 +113,47 @@ const DocumentTypeForm = ({
   useEffect(() => {
     if (isOpen) {
       if (defaultValues) {
+        // Backend returns:
+        //   visibleToCategories:       [ObjectId] (category-only refs)
+        //   visibleToSubcategories:    [{ categoryId, subcategoryId }]
+        //   requiredForCategories:     [ObjectId]
+        //   requiredForSubcategories:  [{ categoryId, subcategoryId }]
+        //
+        // Form expects a single array per field with shape:
+        //   [{ type: 'category', categoryId }, { type: 'subcategory', categoryId, subcategoryId }]
+
+        const normalizeToFormShape = (categories = [], subcategories = []) => {
+          const result = []
+          
+          // Add category-level items
+          for (const item of categories) {
+            const catId = typeof item === 'string' ? item : item._id
+            result.push({ type: 'category', categoryId: catId })
+          }
+          
+          // Add subcategory-level items
+          for (const item of subcategories) {
+            const catId = typeof item.categoryId === 'string' ? item.categoryId : item.categoryId._id
+            const subId = typeof item.subcategoryId === 'string' ? item.subcategoryId : item.subcategoryId
+            result.push({ type: 'subcategory', categoryId: catId, subcategoryId: subId })
+          }
+          
+          return result
+        }
+
         reset({
           ...DEFAULTS,
           ...defaultValues,
-          displayOrder:  defaultValues.displayOrder  ?? 0,
-          maxFileSizeMB: defaultValues.maxFileSizeMB ?? 5,
+          displayOrder:          defaultValues.displayOrder  ?? 0,
+          maxFileSizeMB:         defaultValues.maxFileSizeMB ?? 5,
+          visibleToCategories:   normalizeToFormShape(
+            defaultValues.visibleToCategories,
+            defaultValues.visibleToSubcategories
+          ),
+          requiredForCategories: normalizeToFormShape(
+            defaultValues.requiredForCategories,
+            defaultValues.requiredForSubcategories
+          ),
         })
       } else {
         reset(DEFAULTS)
@@ -113,6 +166,43 @@ const DocumentTypeForm = ({
     onClose()
   }
 
+  const handleFormSubmit = (formData) => {
+    // Transform form shape back to backend shape:
+    // Form:    visibleToCategories: [{ type, categoryId, subcategoryId? }]
+    // Backend: visibleToCategories: [categoryId], visibleToSubcategories: [{ categoryId, subcategoryId }]
+    
+    const splitSelection = (items = []) => {
+      const categories = []
+      const subcategories = []
+      
+      for (const item of items) {
+        if (item.type === 'category') {
+          categories.push(item.categoryId)
+        } else if (item.type === 'subcategory' && item.subcategoryId) {
+          subcategories.push({
+            categoryId: item.categoryId,
+            subcategoryId: item.subcategoryId,
+          })
+        }
+      }
+      
+      return { categories, subcategories }
+    }
+
+    const visible = splitSelection(formData.visibleToCategories)
+    const required = splitSelection(formData.requiredForCategories)
+
+    const backendPayload = {
+      ...formData,
+      visibleToCategories:       visible.categories,
+      visibleToSubcategories:    visible.subcategories,
+      requiredForCategories:     required.categories,
+      requiredForSubcategories:  required.subcategories,
+    }
+
+    onSubmit(backendPayload)
+  }
+
   return (
     <Modal
       isOpen={isOpen}
@@ -120,7 +210,7 @@ const DocumentTypeForm = ({
       title={isEditing ? 'Edit Document Type' : 'Create Document Type'}
       size="xl"
     >
-      <form onSubmit={handleSubmit(onSubmit)} noValidate>
+      <form onSubmit={handleSubmit(handleFormSubmit)} noValidate>
         <div className="px-6 py-5 space-y-5 max-h-[70vh] overflow-y-auto">
 
           {/* ── Basic info ─────────────────────────────────────────── */}
@@ -293,6 +383,58 @@ const DocumentTypeForm = ({
             </p>
           </Section>
 
+          {/* ── Category visibility ────────────────────────────────── */}
+          <Section
+            title="Visibility — Who sees this document?"
+            icon={<Eye className="w-3.5 h-3.5 text-slate-400" />}
+          >
+            <div className="p-3 mb-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 leading-relaxed">
+              Leave empty so <strong className="text-slate-700">all partners</strong> see this document.
+              <br />
+              Select <strong>categories</strong> to show it only to partners in those categories, or drill down to specific <strong>subcategories</strong> (e.g. only Electricians, not all Home Service partners).
+              <br />
+              Example: "Driving License" → visible only to partners offering <em>Driver</em> services.
+            </div>
+            <Controller
+              name="visibleToCategories"
+              control={control}
+              render={({ field }) => (
+                <CategoryMultiSelect
+                  value={field.value || []}
+                  onChange={field.onChange}
+                  placeholder="All categories (visible to everyone)"
+                  helperText="Select categories or subcategories. Leave empty = all."
+                />
+              )}
+            />
+          </Section>
+
+          {/* ── Category requirement ───────────────────────────────── */}
+          <Section
+            title="Requirement — Who must upload this?"
+            icon={<ShieldCheck className="w-3.5 h-3.5 text-slate-400" />}
+          >
+            <div className="p-3 mb-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 leading-relaxed">
+              Leave empty so this document is required for <strong className="text-slate-700">all visible categories/subcategories</strong>.
+              <br />
+              Select specific categories or subcategories to make it required only for them (optional for others).
+              <br />
+              Example: "Trade License" → required only for <em>Electrician</em> subcategory (optional for Plumbers).
+            </div>
+            <Controller
+              name="requiredForCategories"
+              control={control}
+              render={({ field }) => (
+                <CategoryMultiSelect
+                  value={field.value || []}
+                  onChange={field.onChange}
+                  placeholder="All visible categories (required for everyone)"
+                  helperText="Select categories or subcategories. Leave empty = all visible."
+                />
+              )}
+            />
+          </Section>
+
           {/* Info note for editing */}
           {isEditing && (
             <div className="flex items-start gap-2.5 p-3.5 bg-blue-50 rounded-xl border border-blue-100">
@@ -321,9 +463,12 @@ const DocumentTypeForm = ({
 
 // ── Small helpers ────────────────────────────────────────────────────
 
-const Section = ({ title, children }) => (
+const Section = ({ title, icon, children }) => (
   <div>
-    <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">{title}</h3>
+    <h3 className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+      {icon}
+      {title}
+    </h3>
     {children}
   </div>
 )

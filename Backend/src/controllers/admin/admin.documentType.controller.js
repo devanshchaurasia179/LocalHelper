@@ -42,6 +42,8 @@ const PATCHABLE_FIELDS = [
   "isRequired",
   "visibleToCategories",
   "requiredForCategories",
+  "visibleToSubcategories",
+  "requiredForSubcategories",
   "icon",
   "displayOrder",
 ];
@@ -102,6 +104,8 @@ export const createDocumentType = async (req, res) => {
       isRequired,
       visibleToCategories,
       requiredForCategories,
+      visibleToSubcategories,
+      requiredForSubcategories,
       icon,
       displayOrder,
     } = req.body;
@@ -166,6 +170,8 @@ export const createDocumentType = async (req, res) => {
       isRequired:                   isRequired ?? true,
       visibleToCategories:          visibleToCategories || [],
       requiredForCategories:        requiredForCategories || [],
+      visibleToSubcategories:       visibleToSubcategories || [],
+      requiredForSubcategories:     requiredForSubcategories || [],
       icon:                         icon?.trim() || "",
       displayOrder:                 displayOrder ?? 0,
       createdBy:                    req.admin._id,

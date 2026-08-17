@@ -67,8 +67,11 @@ export default function RootLayout() {
     }
   }, [fontsLoaded]);
 
-  if (!fontsLoaded) return null;
-
+  // Never return null — returning null unmounts the Slot while Expo Router's
+  // useLinking still has async URL resolution in-flight. That causes the
+  // "state update on a component that hasn't mounted yet" warning because the
+  // navigator fiber is gone when the promise resolves.
+  // Keep Slot mounted always; the splash screen hides content until fonts load.
   return (
     <QueryProvider>
       <AuthProvider>

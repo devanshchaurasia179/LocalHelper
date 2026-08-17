@@ -777,7 +777,7 @@ const styles = StyleSheet.create({
   // ── Hero band ──────────────────────────────────────────────────────────────
   hero: {
     backgroundColor: colors.primary,
-    paddingTop: 52,
+    paddingTop: 68,
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xl,
     overflow: "hidden",
@@ -786,6 +786,7 @@ const styles = StyleSheet.create({
   appName: {
     fontFamily: fonts.jostSemiBold, fontSize: 13, color: "rgba(255,255,255,0.7)",
     letterSpacing: 2, textTransform: "uppercase", marginBottom: spacing.sm,
+    marginTop: spacing.xl + 8,
   },
   heroTitle: {
     fontFamily: fonts.oswaldBold, fontSize: 30, color: colors.white,
@@ -797,7 +798,7 @@ const styles = StyleSheet.create({
   },
   heroBackBtn: {
     position: "absolute",
-    top: 44,
+    top: 60,
     left: spacing.lg,
     width: 36,
     height: 36,

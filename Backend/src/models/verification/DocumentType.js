@@ -179,6 +179,43 @@ const documentTypeSchema = new mongoose.Schema(
       default: [],
     },
 
+    // ── Subcategory-level scoping ─────────────────────────────────────────
+    // When you need finer control than the whole category — e.g. only
+    // "Electrician" partners (a subcategory of "Home Service") need a
+    // Trade License, but Painters and Plumbers in the same category do not.
+    //
+    // Each entry is a { categoryId, subcategoryId } pair (both ObjectIds).
+    // Empty array = no subcategory restriction (falls back to category-level rules).
+    // Populated    = document is visible/required ONLY for those specific subcategories.
+    //
+    // Logic precedence (evaluated in order):
+    //   1. If visibleToSubcategories is non-empty → partner must have a matching
+    //      subcategory pair to see the document (overrides visibleToCategories).
+    //   2. Else if visibleToCategories is non-empty → category-level check.
+    //   3. Else → visible to all.
+    //   (Same two-stage logic applies for requiredFor*)
+    visibleToSubcategories: {
+      type: [
+        {
+          categoryId:    { type: mongoose.Schema.Types.ObjectId, ref: "Category", required: true },
+          subcategoryId: { type: mongoose.Schema.Types.ObjectId, required: true },
+          _id: false,
+        },
+      ],
+      default: [],
+    },
+
+    requiredForSubcategories: {
+      type: [
+        {
+          categoryId:    { type: mongoose.Schema.Types.ObjectId, ref: "Category", required: true },
+          subcategoryId: { type: mongoose.Schema.Types.ObjectId, required: true },
+          _id: false,
+        },
+      ],
+      default: [],
+    },
+
     // ── Display config ───────────────────────────────────────────────────────
     icon: {
       type: String,
@@ -236,5 +273,8 @@ documentTypeSchema.index({ isActive: 1, displayOrder: 1 });
 // Index for category-scoped queries (visibleToCategories and requiredForCategories)
 documentTypeSchema.index({ visibleToCategories: 1 });
 documentTypeSchema.index({ requiredForCategories: 1 });
+// Index for subcategory-scoped queries
+documentTypeSchema.index({ "visibleToSubcategories.subcategoryId": 1 });
+documentTypeSchema.index({ "requiredForSubcategories.subcategoryId": 1 });
 
 export default mongoose.model("DocumentType", documentTypeSchema);

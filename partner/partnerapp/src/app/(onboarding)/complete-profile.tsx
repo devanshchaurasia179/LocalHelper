@@ -276,6 +276,7 @@ export default function CompleteProfileScreen() {
   const { profile, setProfile } = useOnboarding();
 
   const [step, setStep] = useState<Step>(0);
+  const scrollRef = useRef<ScrollView>(null);
 
   // Step 0 — Personal Info (seeded from shared context)
   const [fullName, setFullNameLocal] = useState(profile.fullName);
@@ -410,8 +411,21 @@ export default function CompleteProfileScreen() {
   const step0Valid = fullName.trim().length >= 2 && gender !== null && dateOfBirth !== null && isAgeValid(dateOfBirth);
   const step1Valid = city.trim().length > 0 && state.trim().length > 0 && /^\d{6}$/.test(pincode);
 
-  const handleNext = () => { clearError(); if (step < 2) setStep((s) => (s + 1) as Step); };
-  const handleBack = () => { clearError(); if (step > 0) setStep((s) => (s - 1) as Step); };
+  const handleNext = () => {
+    clearError();
+    if (step < 2) {
+      setStep((s) => (s + 1) as Step);
+      // Delay slightly so the new step content has rendered before scrolling
+      setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: false }), 50);
+    }
+  };
+  const handleBack = () => {
+    clearError();
+    if (step > 0) {
+      setStep((s) => (s - 1) as Step);
+      setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: false }), 50);
+    }
+  };
   const formatDate = (d: Date) =>
     d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 
@@ -549,6 +563,22 @@ export default function CompleteProfileScreen() {
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = useCallback(async () => {
     if (!dateOfBirth) return;
+
+    // If the user never set a location (skip & save), fetch live GPS coords now
+    let finalCoords = locationCoords;
+    if (locationStatus !== "granted" || !finalCoords) {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === "granted") {
+          const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          finalCoords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        }
+      } catch {
+        // Permission denied or error — submit without location
+        finalCoords = undefined as any;
+      }
+    }
+
     const success = await complete({
       fullName: fullName.trim(),
       gender: gender!,
@@ -561,14 +591,14 @@ export default function CompleteProfileScreen() {
         state: state.trim(),
         pincode: pincode.trim(),
       },
-      location: locationCoords ?? undefined,
+      location: finalCoords ?? undefined,
       serviceRadius,
     });
     if (success) {
       patchPartner({ isProfile: true });
       router.push(ROUTES.ONBOARDING.SERVICE as any);
     }
-  }, [complete, fullName, gender, dateOfBirth, house, street, locality, city, state, pincode, locationCoords, serviceRadius, patchPartner]);
+  }, [complete, fullName, gender, dateOfBirth, house, street, locality, city, state, pincode, locationCoords, locationStatus, serviceRadius, patchPartner]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -598,6 +628,7 @@ export default function CompleteProfileScreen() {
           <StepIndicator current={step} />
 
           <ScrollView
+            ref={scrollRef}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scroll}

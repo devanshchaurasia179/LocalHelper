@@ -12,6 +12,8 @@ import {
   Layers,
   ArrowUp,
   ArrowDown,
+  Eye,
+  ShieldCheck,
 } from 'lucide-react'
 import { listDocumentTypes } from '@/api/documentType.api'
 import useDocumentTypeMutations from '@/hooks/useDocumentTypeMutations'
@@ -381,19 +383,74 @@ const DocumentTypeRow = ({
         </code>
       </td>
 
-      {/* Config flags */}
+      {/* Config flags + category scope */}
       <td className="px-4 py-3.5">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {dt.isMultiPage && (
-            <ConfigPill icon={Layers} label="Multi-page" />
+        <div className="flex flex-col gap-1.5">
+          {/* Feature flags */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {dt.isMultiPage && (
+              <ConfigPill icon={Layers} label="Multi-page" />
+            )}
+            {dt.hasNumberField && (
+              <ConfigPill icon={Hash} label="Has number" />
+            )}
+            <ConfigPill
+              icon={null}
+              label={`${dt.maxFileSizeMB ?? 5} MB max`}
+            />
+          </div>
+
+          {/* Visible-to categories */}
+          {dt.visibleToCategories?.length > 0 && (
+            <div className="flex items-start gap-1 flex-wrap">
+              <span className="inline-flex items-center gap-0.5 text-xs text-slate-400 flex-shrink-0 mt-0.5">
+                <Eye className="w-3 h-3" />
+              </span>
+              {dt.visibleToCategories.map((cat) => (
+                <CategoryPill key={typeof cat === 'string' ? cat : cat._id} label={typeof cat === 'string' ? cat : cat.name} color="blue" />
+              ))}
+            </div>
           )}
-          {dt.hasNumberField && (
-            <ConfigPill icon={Hash} label="Has number" />
+
+          {/* Visible-to subcategories */}
+          {dt.visibleToSubcategories?.length > 0 && (
+            <div className="flex items-start gap-1 flex-wrap">
+              <span className="inline-flex items-center gap-0.5 text-xs text-slate-400 flex-shrink-0 mt-0.5">
+                <Eye className="w-3 h-3" />
+              </span>
+              {dt.visibleToSubcategories.map((pair, idx) => {
+                const catName = pair.categoryId?.name || 'Cat'
+                const subName = pair.subcategoryId?.name || pair.subcategoryId || 'Sub'
+                return <CategoryPill key={idx} label={`${catName} › ${subName}`} color="blue" isSub />
+              })}
+            </div>
           )}
-          <ConfigPill
-            icon={null}
-            label={`${dt.maxFileSizeMB ?? 5} MB max`}
-          />
+
+          {/* Required-for categories */}
+          {dt.requiredForCategories?.length > 0 && (
+            <div className="flex items-start gap-1 flex-wrap">
+              <span className="inline-flex items-center gap-0.5 text-xs text-slate-400 flex-shrink-0 mt-0.5">
+                <ShieldCheck className="w-3 h-3" />
+              </span>
+              {dt.requiredForCategories.map((cat) => (
+                <CategoryPill key={typeof cat === 'string' ? cat : cat._id} label={typeof cat === 'string' ? cat : cat.name} color="violet" />
+              ))}
+            </div>
+          )}
+
+          {/* Required-for subcategories */}
+          {dt.requiredForSubcategories?.length > 0 && (
+            <div className="flex items-start gap-1 flex-wrap">
+              <span className="inline-flex items-center gap-0.5 text-xs text-slate-400 flex-shrink-0 mt-0.5">
+                <ShieldCheck className="w-3 h-3" />
+              </span>
+              {dt.requiredForSubcategories.map((pair, idx) => {
+                const catName = pair.categoryId?.name || 'Cat'
+                const subName = pair.subcategoryId?.name || pair.subcategoryId || 'Sub'
+                return <CategoryPill key={idx} label={`${catName} › ${subName}`} color="violet" isSub />
+              })}
+            </div>
+          )}
         </div>
       </td>
 
@@ -466,6 +523,20 @@ const DocumentTypeRow = ({
 const ConfigPill = ({ icon: Icon, label }) => (
   <span className="inline-flex items-center gap-1 text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
     {Icon && <Icon className="w-3 h-3" />}
+    {label}
+  </span>
+)
+
+const CATEGORY_PILL_COLORS = {
+  blue:   'bg-blue-50 text-blue-700 border-blue-200',
+  violet: 'bg-violet-50 text-violet-700 border-violet-200',
+}
+
+const CategoryPill = ({ label, color = 'blue' }) => (
+  <span className={cn(
+    'inline-flex items-center px-1.5 py-0.5 rounded-md text-xs font-medium border',
+    CATEGORY_PILL_COLORS[color]
+  )}>
     {label}
   </span>
 )
