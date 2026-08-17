@@ -109,7 +109,17 @@ export const createCall = async (req, res) => {
       // Debug: check how many sockets are in the partner's personal room
       const partnerRoom = `partner:${partnerId}`;
       const socketsInRoom = await chatNS.in(partnerRoom).fetchSockets();
-      console.log(`[Call] Sockets in room ${partnerRoom}: ${socketsInRoom.length}`);
+      console.log(`[Call] ══════════════════════════════════════════════════════`);
+      console.log(`[Call] INCOMING CALL DEBUG`);
+      console.log(`[Call] Partner ID: ${partnerId}`);
+      console.log(`[Call] Partner Room: ${partnerRoom}`);
+      console.log(`[Call] Sockets in room: ${socketsInRoom.length}`);
+      if (socketsInRoom.length > 0) {
+        socketsInRoom.forEach((s, i) => {
+          console.log(`[Call]   Socket ${i + 1}: ${s.id} | Connected: ${s.connected} | Rooms:`, Array.from(s.rooms));
+        });
+      }
+      console.log(`[Call] ══════════════════════════════════════════════════════`);
       
       // Emit to the specific partner
       chatNS.to(partnerRoom).emit("incoming_call", {
