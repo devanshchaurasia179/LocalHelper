@@ -15,6 +15,7 @@ import {
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import Toast from 'react-native-toast-message';
 
 import { colors, spacing, radii, typography } from './theme';
 import { useBookPartner } from '@/hooks/useBookPartner';
@@ -375,8 +376,15 @@ export default function PartnerDetailSheet({
   // ── Form state ─────────────────────────────────────────────────────────────
   const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const [scheduledAt, setScheduledAt] = useState<Date>(tomorrow);
+  const [scheduledEndAt, setScheduledEndAt] = useState<Date>(() => {
+    const end = new Date(tomorrow);
+    end.setHours(end.getHours() + 1);
+    return end;
+  });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [showEndTimePicker, setShowEndTimePicker] = useState(false);
   const [description, setDescription] = useState('');
   const [isEmergency, setIsEmergency] = useState(false);
 
@@ -394,11 +402,17 @@ export default function PartnerDetailSheet({
   useEffect(() => {
     if (visible) {
       reset();
-      setScheduledAt(new Date(Date.now() + 24 * 60 * 60 * 1000));
+      const tmrw = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      setScheduledAt(tmrw);
+      const end = new Date(tmrw);
+      end.setHours(end.getHours() + 1);
+      setScheduledEndAt(end);
       setDescription('');
       setIsEmergency(false);
       setShowDatePicker(false);
       setShowTimePicker(false);
+      setShowEndDatePicker(false);
+      setShowEndTimePicker(false);
       setOfflineModalType(null);
       setEmergencyBooking(false);
       setCallDuration(null);
@@ -434,6 +448,70 @@ export default function PartnerDetailSheet({
     },
     []
   );
+
+  // ── End date/time handlers (for time-based pricing) ────────────────────────
+  const handleEndDateChange = useCallback(
+    (_: DateTimePickerEvent, selected?: Date) => {
+      setShowEndDatePicker(false);
+      if (selected) {
+        setScheduledEndAt((prev) => {
+          const next = new Date(selected);
+          next.setHours(prev.getHours(), prev.getMinutes(), 0, 0);
+          return next;
+        });
+        if (Platform.OS === 'android') setShowEndTimePicker(true);
+      }
+    },
+    []
+  );
+
+  const handleEndTimeChange = useCallback(
+    (_: DateTimePickerEvent, selected?: Date) => {
+      setShowEndTimePicker(false);
+      if (selected) {
+        setScheduledEndAt((prev) => {
+          const next = new Date(prev);
+          next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+          return next;
+        });
+      }
+    },
+    []
+  );
+
+  // ── Time-based pricing calculation ─────────────────────────────────────────
+  const isTimeBased = partner?.visitingCredits != null && partner.visitingCredits.type !== 'perVisit';
+  const pricingType = partner?.visitingCredits?.type ?? 'perVisit';
+  const unitRate = partner?.visitingCredits?.amount ?? 0;
+
+  /** Calculate the number of units and total cost for time-based bookings */
+  const getTimedBookingCost = useCallback(() => {
+    if (!isTimeBased) return { units: 1, total: unitRate };
+
+    const diffMs = scheduledEndAt.getTime() - scheduledAt.getTime();
+    if (diffMs <= 0) return { units: 1, total: unitRate };
+
+    let msPerUnit: number;
+    switch (pricingType) {
+      case 'perHour':
+        msPerUnit = 60 * 60 * 1000;
+        break;
+      case 'perDay':
+        msPerUnit = 24 * 60 * 60 * 1000;
+        break;
+      case 'perWeek':
+        msPerUnit = 7 * 24 * 60 * 60 * 1000;
+        break;
+      default:
+        msPerUnit = 60 * 60 * 1000;
+    }
+
+    const calculatedUnits = Math.ceil(diffMs / msPerUnit);
+    const units = Math.max(1, calculatedUnits);
+    return { units, total: units * unitRate };
+  }, [isTimeBased, scheduledAt, scheduledEndAt, pricingType, unitRate]);
+
+  const bookingCost = getTimedBookingCost();
 
   // ── Offline modal handlers ───────────────────────────────────────────────────
   // ── Chat handler ───────────────────────────────────────────────────────────
@@ -536,6 +614,12 @@ export default function PartnerDetailSheet({
       return;
     }
 
+    // For time-based bookings, validate end time
+    if (isTimeBased && scheduledEndAt <= scheduledAt) {
+      Alert.alert('Invalid End Time', 'End time must be after start time.');
+      return;
+    }
+
     // If partner is offline, show the offline modal
     if (!partner.isOnline || !partner.isAvailable) {
       if (!partner.emergencyAvailable) {
@@ -549,6 +633,7 @@ export default function PartnerDetailSheet({
     // Partner is online — proceed normally
     const ok = await book(partner, {
       scheduledAt,
+      scheduledEndAt: isTimeBased ? scheduledEndAt : undefined,
       description: description.trim() || undefined,
       isEmergency,
     });
@@ -557,7 +642,7 @@ export default function PartnerDetailSheet({
       onBooked();
       onClose();
     }
-  }, [partner, scheduledAt, description, isEmergency, book, onBooked, onClose]);
+  }, [partner, scheduledAt, scheduledEndAt, isTimeBased, description, isEmergency, book, onBooked, onClose]);
 
   // Handle emergency booking confirmation from modal
   const handleConfirmEmergency = useCallback(async () => {
@@ -566,6 +651,7 @@ export default function PartnerDetailSheet({
     setEmergencyBooking(true);
     const ok = await book(partner, {
       scheduledAt,
+      scheduledEndAt: isTimeBased ? scheduledEndAt : undefined,
       description: description.trim() || undefined,
       isEmergency: true,
     });
@@ -574,7 +660,7 @@ export default function PartnerDetailSheet({
     if (ok) {
       setOfflineModalType('success');
     }
-  }, [partner, scheduledAt, description, book]);
+  }, [partner, scheduledAt, scheduledEndAt, isTimeBased, description, book]);
 
   const handleOfflineModalClose = useCallback(() => {
     const wasSuccess = offlineModalType === 'success';
@@ -724,7 +810,9 @@ export default function PartnerDetailSheet({
 
             {/* ── Booking form ─────────────────────────────────────────────── */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Schedule</Text>
+              <Text style={styles.sectionTitle}>
+                {isTimeBased ? 'Schedule (Start Time)' : 'Schedule'}
+              </Text>
 
               {/* Date & time picker trigger */}
               <TouchableOpacity
@@ -771,6 +859,78 @@ export default function PartnerDetailSheet({
                 />
               )}
             </View>
+
+            {/* ── End Time (only for time-based pricing) ──────────────────── */}
+            {isTimeBased && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>End Time</Text>
+
+                <TouchableOpacity
+                  style={styles.dateBtn}
+                  onPress={() => setShowEndDatePicker(true)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="time-outline" size={18} color={colors.primary} />
+                  <Text style={styles.dateBtnText}>{formatDate(scheduledEndAt)}</Text>
+                  <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+                </TouchableOpacity>
+
+                {showEndDatePicker && (
+                  <DateTimePicker
+                    value={scheduledEndAt}
+                    mode="date"
+                    minimumDate={scheduledAt}
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={handleEndDateChange}
+                  />
+                )}
+                {showEndTimePicker && Platform.OS === 'android' && (
+                  <DateTimePicker
+                    value={scheduledEndAt}
+                    mode="time"
+                    display="default"
+                    onChange={handleEndTimeChange}
+                  />
+                )}
+                {showEndDatePicker && Platform.OS === 'ios' && (
+                  <DateTimePicker
+                    value={scheduledEndAt}
+                    mode="time"
+                    display="spinner"
+                    onChange={handleEndTimeChange}
+                  />
+                )}
+
+                {/* ── Price breakdown ─────────────────────────────────────── */}
+                <View style={styles.priceBreakdown}>
+                  <View style={styles.priceBreakdownRow}>
+                    <Text style={styles.priceBreakdownLabel}>Rate</Text>
+                    <Text style={styles.priceBreakdownValue}>
+                      ₹{unitRate} / {{ perHour: 'hr', perDay: 'day', perWeek: 'wk' }[pricingType] ?? 'unit'}
+                    </Text>
+                  </View>
+                  <View style={styles.priceBreakdownRow}>
+                    <Text style={styles.priceBreakdownLabel}>Duration</Text>
+                    <Text style={styles.priceBreakdownValue}>
+                      {bookingCost.units} {{ perHour: 'hr', perDay: 'day', perWeek: 'wk' }[pricingType] ?? 'unit'}
+                      {bookingCost.units > 1 ? 's' : ''}
+                    </Text>
+                  </View>
+                  {bookingCost.units === 1 && scheduledEndAt > scheduledAt && (
+                    <View style={styles.minChargeNote}>
+                      <Ionicons name="information-circle-outline" size={13} color="#D97706" />
+                      <Text style={styles.minChargeNoteText}>
+                        Minimum charge: 1 {{ perHour: 'hour', perDay: 'day', perWeek: 'week' }[pricingType] ?? 'unit'}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={[styles.priceBreakdownRow, styles.priceTotalRow]}>
+                    <Text style={styles.priceTotalLabel}>Total</Text>
+                    <Text style={styles.priceTotalValue}>₹{bookingCost.total}</Text>
+                  </View>
+                </View>
+              </View>
+            )}
 
             {/* Description */}
             <View style={styles.section}>
@@ -876,9 +1036,11 @@ export default function PartnerDetailSheet({
               {partner.visitingCredits != null && (
                 <View style={styles.priceLabel}>
                   <Text style={styles.priceLabelText}>
-                    {{ perVisit: 'Per visit', perHour: 'Per hour', perDay: 'Per day', perWeek: 'Per week' }[partner.visitingCredits.type]}
+                    {isTimeBased
+                      ? `${bookingCost.units} {{ perHour: 'hr', perDay: 'day', perWeek: 'wk' }[pricingType] ?? 'unit'}${bookingCost.units > 1 ? 's' : ''}`
+                      : { perVisit: 'Per visit', perHour: 'Per hour', perDay: 'Per day', perWeek: 'Per week' }[partner.visitingCredits.type]}
                   </Text>
-                  <Text style={styles.priceValue}>₹{partner.visitingCredits.amount}</Text>
+                  <Text style={styles.priceValue}>₹{isTimeBased ? bookingCost.total : partner.visitingCredits.amount}</Text>
                 </View>
               )}
               <TouchableOpacity
@@ -904,6 +1066,7 @@ export default function PartnerDetailSheet({
           </View>
         </View>
       </View>
+      <Toast />
     </Modal>
 
     {/* ── Offline Partner Modal ─────────────────────────────────────────────── */}
@@ -1230,5 +1393,62 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+  },
+
+  // Price breakdown (time-based bookings)
+  priceBreakdown: {
+    marginTop: spacing.md,
+    backgroundColor: '#F0FDF4',
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  priceBreakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  priceBreakdownLabel: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  priceBreakdownValue: {
+    fontSize: 13,
+    color: colors.textPrimary,
+    fontWeight: '600',
+  },
+  priceTotalRow: {
+    marginTop: spacing.xs,
+    paddingTop: spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: '#BBF7D0',
+  },
+  priceTotalLabel: {
+    fontSize: 14,
+    color: colors.textPrimary,
+    fontWeight: '700',
+  },
+  priceTotalValue: {
+    fontSize: 18,
+    color: colors.primary,
+    fontWeight: '700',
+  },
+  minChargeNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FFFBEB',
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    marginTop: 2,
+  },
+  minChargeNoteText: {
+    fontSize: 11,
+    color: '#D97706',
+    fontWeight: '500',
   },
 });

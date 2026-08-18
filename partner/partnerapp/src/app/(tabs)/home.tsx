@@ -440,36 +440,36 @@ function LiveBookingCard({
 const liveStyles = StyleSheet.create({
   card: {
     flexDirection: "row", backgroundColor: colors.background,
-    borderRadius: radii.md, borderWidth: 1.5, marginBottom: spacing.sm,
-    overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.07,
-    shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
+    borderRadius: radii.md, borderWidth: 1.5, marginBottom: spacing.xs,
+    overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.05,
+    shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2,
   },
   cardPending: { backgroundColor: "#f0fdf8" },
-  strip: { width: 4 },
-  body: { flex: 1, padding: spacing.md, gap: spacing.sm },
+  strip: { width: 3 },
+  body: { flex: 1, padding: spacing.sm, gap: 6 },
   topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  topRight: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
-  statusPill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.pill, borderWidth: 1 },
-  statusPillText: { fontFamily: fonts.jakartaSemiBold, fontSize: 10 },
-  emergencyChip: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.errorLight, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.sm },
-  emergencyText: { fontFamily: fonts.jakartaMedium, fontSize: 10, color: colors.error },
-  creditChip: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.successLight, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.sm },
-  creditText: { fontFamily: fonts.jakartaSemiBold, fontSize: 11, color: colors.success },
-  customerRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-  customerName: { fontFamily: fonts.jakartaSemiBold, fontSize: 14, color: colors.textPrimary },
-  categoryText: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: 1 },
-  metaRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
-  metaChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.sm },
-  metaText: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary },
-  description: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
-  actionRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
-  btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 16, paddingVertical: 9, borderRadius: radii.pill, flex: 1 },
+  topRight: { flexDirection: "row", alignItems: "center", gap: 4 },
+  statusPill: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.pill, borderWidth: 1 },
+  statusPillText: { fontFamily: fonts.jakartaSemiBold, fontSize: 9 },
+  emergencyChip: { flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: colors.errorLight, paddingHorizontal: 5, paddingVertical: 1, borderRadius: radii.sm },
+  emergencyText: { fontFamily: fonts.jakartaMedium, fontSize: 9, color: colors.error },
+  creditChip: { flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: colors.successLight, paddingHorizontal: 5, paddingVertical: 1, borderRadius: radii.sm },
+  creditText: { fontFamily: fonts.jakartaSemiBold, fontSize: 10, color: colors.success },
+  customerRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  avatar: { width: 26, height: 26, borderRadius: 13, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  customerName: { fontFamily: fonts.jakartaSemiBold, fontSize: 13, color: colors.textPrimary },
+  categoryText: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary },
+  metaRow: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
+  metaChip: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.surface, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.sm },
+  metaText: { fontFamily: fonts.jostRegular, fontSize: 10, color: colors.textSecondary },
+  description: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary, lineHeight: 15 },
+  actionRow: { flexDirection: "row", gap: spacing.xs, marginTop: 2 },
+  btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: radii.pill, flex: 1 },
   btnAccept: { backgroundColor: colors.primary },
   btnDecline: { backgroundColor: colors.error },
   btnStart: { backgroundColor: "#6366F1" },
   btnComplete: { backgroundColor: colors.success },
-  btnText: { fontFamily: fonts.jakartaSemiBold, fontSize: 13, color: colors.white },
+  btnText: { fontFamily: fonts.jakartaSemiBold, fontSize: 12, color: colors.white },
 });
 
 // ─── Home Screen ──────────────────────────────────────────────────────────────
@@ -672,6 +672,35 @@ export default function HomeScreen() {
           )}
         </View>
 
+        {/* ── Live Bookings Feed ── */}
+        {liveCount > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.sectionTitle}>Live Bookings</Text>
+                <View style={styles.countBadge}>
+                  <Text style={styles.countBadgeText}>{liveCount}</Text>
+                </View>
+              </View>
+              <Pressable onPress={handleViewAllBookings} hitSlop={8}>
+                <Text style={styles.viewAllText}>View All</Text>
+              </Pressable>
+            </View>
+
+            {liveBookings.map((booking) => (
+              <LiveBookingCard
+                key={booking._id}
+                booking={booking}
+                onAccept={() => acceptMutation.mutate(booking._id)}
+                onDecline={() => cancelMutation.mutate({ bookingId: booking._id })}
+                onStart={() => startMutation.mutate(booking._id)}
+                onCompletePress={() => handleCompletePress(booking._id)}
+                isActioning={isActioning}
+              />
+            ))}
+          </View>
+        )}
+
         {/* ── Performance Overview ── */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Performance</Text>
@@ -706,35 +735,6 @@ export default function HomeScreen() {
             </View>
           </View>
         </View>
-
-        {/* ── Live Bookings Feed ── */}
-        {liveCount > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <View style={styles.sectionTitleRow}>
-                <Text style={styles.sectionTitle}>Live Bookings</Text>
-                <View style={styles.countBadge}>
-                  <Text style={styles.countBadgeText}>{liveCount}</Text>
-                </View>
-              </View>
-              <Pressable onPress={handleViewAllBookings} hitSlop={8}>
-                <Text style={styles.viewAllText}>View All</Text>
-              </Pressable>
-            </View>
-
-            {liveBookings.map((booking) => (
-              <LiveBookingCard
-                key={booking._id}
-                booking={booking}
-                onAccept={() => acceptMutation.mutate(booking._id)}
-                onDecline={() => cancelMutation.mutate({ bookingId: booking._id })}
-                onStart={() => startMutation.mutate(booking._id)}
-                onCompletePress={() => handleCompletePress(booking._id)}
-                isActioning={isActioning}
-              />
-            ))}
-          </View>
-        )}
 
         {/* ── Recent Messages ── */}
         {recentConvs.length > 0 && (

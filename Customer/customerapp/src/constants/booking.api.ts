@@ -66,6 +66,7 @@ export type CreateBookingPayload = {
   categoryId?: string;
   description?: string;
   scheduledAt: string; // ISO 8601
+  scheduledEndAt?: string; // ISO 8601 — required for time-based pricing (perHour/perDay/perWeek)
   isEmergency?: boolean;
 };
 

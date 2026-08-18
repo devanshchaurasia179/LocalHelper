@@ -10,7 +10,6 @@ import {
   Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { colors, spacing, radii, typography, fonts } from '../home/theme';
 import type { Booking, BookingStatus } from './bookings.types';
 
@@ -294,14 +293,9 @@ export default function BookingDetail({
 
   const cfg    = STATUS_CONFIG[booking.status];
   const accent = STATUS_ACCENT[booking.status];
-  const { partner, category, serviceAddress, cancellation, review } = booking;
+  const { category, serviceAddress, cancellation, review } = booking;
   const canCancel = booking.status === 'pending' || booking.status === 'accepted';
   const canReview = booking.status === 'completed' && !review?.rating;
-
-  const avatarUri =
-    partner?.selfieUrl ??
-    partner?.profilePhoto ??
-    `https://ui-avatars.com/api/?name=${encodeURIComponent(partner?.fullName ?? 'P')}&background=16493c&color=fff&size=200`;
 
   return (
     <Modal visible={visible} animationType="none" transparent onRequestClose={onClose}>
@@ -337,30 +331,6 @@ export default function BookingDetail({
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}
           >
-            {/* ── Partner card ── */}
-            <View style={[styles.partnerCard, { borderLeftColor: accent }]}>
-              <Image source={{ uri: avatarUri }} style={styles.avatar} contentFit="cover" />
-              <View style={styles.partnerInfo}>
-                <Text style={styles.partnerName}>{partner?.fullName ?? 'Unknown Partner'}</Text>
-                {partner?.phone && (
-                  <View style={styles.phoneRow}>
-                    <Ionicons name="call-outline" size={12} color={colors.textSecondary} />
-                    <Text style={styles.phoneText}>{partner.phone}</Text>
-                  </View>
-                )}
-                {partner?.averageRating != null && (
-                  <View style={styles.ratingRow}>
-                    <Ionicons name="star" size={12} color={colors.star} />
-                    <Text style={styles.ratingText}>{partner.averageRating.toFixed(1)}</Text>
-                    <Text style={styles.ratingLabel}>rating</Text>
-                  </View>
-                )}
-              </View>
-              <View style={[styles.statusPill, { backgroundColor: cfg.bg, borderColor: cfg.border }]}>
-                <Text style={[styles.statusPillText, { color: cfg.color }]}>{cfg.label}</Text>
-              </View>
-            </View>
-
             {/* ── Service info ── */}
             <View style={styles.section}>
               <SectionHeader title="Service Info" />
@@ -397,21 +367,26 @@ export default function BookingDetail({
             {/* ── Address ── */}
             {serviceAddress && (
               <View style={styles.section}>
-                <SectionHeader title="Service Address" />
+                <SectionHeader title="Your Address" />
                 <View style={styles.addressCard}>
                   <View style={styles.addressIconWrap}>
                     <Ionicons name="location" size={18} color={colors.primary} />
                   </View>
-                  <Text style={styles.addressText}>
-                    {[
-                      serviceAddress.house,
-                      serviceAddress.street,
-                      serviceAddress.locality,
-                      serviceAddress.city,
-                      serviceAddress.state,
-                      serviceAddress.pincode,
-                    ].filter(Boolean).join(', ')}
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    {serviceAddress.label && (
+                      <Text style={styles.addressLabel}>{serviceAddress.label}</Text>
+                    )}
+                    <Text style={styles.addressText}>
+                      {[
+                        serviceAddress.house,
+                        serviceAddress.street,
+                        serviceAddress.locality,
+                        serviceAddress.city,
+                        serviceAddress.state,
+                        serviceAddress.pincode,
+                      ].filter(Boolean).join(', ')}
+                    </Text>
+                  </View>
                 </View>
               </View>
             )}
@@ -571,69 +546,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
 
-  // Partner card
-  partnerCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    backgroundColor: colors.surface,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    borderLeftWidth: 4,
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: radii.pill,
-    backgroundColor: '#E5E7EB',
-    borderWidth: 2,
-    borderColor: '#F0F0F5',
-  },
-  partnerInfo: {
-    flex: 1,
-    gap: 4,
-  },
-  partnerName: {
-    fontFamily: fonts.jakartaSemiBold,
-    fontSize: 15,
-    color: colors.textPrimary,
-  },
-  phoneRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  phoneText: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  ratingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  ratingText: {
-    fontFamily: fonts.oswaldSemiBold,
-    fontSize: 13,
-    color: colors.textPrimary,
-  },
-  ratingLabel: {
-    fontFamily: fonts.jostRegular,
-    fontSize: 11,
-    color: colors.textSecondary,
-  },
-  statusPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-  },
-  statusPillText: {
-    fontFamily: fonts.jakartaSemiBold,
-    fontSize: 11,
-  },
-
   // Sections
   section: {
     gap: 2,
@@ -663,6 +575,12 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     flex: 1,
     lineHeight: 20,
+  },
+  addressLabel: {
+    fontFamily: fonts.jakartaSemiBold,
+    fontSize: 13,
+    color: colors.textPrimary,
+    marginBottom: 2,
   },
 
   // Cancellation

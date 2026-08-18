@@ -29,7 +29,7 @@ const generateCompletionCode = () =>
  */
 export const createBooking = async (req, res) => {
   try {
-    const { partnerId, categoryId, description, scheduledAt } = req.body;
+    const { partnerId, categoryId, description, scheduledAt, scheduledEndAt } = req.body;
 
     if (!partnerId) {
       return res.status(400).json({ message: "partnerId is required." });
@@ -41,6 +41,18 @@ export const createBooking = async (req, res) => {
     const scheduledDate = new Date(scheduledAt);
     if (isNaN(scheduledDate.getTime()) || scheduledDate < new Date()) {
       return res.status(400).json({ message: "scheduledAt must be a valid future date." });
+    }
+
+    // Validate scheduledEndAt if provided (for time-based bookings)
+    let scheduledEndDate = null;
+    if (scheduledEndAt) {
+      scheduledEndDate = new Date(scheduledEndAt);
+      if (isNaN(scheduledEndDate.getTime())) {
+        return res.status(400).json({ message: "scheduledEndAt must be a valid date." });
+      }
+      if (scheduledEndDate <= scheduledDate) {
+        return res.status(400).json({ message: "scheduledEndAt must be after scheduledAt." });
+      }
     }
 
     // Verify partner exists and is available
@@ -84,8 +96,39 @@ export const createBooking = async (req, res) => {
       return res.status(404).json({ message: "Customer not found." });
     }
 
+    // ── Calculate booking cost ────────────────────────────────────────────────
+    // For perVisit: flat fee (1 unit always).
+    // For perHour/perDay/perWeek: calculate units from duration, minimum 1 unit.
+    const pricingType = partner.visitingCredits?.type ?? "perVisit";
+    const unitRate    = partner.visitingCredits?.amount ?? 0;
+    let durationUnits = 1; // minimum 1 unit always
+
+    if (pricingType !== "perVisit" && scheduledEndDate) {
+      const diffMs = scheduledEndDate.getTime() - scheduledDate.getTime();
+
+      let msPerUnit;
+      switch (pricingType) {
+        case "perHour":
+          msPerUnit = 60 * 60 * 1000;       // 1 hour
+          break;
+        case "perDay":
+          msPerUnit = 24 * 60 * 60 * 1000;  // 1 day
+          break;
+        case "perWeek":
+          msPerUnit = 7 * 24 * 60 * 60 * 1000; // 1 week
+          break;
+        default:
+          msPerUnit = 60 * 60 * 1000;
+      }
+
+      // Ceiling: even a fraction of a unit counts as a full unit
+      const calculatedUnits = Math.ceil(diffMs / msPerUnit);
+      durationUnits = Math.max(1, calculatedUnits); // minimum 1 unit
+    }
+
+    const bookingCost = unitRate * durationUnits;
+
     // ── Wallet balance check ──────────────────────────────────────────────────
-    const bookingCost = partner.visitingCredits?.amount ?? 0;
     if (bookingCost > 0 && customer.walletBalance < bookingCost) {
       return res.status(400).json({
         code: "INSUFFICIENT_BALANCE",
@@ -119,7 +162,9 @@ export const createBooking = async (req, res) => {
       category:       categoryId  || undefined,
       description:    description || undefined,
       scheduledAt:    scheduledDate,
-      visitingCredit: partner.visitingCredits?.amount,
+      scheduledEndAt: scheduledEndDate || undefined,
+      durationUnits:  pricingType !== "perVisit" ? durationUnits : undefined,
+      visitingCredit: bookingCost,
       serviceAddress,
       status:         "pending",
     });

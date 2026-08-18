@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { createBooking } from "@/constants/booking.api";
 import type { NearbyPartner } from "@/api/nearby.api";
+import Toast from "react-native-toast-message";
 
 // ─── Return type ──────────────────────────────────────────────────────────────
 
@@ -14,6 +15,7 @@ export interface UseBookPartnerResult {
 
 export interface BookOptions {
   scheduledAt: Date;
+  scheduledEndAt?: Date;
   categoryId?: string;
   description?: string;
   isEmergency?: boolean;
@@ -44,6 +46,7 @@ export function useBookPartner(): UseBookPartnerResult {
           categoryId: opts.categoryId ?? partner.categories[0]?._id,
           description: opts.description,
           scheduledAt: opts.scheduledAt.toISOString(),
+          scheduledEndAt: opts.scheduledEndAt?.toISOString(),
           isEmergency: opts.isEmergency ?? false,
         });
 
@@ -55,7 +58,17 @@ export function useBookPartner(): UseBookPartnerResult {
           err?.response?.data?.message ?? "Booking failed. Please try again.";
 
         if (code === "ACTIVE_BOOKING_EXISTS") {
-          setError("You already have an active booking. Complete or cancel it first.");
+          Toast.show({
+            type: "error",
+            text1: "Active Booking Exists",
+            text2: "Complete or cancel your current booking first.",
+          });
+        } else if (code === "INSUFFICIENT_BALANCE") {
+          Toast.show({
+            type: "error",
+            text1: "Insufficient Balance",
+            text2: msg,
+          });
         } else {
           setError(msg);
         }

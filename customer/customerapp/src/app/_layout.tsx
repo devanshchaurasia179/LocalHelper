@@ -6,6 +6,7 @@ import { useFonts as useOswald, Oswald_400Regular, Oswald_600SemiBold, Oswald_70
 import { useFonts as usePlusJakarta, PlusJakartaSans_400Regular, PlusJakartaSans_500Medium, PlusJakartaSans_600SemiBold, PlusJakartaSans_700Bold } from '@expo-google-fonts/plus-jakarta-sans';
 import { useFonts as useJost, Jost_300Light, Jost_400Regular, Jost_500Medium, Jost_600SemiBold } from '@expo-google-fonts/jost';
 import { useFonts as useArchivoBlack, ArchivoBlack_400Regular } from '@expo-google-fonts/archivo-black';
+import Toast from 'react-native-toast-message';
 
 import { AuthProvider } from '@/providers/AuthProvider';
 import { registerGlobals } from '@livekit/react-native';
@@ -36,6 +37,7 @@ export default function RootLayout() {
     <AuthProvider>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Slot />
+        <Toast />
       </ThemeProvider>
     </AuthProvider>
   );

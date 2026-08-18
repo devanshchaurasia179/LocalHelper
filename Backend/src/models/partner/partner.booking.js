@@ -103,6 +103,17 @@ const bookingSchema = new mongoose.Schema(
       type:     Date,
       required: true,
     },
+    // End time for time-based bookings (perHour, perDay, perWeek)
+    scheduledEndAt: {
+      type: Date,
+      default: null,
+    },
+    // How many units the customer is being charged for (e.g. 2 hours, 1 day)
+    // Minimum is always 1 unit of the pricing type
+    durationUnits: {
+      type: Number,
+      default: null,
+    },
     // Actual timestamps set by partner actions
     startedAt:   Date,
     completedAt: Date,
