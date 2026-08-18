@@ -102,7 +102,14 @@ export const createCall = async (req, res) => {
       const socketsInRoom = await chatNS.in(partnerRoom).fetchSockets();
       
       if (socketsInRoom.length === 0) {
-        console.warn(`[Call] No sockets in room ${partnerRoom} — partner may be offline`);
+        console.warn(`[Call] No sockets in room ${partnerRoom} — partner is offline`);
+        // Mark call as failed since partner can't receive it
+        call.status = "failed";
+        await call.save();
+        return res.status(422).json({
+          success: false,
+          message: "Partner is currently offline. Please try again later.",
+        });
       }
 
       chatNS.to(partnerRoom).emit("incoming_call", {
@@ -114,8 +121,16 @@ export const createCall = async (req, res) => {
       });
     } catch (socketError) {
       console.error("[Call] Failed to emit socket event:", socketError);
+      call.status = "failed";
+      await call.save();
+      return res.status(500).json({
+        success: false,
+        message: "Failed to notify partner. Please try again.",
+      });
     }
 
+    // Return call info but NOT the LiveKit token yet.
+    // Customer should wait for "call_accepted" socket event before connecting to LiveKit.
     return res.status(201).json({
       success: true,
       call: {
@@ -320,15 +335,28 @@ export const acceptCall = async (req, res) => {
       roomName: call.roomName,
     });
 
-    // Notify customer via socket that call was accepted
+    // Notify customer via socket that call was accepted — include LiveKit details
+    // so the customer can now connect to the room
     try {
       const io = getIO();
       const chatNS = io.of("/chat");
+
+      // Generate a fresh LiveKit token for the customer so they can join now
+      const customerJwt = await buildLiveKitToken({
+        identity: `customer_${call.customer}`,
+        displayName: "Customer",
+        roomName: call.roomName,
+      });
+
       chatNS.to(`customer:${call.customer}`).emit("call_accepted", {
         callId: call._id.toString(),
         roomName: call.roomName,
         partnerId: partnerId.toString(),
         partnerName: partner?.fullName || "Partner",
+        livekit: {
+          url: process.env.LIVEKIT_URL,
+          token: customerJwt,
+        },
         timestamp: new Date(),
       });
     } catch (socketError) {
