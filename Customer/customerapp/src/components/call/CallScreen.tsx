@@ -18,12 +18,13 @@ import { colors, spacing } from '@/app/(tabs)/home/theme';
 interface CallScreenProps {
   visible: boolean;
   partner: NearbyPartner;
+  callId: string;
   livekitUrl: string;
   livekitToken: string;
   onEndCall: () => void;
 }
 
-type CallState = 'dialling' | 'connected' | 'ended';
+type CallState = 'dialling' | 'connecting' | 'connected' | 'ended';
 
 // ─── Dialling UI (pulsing ring animation) ─────────────────────────────────────
 
@@ -167,6 +168,7 @@ function CallControls({
 export default function CallScreen({
   visible,
   partner,
+  callId,
   livekitUrl,
   livekitToken,
   onEndCall,
@@ -175,6 +177,8 @@ export default function CallScreen({
   const [room, setRoom] = useState<Room | null>(null);
   const hasStartedAudio = useRef(false);
   const roomRef = useRef<Room | null>(null);
+  // Store the LiveKit credentials (from call_accepted event or original response)
+  const livekitRef = useRef<{ url: string; token: string }>({ url: livekitUrl, token: livekitToken });
 
   // Start audio session when visible
   useEffect(() => {
@@ -196,17 +200,75 @@ export default function CallScreen({
       setCallState('dialling');
       setRoom(null);
       roomRef.current = null;
+      livekitRef.current = { url: livekitUrl, token: livekitToken };
     }
   }, [visible]);
 
-  // Connect to LiveKit immediately on mount.
-  // Customer joins the room and waits for partner to join (ParticipantConnected).
-  // This uses LiveKit's WebSocket as the signaling layer — fast and direct.
-  // Also listens for call_rejected via Socket.IO in case partner declines.
+  // Phase 1: While dialling, listen for call_accepted or call_rejected via Socket.IO.
+  // Do NOT connect to LiveKit yet — wait until partner accepts.
   useEffect(() => {
     if (!visible || callState !== 'dialling') return;
 
     let mounted = true;
+
+    const handleCallAccepted = (data: any) => {
+      if (!mounted) return;
+      // If the event includes fresh LiveKit credentials, use those
+      if (data?.livekit?.url && data?.livekit?.token) {
+        livekitRef.current = { url: data.livekit.url, token: data.livekit.token };
+      }
+      setCallState('connecting');
+    };
+
+    const handleCallRejected = () => {
+      if (!mounted) return;
+      setCallState('ended');
+      setTimeout(() => onEndCall(), 1500);
+    };
+
+    const handleCallEnded = (data: any) => {
+      if (!mounted) return;
+      if (data?.callId === callId) {
+        setCallState('ended');
+        setTimeout(() => onEndCall(), 1500);
+      }
+    };
+
+    // Set a 60 second timeout — if partner doesn't answer, end the call
+    const timeout = setTimeout(() => {
+      if (!mounted) return;
+      setCallState('ended');
+      setTimeout(() => onEndCall(), 1500);
+    }, 60000);
+
+    connectChatSocket()
+      .then((socket) => {
+        if (!mounted) return;
+        socket.on('call_accepted', handleCallAccepted);
+        socket.on('call_rejected', handleCallRejected);
+        socket.on('call_ended', handleCallEnded);
+      })
+      .catch(() => {});
+
+    return () => {
+      mounted = false;
+      clearTimeout(timeout);
+      const socket = getChatSocket();
+      if (socket) {
+        socket.off('call_accepted', handleCallAccepted);
+        socket.off('call_rejected', handleCallRejected);
+        socket.off('call_ended', handleCallEnded);
+      }
+    };
+  }, [visible, callState, callId, onEndCall]);
+
+  // Phase 2: Partner accepted — now connect to LiveKit
+  useEffect(() => {
+    if (!visible || callState !== 'connecting') return;
+
+    let mounted = true;
+    const { url, token } = livekitRef.current;
+
     const lkRoom = new Room({
       adaptiveStream: true,
       dynacast: true,
@@ -220,7 +282,6 @@ export default function CallScreen({
       }
     };
 
-    // When partner joins the LiveKit room → call is connected, start timer
     const handleParticipantConnected = () => {
       if (mounted) {
         setCallState('connected');
@@ -231,29 +292,24 @@ export default function CallScreen({
     lkRoom.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
 
     lkRoom
-      .connect(livekitUrl, livekitToken, { autoSubscribe: true })
+      .connect(url, token, { autoSubscribe: true })
       .then(async () => {
         if (!mounted) {
           lkRoom.disconnect();
           return;
         }
         setRoom(lkRoom);
+        setCallState('connected');
 
-        // Enable mic only after signal connection is confirmed
-        // Use a small delay to let the signaling channel stabilize
+        // Enable mic after signal connection is confirmed
         setTimeout(async () => {
           if (!mounted) return;
           try {
             await lkRoom.localParticipant.setMicrophoneEnabled(true);
           } catch {
-            // Non-fatal — mic will be enabled when call connects
+            // Non-fatal
           }
         }, 500);
-
-        // If partner already connected before we finished setup
-        if (lkRoom.remoteParticipants.size > 0) {
-          setCallState('connected');
-        }
       })
       .catch(() => {
         if (mounted) {
@@ -262,34 +318,14 @@ export default function CallScreen({
         }
       });
 
-    // Listen for partner rejection via Socket.IO
-    const handleCallRejected = () => {
-      if (!mounted) return;
-      setCallState('ended');
-      lkRoom.disconnect().catch(() => {});
-      setTimeout(() => onEndCall(), 1500);
-    };
-
-    connectChatSocket()
-      .then((socket) => {
-        if (!mounted) return;
-        socket.on('call_rejected', handleCallRejected);
-      })
-      .catch(() => {});
-
     return () => {
       mounted = false;
       lkRoom.off(RoomEvent.Disconnected, handleDisconnected);
       lkRoom.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
       lkRoom.disconnect().catch(() => {});
       roomRef.current = null;
-
-      const socket = getChatSocket();
-      if (socket) {
-        socket.off('call_rejected', handleCallRejected);
-      }
     };
-  }, [visible, callState, livekitUrl, livekitToken, onEndCall]);
+  }, [visible, callState, onEndCall]);
 
   const handleEndCall = useCallback(() => {
     setCallState('ended');
@@ -322,7 +358,7 @@ export default function CallScreen({
       statusBarTranslucent
     >
       <View style={styles.container}>
-        {callState === 'dialling' && (
+        {(callState === 'dialling' || callState === 'connecting') && (
           <DiallingView partnerName={getPartnerName()} onCancel={handleEndCall} />
         )}
 

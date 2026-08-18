@@ -295,6 +295,9 @@ function LiveBookingCard({
   const status = booking.status as "pending" | "accepted" | "in_progress";
   const meta = BOOKING_STATUS_META[status];
 
+  // Guard: if booking has an unexpected status, don't render
+  if (!meta) return null;
+
   const scheduledDate = new Date(booking.scheduledAt);
   const dateStr = scheduledDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
   const timeStr = scheduledDate.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
@@ -523,7 +526,9 @@ export default function HomeScreen() {
 
   const pendingBookings: Booking[] = pendingData?.bookings ?? [];
   const activeBookings: Booking[] = (activeData as any)?.bookings ?? [];
-  const liveBookings: Booking[] = [...pendingBookings, ...activeBookings];
+  const liveBookings: Booking[] = [...pendingBookings, ...activeBookings].filter(
+    (b) => b.status === 'pending' || b.status === 'accepted' || b.status === 'in_progress'
+  );
   const liveCount = liveBookings.length;
 
   const isOnline = serviceData?.isOnline ?? false;

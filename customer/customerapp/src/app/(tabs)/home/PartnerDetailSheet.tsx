@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Alert,
   Platform,
   Pressable,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -339,6 +340,8 @@ export default function PartnerDetailSheet({
 }: PartnerDetailSheetProps) {
   const { booking, error, book, reset } = useBookPartner();
   const router = useRouter();
+  const scrollViewRef = useRef<ScrollView>(null);
+  const descriptionInputRef = useRef<TextInput>(null);
 
   // ── Distance (calculated from the selected address coords) ───────────────
   const [displayDistanceKm, setDisplayDistanceKm] = useState<number | null>(null);
@@ -374,10 +377,9 @@ export default function PartnerDetailSheet({
   }, [visible, partner]);
 
   // ── Form state ─────────────────────────────────────────────────────────────
-  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  const [scheduledAt, setScheduledAt] = useState<Date>(tomorrow);
+  const [scheduledAt, setScheduledAt] = useState<Date>(() => new Date());
   const [scheduledEndAt, setScheduledEndAt] = useState<Date>(() => {
-    const end = new Date(tomorrow);
+    const end = new Date();
     end.setHours(end.getHours() + 1);
     return end;
   });
@@ -402,9 +404,10 @@ export default function PartnerDetailSheet({
   useEffect(() => {
     if (visible) {
       reset();
-      const tmrw = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      setScheduledAt(tmrw);
-      const end = new Date(tmrw);
+      const now = new Date();
+      now.setMinutes(now.getMinutes() + 5);
+      setScheduledAt(now);
+      const end = new Date(now);
       end.setHours(end.getHours() + 1);
       setScheduledEndAt(end);
       setDescription('');
@@ -426,6 +429,15 @@ export default function PartnerDetailSheet({
         setScheduledAt((prev) => {
           const next = new Date(selected);
           next.setHours(prev.getHours(), prev.getMinutes(), 0, 0);
+          // Push end time forward if it's now before the new start time
+          setScheduledEndAt((prevEnd) => {
+            if (prevEnd <= next) {
+              const newEnd = new Date(next);
+              newEnd.setHours(newEnd.getHours() + 1);
+              return newEnd;
+            }
+            return prevEnd;
+          });
           return next;
         });
         // On Android open time picker right after date is picked
@@ -442,6 +454,15 @@ export default function PartnerDetailSheet({
         setScheduledAt((prev) => {
           const next = new Date(prev);
           next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+          // Push end time forward if it's now before the new start time
+          setScheduledEndAt((prevEnd) => {
+            if (prevEnd <= next) {
+              const newEnd = new Date(next);
+              newEnd.setHours(newEnd.getHours() + 1);
+              return newEnd;
+            }
+            return prevEnd;
+          });
           return next;
         });
       }
@@ -472,6 +493,17 @@ export default function PartnerDetailSheet({
         setScheduledEndAt((prev) => {
           const next = new Date(prev);
           next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+          // Ensure end time is always after start time
+          setScheduledAt((currentStart) => {
+            if (next <= currentStart) {
+              // Revert: push end to start + 1 hour
+              const corrected = new Date(currentStart);
+              corrected.setHours(corrected.getHours() + 1);
+              setScheduledEndAt(corrected);
+              Alert.alert('Invalid End Time', 'End time must be after start time. It has been adjusted.');
+            }
+            return currentStart;
+          });
           return next;
         });
       }
@@ -609,8 +641,10 @@ export default function PartnerDetailSheet({
   const handleBook = useCallback(async () => {
     if (!partner) return;
 
-    if (scheduledAt <= new Date()) {
-      Alert.alert('Invalid Date', 'Please select a future date and time.');
+    // Allow a small tolerance (2 minutes) since the default is "now"
+    const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000);
+    if (scheduledAt < twoMinAgo) {
+      Alert.alert('Invalid Date', 'Please select a valid date and time.');
       return;
     }
 
@@ -691,7 +725,10 @@ export default function PartnerDetailSheet({
         {/* Dimmed backdrop */}
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
 
-        <View style={styles.sheet}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.sheet}
+        >
           {/* Handle */}
           <View style={styles.handle} />
 
@@ -701,9 +738,11 @@ export default function PartnerDetailSheet({
           </TouchableOpacity>
 
           <ScrollView
+            ref={scrollViewRef}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
+            style={styles.scrollView}
           >
             {/* ── Partner hero ─────────────────────────────────────────────── */}
             {(!partner.isOnline || !partner.isAvailable) && (
@@ -806,6 +845,27 @@ export default function PartnerDetailSheet({
                   ));
                 })}
               </View>
+            </View>
+
+            {/* Description */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Description (optional)</Text>
+              <TextInput
+                ref={descriptionInputRef}
+                style={styles.textInput}
+                placeholder="Describe your requirement…"
+                placeholderTextColor={colors.textSecondary}
+                value={description}
+                onChangeText={setDescription}
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+                onFocus={() => {
+                  setTimeout(() => {
+                    scrollViewRef.current?.scrollToEnd({ animated: true });
+                  }, 300);
+                }}
+              />
             </View>
 
             {/* ── Booking form ─────────────────────────────────────────────── */}
@@ -932,21 +992,6 @@ export default function PartnerDetailSheet({
               </View>
             )}
 
-            {/* Description */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Description (optional)</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Describe your requirement…"
-                placeholderTextColor={colors.textSecondary}
-                value={description}
-                onChangeText={setDescription}
-                multiline
-                numberOfLines={3}
-                textAlignVertical="top"
-              />
-            </View>
-
             {/* Emergency toggle */}
             {partner.emergencyAvailable && (
               <TouchableOpacity
@@ -1037,8 +1082,8 @@ export default function PartnerDetailSheet({
                 <View style={styles.priceLabel}>
                   <Text style={styles.priceLabelText}>
                     {isTimeBased
-                      ? `${bookingCost.units} {{ perHour: 'hr', perDay: 'day', perWeek: 'wk' }[pricingType] ?? 'unit'}${bookingCost.units > 1 ? 's' : ''}`
-                      : { perVisit: 'Per visit', perHour: 'Per hour', perDay: 'Per day', perWeek: 'Per week' }[partner.visitingCredits.type]}
+                      ? `${bookingCost.units} ${({ perHour: 'hr', perDay: 'day', perWeek: 'wk' } as Record<string, string>)[pricingType] ?? 'unit'}${bookingCost.units > 1 ? 's' : ''}`
+                      : ({ perVisit: 'Per visit', perHour: 'Per hour', perDay: 'Per day', perWeek: 'Per week' } as Record<string, string>)[partner.visitingCredits.type]}
                   </Text>
                   <Text style={styles.priceValue}>₹{isTimeBased ? bookingCost.total : partner.visitingCredits.amount}</Text>
                 </View>
@@ -1064,7 +1109,7 @@ export default function PartnerDetailSheet({
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </View>
       <Toast />
     </Modal>
@@ -1097,6 +1142,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radii.lg,
     borderTopRightRadius: radii.lg,
     maxHeight: '92%',
+    overflow: 'hidden',
+    flexShrink: 1,
   },
   handle: {
     width: 36,
@@ -1116,8 +1163,11 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.lg,
+    paddingBottom: spacing.md,
     gap: spacing.lg,
+  },
+  scrollView: {
+    flexShrink: 1,
   },
 
   // Hero
@@ -1305,7 +1355,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
-    gap: 0,
+    gap: spacing.sm,
   },
   priceLabel: {
     gap: 2,
@@ -1366,7 +1416,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#EBEBF0',
     overflow: 'hidden',
-    marginBottom: spacing.sm,
   },
   commsBtn: {
     flex: 1,
