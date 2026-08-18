@@ -119,6 +119,7 @@ export const createCall = async (req, res) => {
         customerName: customer.name || "Customer",
         timestamp: new Date(),
       });
+      console.log(`[Call] incoming_call emitted to ${partnerRoom} (${socketsInRoom.length} sockets), callId: ${call._id}`);
     } catch (socketError) {
       console.error("[Call] Failed to emit socket event:", socketError);
       call.status = "failed";

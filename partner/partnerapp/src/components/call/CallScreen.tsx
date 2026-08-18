@@ -134,6 +134,9 @@ export default function CallScreen({
   const [room, setRoom] = useState<Room | null>(null);
   const hasStartedAudio = useRef(false);
   const roomRef = useRef<Room | null>(null);
+  const hasStartedLiveKit = useRef(false);
+  const onEndCallRef = useRef(onEndCall);
+  onEndCallRef.current = onEndCall;
 
   useEffect(() => {
     if (visible && !hasStartedAudio.current) {
@@ -154,13 +157,16 @@ export default function CallScreen({
       setCallState('connecting');
       setRoom(null);
       roomRef.current = null;
+      hasStartedLiveKit.current = false;
     }
   }, [visible]);
 
   // Connect to LiveKit immediately (partner already accepted).
   // Timer starts when the remote participant (customer) joins via ParticipantConnected.
   useEffect(() => {
-    if (!visible || callState !== 'connecting') return;
+    if (!visible) return;
+    if (hasStartedLiveKit.current) return;
+    hasStartedLiveKit.current = true;
 
     let mounted = true;
     const lkRoom = new Room({
@@ -172,7 +178,7 @@ export default function CallScreen({
     const handleDisconnected = () => {
       if (mounted) {
         setCallState('ended');
-        setTimeout(() => onEndCall(), 1500);
+        setTimeout(() => onEndCallRef.current(), 1500);
       }
     };
 
@@ -213,7 +219,7 @@ export default function CallScreen({
       .catch(() => {
         if (mounted) {
           setCallState('ended');
-          setTimeout(() => onEndCall(), 1500);
+          setTimeout(() => onEndCallRef.current(), 1500);
         }
       });
 
@@ -221,10 +227,13 @@ export default function CallScreen({
       mounted = false;
       lkRoom.off(RoomEvent.Disconnected, handleDisconnected);
       lkRoom.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
-      lkRoom.disconnect().catch(() => {});
-      roomRef.current = null;
+      // Disconnect if component unmounts or visible changes
+      if (roomRef.current === lkRoom) {
+        lkRoom.disconnect().catch(() => {});
+        roomRef.current = null;
+      }
     };
-  }, [visible, callState, livekitUrl, livekitToken, onEndCall]);
+  }, [visible, livekitUrl, livekitToken]); // stable deps only — runs once per call session
 
   const handleEndCall = useCallback(() => {
     setCallState('ended');
@@ -240,8 +249,8 @@ export default function CallScreen({
       hasStartedAudio.current = false;
     }
 
-    onEndCall();
-  }, [onEndCall]);
+    onEndCallRef.current();
+  }, []);
 
   if (!visible) return null;
 

@@ -177,6 +177,9 @@ export default function CallScreen({
   const [room, setRoom] = useState<Room | null>(null);
   const hasStartedAudio = useRef(false);
   const roomRef = useRef<Room | null>(null);
+  const hasStartedLiveKit = useRef(false);
+  const onEndCallRef = useRef(onEndCall);
+  onEndCallRef.current = onEndCall;
   // Store the LiveKit credentials (from call_accepted event or original response)
   const livekitRef = useRef<{ url: string; token: string }>({ url: livekitUrl, token: livekitToken });
 
@@ -201,6 +204,7 @@ export default function CallScreen({
       setRoom(null);
       roomRef.current = null;
       livekitRef.current = { url: livekitUrl, token: livekitToken };
+      hasStartedLiveKit.current = false;
     }
   }, [visible]);
 
@@ -223,14 +227,14 @@ export default function CallScreen({
     const handleCallRejected = () => {
       if (!mounted) return;
       setCallState('ended');
-      setTimeout(() => onEndCall(), 1500);
+      setTimeout(() => onEndCallRef.current(), 1500);
     };
 
     const handleCallEnded = (data: any) => {
       if (!mounted) return;
       if (data?.callId === callId) {
         setCallState('ended');
-        setTimeout(() => onEndCall(), 1500);
+        setTimeout(() => onEndCallRef.current(), 1500);
       }
     };
 
@@ -238,7 +242,7 @@ export default function CallScreen({
     const timeout = setTimeout(() => {
       if (!mounted) return;
       setCallState('ended');
-      setTimeout(() => onEndCall(), 1500);
+      setTimeout(() => onEndCallRef.current(), 1500);
     }, 60000);
 
     connectChatSocket()
@@ -260,11 +264,15 @@ export default function CallScreen({
         socket.off('call_ended', handleCallEnded);
       }
     };
-  }, [visible, callState, callId, onEndCall]);
+  }, [visible, callState, callId]); // onEndCall removed — using ref
 
   // Phase 2: Partner accepted — now connect to LiveKit
+
   useEffect(() => {
     if (!visible || callState !== 'connecting') return;
+    // Only start once per call session
+    if (hasStartedLiveKit.current) return;
+    hasStartedLiveKit.current = true;
 
     let mounted = true;
     const { url, token } = livekitRef.current;
@@ -278,7 +286,7 @@ export default function CallScreen({
     const handleDisconnected = () => {
       if (mounted) {
         setCallState('ended');
-        setTimeout(() => onEndCall(), 1500);
+        setTimeout(() => onEndCallRef.current(), 1500);
       }
     };
 
@@ -314,7 +322,7 @@ export default function CallScreen({
       .catch(() => {
         if (mounted) {
           setCallState('ended');
-          setTimeout(() => onEndCall(), 1500);
+          setTimeout(() => onEndCallRef.current(), 1500);
         }
       });
 
@@ -322,10 +330,13 @@ export default function CallScreen({
       mounted = false;
       lkRoom.off(RoomEvent.Disconnected, handleDisconnected);
       lkRoom.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
-      lkRoom.disconnect().catch(() => {});
-      roomRef.current = null;
+      // Disconnect if component unmounts or visible changes
+      if (roomRef.current === lkRoom) {
+        lkRoom.disconnect().catch(() => {});
+        roomRef.current = null;
+      }
     };
-  }, [visible, callState, onEndCall]);
+  }, [visible, callState]); // stable deps — hasStartedLiveKit prevents re-execution
 
   const handleEndCall = useCallback(() => {
     setCallState('ended');
@@ -341,8 +352,8 @@ export default function CallScreen({
       hasStartedAudio.current = false;
     }
 
-    onEndCall();
-  }, [onEndCall]);
+    onEndCallRef.current();
+  }, []);
 
   const getPartnerName = () => {
     return (partner as any).fullName || (partner as any).name || (partner as any).businessName || 'Partner';

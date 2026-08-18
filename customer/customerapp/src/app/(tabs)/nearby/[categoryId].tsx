@@ -11,6 +11,7 @@ import {
   TextInput,
   Platform,
   BackHandler,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
@@ -20,9 +21,11 @@ import { fetchNearbyServices } from '@/api/nearby.api';
 import type { NearbyPartner } from '@/api/nearby.api';
 import { nearbyCache } from '@/cache/nearbyCache';
 import { fetchActiveBookingsByPartner } from '@/constants/booking.api';
+import { initiateCallToPartner } from '@/api/call.api';
 import type { ActiveBookingStatus } from './PartnerCard';
 import PartnerCard from './PartnerCard';
 import PartnerDetailSheet from '../home/PartnerDetailSheet';
+import CallScreen from '@/components/call/CallScreen';
 import { colors, spacing, radii, typography } from '../home/theme';
 
 // ─── Sort options ───────────────────────────────────────────────────────────
@@ -207,6 +210,39 @@ export default function CategoryPartnersScreen() {
       });
     }, 60_000);
     return () => clearInterval(id);
+  }, []);
+
+  // ── Call state ─────────────────────────────────────────────────────────────
+  const [callPartner, setCallPartner] = useState<NearbyPartner | null>(null);
+  const [callId, setCallId] = useState('');
+  const [livekitUrl, setLivekitUrl] = useState('');
+  const [livekitToken, setLivekitToken] = useState('');
+  const [callScreenVisible, setCallScreenVisible] = useState(false);
+
+  const handleCallInitiate = useCallback(async (partner: NearbyPartner) => {
+    try {
+      const res = await initiateCallToPartner(partner._id);
+      if (!res.success || !res.call || !res.livekit) {
+        Alert.alert('Call Failed', res.message ?? 'Could not reach partner. Try again later.');
+        return;
+      }
+      setCallPartner(partner);
+      setCallId(res.call.id);
+      setLivekitUrl(res.livekit.url);
+      setLivekitToken(res.livekit.token);
+      setCallScreenVisible(true);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? 'Could not initiate call. Try again.';
+      Alert.alert('Call Failed', msg);
+    }
+  }, []);
+
+  const handleEndCall = useCallback(() => {
+    setCallScreenVisible(false);
+    setCallPartner(null);
+    setCallId('');
+    setLivekitUrl('');
+    setLivekitToken('');
   }, []);
 
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -504,7 +540,20 @@ export default function CategoryPartnersScreen() {
             return next;
           });
         }}
+        onCallInitiate={handleCallInitiate}
       />
+
+      {/* ── Call screen (LiveKit) ── */}
+      {callPartner && (
+        <CallScreen
+          visible={callScreenVisible}
+          partner={callPartner}
+          callId={callId}
+          livekitUrl={livekitUrl}
+          livekitToken={livekitToken}
+          onEndCall={handleEndCall}
+        />
+      )}
 
 
     </SafeAreaView>

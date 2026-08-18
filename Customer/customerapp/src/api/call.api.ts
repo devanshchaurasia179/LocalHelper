@@ -15,21 +15,13 @@ export interface CallResponse {
 }
 
 /**
- * Customer initiates a call to a partner
+ * Customer initiates a call to a partner.
+ * Auth is handled via cookies (withCredentials: true on the api instance).
  */
-export const initiateCall = async (
-  partnerId: string,
-  token: string
+export const initiateCallToPartner = async (
+  partnerId: string
 ): Promise<CallResponse> => {
-  const response = await api.post<CallResponse>(
-    '/calls',
-    { partnerId },
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    }
-  );
+  const response = await api.post<CallResponse>('/calls', { partnerId });
   return response.data;
 };
 
@@ -37,18 +29,9 @@ export const initiateCall = async (
  * Block a partner from calling
  */
 export const blockPartner = async (
-  partnerId: string,
-  token: string
+  partnerId: string
 ): Promise<{ success: boolean; message: string }> => {
-  const response = await api.post(
-    `/calls/block/partner/${partnerId}`,
-    {},
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    }
-  );
+  const response = await api.post(`/calls/block/partner/${partnerId}`, {});
   return response.data;
 };
 
@@ -56,16 +39,8 @@ export const blockPartner = async (
  * Unblock a partner
  */
 export const unblockPartner = async (
-  partnerId: string,
-  token: string
+  partnerId: string
 ): Promise<{ success: boolean; message: string }> => {
-  const response = await api.delete(
-    `/calls/block/partner/${partnerId}`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    }
-  );
+  const response = await api.delete(`/calls/block/partner/${partnerId}`);
   return response.data;
 };

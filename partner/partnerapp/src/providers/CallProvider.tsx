@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import useCallManager from '@/hooks/useCallManager';
 import IncomingCallModal from '@/components/call/IncomingCallModal';
 import CallScreen from '@/components/call/CallScreen';
 import Toast from 'react-native-toast-message';
+import { connectChatSocket } from '@/services/chat.socket';
 
 interface CallProviderProps {
   children: React.ReactNode;
@@ -13,6 +14,11 @@ interface CallProviderProps {
  * It shows incoming call modals and active call screens on top of any screen.
  */
 export function CallProvider({ children }: CallProviderProps) {
+  // Ensure socket is connected as early as possible for receiving calls
+  useEffect(() => {
+    connectChatSocket().catch(() => {});
+  }, []);
+
   const {
     incomingCall,
     activeCall,

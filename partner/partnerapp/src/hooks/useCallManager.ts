@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { connectChatSocket, getChatSocket } from '@/services/chat.socket';
 import { acceptCall, rejectCall, endCall as endCallApi } from '@/api/call.api';
 import Toast from 'react-native-toast-message';
@@ -23,13 +23,15 @@ export default function useCallManager() {
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
   const [processing, setProcessing] = useState(false);
+  const mountedRef = useRef(true);
 
   // Listen for incoming calls via socket
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
 
     const handleIncomingCall = (data: IncomingCall) => {
-      if (!mounted) return;
+      console.log('[CallManager] incoming_call event received:', data?.callId);
+      if (!mountedRef.current) return;
       setIncomingCall(data);
       Toast.show({
         type: 'info',
@@ -40,7 +42,8 @@ export default function useCallManager() {
     };
 
     const handleCallEnded = (data: { callId: string; duration: number; endedBy: string }) => {
-      if (!mounted) return;
+      console.log('[CallManager] call_ended event received:', data?.callId);
+      if (!mountedRef.current) return;
 
       setActiveCall((current) => {
         if (current?.callId === data.callId) {
@@ -62,30 +65,43 @@ export default function useCallManager() {
     };
 
     const attachListeners = (socket: any) => {
+      // Remove any stale listeners to prevent duplicates
+      socket.off('incoming_call', handleIncomingCall);
+      socket.off('call_ended', handleCallEnded);
+      // Attach fresh listeners
       socket.on('incoming_call', handleIncomingCall);
       socket.on('call_ended', handleCallEnded);
+      console.log('[CallManager] Listeners attached, socket connected:', socket.connected);
     };
 
     const setupListeners = async () => {
       try {
         const socket = await connectChatSocket();
-        if (!mounted) return;
+        if (!mountedRef.current) return;
         attachListeners(socket);
 
-        // Re-attach listeners on reconnect (socket.io preserves event handlers
-        // across reconnects on the same instance, but this is defensive)
+        // Re-attach on reconnect — after a reconnect, the socket gets a new
+        // server-side session but the client instance remains the same.
+        // Listeners persist across reconnections in socket.io-client v4+,
+        // but we log for debugging visibility.
         socket.on('connect', () => {
-          // Socket reconnected — listeners are already attached
+          console.log('[CallManager] Socket reconnected, id:', socket.id);
         });
-      } catch {
-        // Socket will retry automatically
+      } catch (err) {
+        console.warn('[CallManager] Failed to setup socket listeners, retrying in 3s:', err);
+        // Retry after a short delay — covers the race where _connecting fails
+        if (mountedRef.current) {
+          setTimeout(() => {
+            if (mountedRef.current) setupListeners();
+          }, 3000);
+        }
       }
     };
 
     setupListeners();
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
       const socket = getChatSocket();
       if (socket) {
         socket.off('incoming_call', handleIncomingCall);
@@ -145,12 +161,14 @@ export default function useCallManager() {
   const handleEndCall = useCallback(async () => {
     if (!activeCall) return;
 
-    try {
-      await endCallApi(activeCall.callId);
-    } catch {
-      // Clear anyway
-    }
+    const callId = activeCall.callId;
     setActiveCall(null);
+
+    try {
+      await endCallApi(callId);
+    } catch {
+      // Already cleared
+    }
   }, [activeCall]);
 
   return {
