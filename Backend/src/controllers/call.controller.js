@@ -204,6 +204,41 @@ export const createCallAsPartner = async (req, res) => {
       roomName,
     });
 
+    // Notify customer of incoming call via socket
+    try {
+      const io = getIO();
+      const chatNS = io.of("/chat");
+      const customerRoom = `customer:${customerId}`;
+      const socketsInRoom = await chatNS.in(customerRoom).fetchSockets();
+
+      if (socketsInRoom.length === 0) {
+        console.warn(`[Call] No sockets in room ${customerRoom} — customer is offline`);
+        call.status = "failed";
+        await call.save();
+        return res.status(422).json({
+          success: false,
+          message: "Customer is currently offline. Please try again later.",
+        });
+      }
+
+      chatNS.to(customerRoom).emit("incoming_call", {
+        callId: call._id.toString(),
+        roomName: call.roomName,
+        partnerId: partnerId.toString(),
+        partnerName: partner.fullName || "Partner",
+        timestamp: new Date(),
+      });
+      console.log(`[Call] incoming_call emitted to ${customerRoom} (${socketsInRoom.length} sockets), callId: ${call._id}`);
+    } catch (socketError) {
+      console.error("[Call] Failed to emit socket event:", socketError);
+      call.status = "failed";
+      await call.save();
+      return res.status(500).json({
+        success: false,
+        message: "Failed to notify customer. Please try again.",
+      });
+    }
+
     return res.status(201).json({
       success: true,
       call: {
@@ -502,5 +537,70 @@ export const endCall = async (req, res) => {
   } catch (error) {
     console.error("End call error:", error);
     return res.status(500).json({ success: false, message: "Failed to end call" });
+  }
+};
+
+
+// ─── Call History ─────────────────────────────────────────────────────────────
+
+export const getCallHistory = async (req, res) => {
+  try {
+    const customerId = req.customerId;
+    const { page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const calls = await Call.find({ customer: customerId })
+      .populate("partner", "fullName profilePhoto phone")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
+
+    const total = await Call.countDocuments({ customer: customerId });
+
+    return res.status(200).json({
+      success: true,
+      calls,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Get call history error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch call history" });
+  }
+};
+
+export const getPartnerCallHistory = async (req, res) => {
+  try {
+    const partnerId = req.partnerId;
+    const { page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const calls = await Call.find({ partner: partnerId })
+      .populate("customer", "name profilePhoto phone")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
+
+    const total = await Call.countDocuments({ partner: partnerId });
+
+    return res.status(200).json({
+      success: true,
+      calls,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Get partner call history error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch call history" });
   }
 };

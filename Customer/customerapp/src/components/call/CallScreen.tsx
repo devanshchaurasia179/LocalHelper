@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AudioSession } from '@livekit/react-native';
-import { Room, RoomEvent } from 'livekit-client';
+import { Room, RoomEvent, Track } from 'livekit-client';
 import { connectChatSocket, getChatSocket } from '@/services/chat.socket';
 import type { NearbyPartner } from '@/api/nearby.api';
 import { colors, spacing } from '@/app/(tabs)/home/theme';
@@ -186,8 +186,28 @@ export default function CallScreen({
   // Start audio session when visible
   useEffect(() => {
     if (visible && !hasStartedAudio.current) {
-      AudioSession.startAudioSession().catch(() => {});
       hasStartedAudio.current = true;
+      // Configure audio for voice communication and start session
+      const initAudio = async () => {
+        await AudioSession.configureAudio({
+          android: {
+            preferredOutputList: ['speaker', 'earpiece'],
+            audioTypeOptions: {
+              manageAudioFocus: true,
+              audioMode: 'inCommunication',
+              audioFocusMode: 'gain',
+              audioStreamType: 'voiceCall',
+              audioAttributesUsageType: 'voiceCommunication',
+              audioAttributesContentType: 'speech',
+            },
+          },
+          ios: {
+            defaultOutput: 'speaker',
+          },
+        });
+        await AudioSession.startAudioSession();
+      };
+      initAudio().catch(() => {});
     }
     return () => {
       if (hasStartedAudio.current) {
@@ -299,6 +319,34 @@ export default function CallScreen({
     lkRoom.on(RoomEvent.Disconnected, handleDisconnected);
     lkRoom.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
 
+    // When a remote audio track is subscribed, re-apply audio configuration
+    // to ensure Android routes audio to the correct output
+    const handleTrackSubscribed = (
+      track: any,
+      _publication: any,
+      _participant: any
+    ) => {
+      if (track.kind === Track.Kind.Audio) {
+        AudioSession.configureAudio({
+          android: {
+            preferredOutputList: ['speaker', 'earpiece'],
+            audioTypeOptions: {
+              manageAudioFocus: true,
+              audioMode: 'inCommunication',
+              audioFocusMode: 'gain',
+              audioStreamType: 'voiceCall',
+              audioAttributesUsageType: 'voiceCommunication',
+              audioAttributesContentType: 'speech',
+            },
+          },
+          ios: {
+            defaultOutput: 'speaker',
+          },
+        });
+      }
+    };
+    lkRoom.on(RoomEvent.TrackSubscribed, handleTrackSubscribed);
+
     lkRoom
       .connect(url, token, { autoSubscribe: true })
       .then(async () => {
@@ -309,13 +357,14 @@ export default function CallScreen({
         setRoom(lkRoom);
         setCallState('connected');
 
-        // Enable mic after signal connection is confirmed
+        // Enable mic only if the room is still connected
         setTimeout(async () => {
           if (!mounted) return;
+          if (lkRoom.state !== 'connected') return;
           try {
             await lkRoom.localParticipant.setMicrophoneEnabled(true);
           } catch {
-            // Non-fatal
+            // Non-fatal — room may have disconnected in the meantime
           }
         }, 500);
       })
@@ -330,13 +379,19 @@ export default function CallScreen({
       mounted = false;
       lkRoom.off(RoomEvent.Disconnected, handleDisconnected);
       lkRoom.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
-      // Disconnect if component unmounts or visible changes
-      if (roomRef.current === lkRoom) {
-        lkRoom.disconnect().catch(() => {});
-        roomRef.current = null;
-      }
+      lkRoom.off(RoomEvent.TrackSubscribed, handleTrackSubscribed);
+      // Room disconnection is handled by the dedicated cleanup effect and handleEndCall
     };
   }, [visible, callState]); // stable deps — hasStartedLiveKit prevents re-execution
+
+  // Cleanup: disconnect room when the call screen is hidden
+  useEffect(() => {
+    if (!visible && roomRef.current) {
+      roomRef.current.disconnect().catch(() => {});
+      roomRef.current = null;
+      setRoom(null);
+    }
+  }, [visible]);
 
   const handleEndCall = useCallback(() => {
     setCallState('ended');

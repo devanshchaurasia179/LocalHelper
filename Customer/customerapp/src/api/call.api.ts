@@ -14,6 +14,45 @@ export interface CallResponse {
   };
 }
 
+export interface CallRecord {
+  _id: string;
+  customer: string;
+  partner: {
+    _id: string;
+    fullName: string;
+    profilePhoto?: string;
+    phone?: string;
+  };
+  roomName: string;
+  status: "ringing" | "accepted" | "rejected" | "missed" | "ongoing" | "completed" | "cancelled" | "failed";
+  startedAt: string | null;
+  endedAt: string | null;
+  duration: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CallHistoryResponse {
+  success: boolean;
+  calls: CallRecord[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
+}
+
+/**
+ * Get customer's call history
+ */
+export const getCustomerCallHistory = async (page = 1, limit = 20): Promise<CallHistoryResponse> => {
+  const response = await api.get<CallHistoryResponse>('/calls/history/customer', {
+    params: { page, limit },
+  });
+  return response.data;
+};
+
 /**
  * Customer initiates a call to a partner.
  * Auth is handled via cookies (withCredentials: true on the api instance).

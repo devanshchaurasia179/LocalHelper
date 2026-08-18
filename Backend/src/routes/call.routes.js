@@ -9,6 +9,8 @@ import {
   acceptCall,
   rejectCall,
   endCall,
+  getCallHistory,
+  getPartnerCallHistory,
 } from "../controllers/call.controller.js";
 import protectCustomer from "../middleware/customer.auth.middleware.js";
 import protectPartner from "../middleware/partner.auth.middleware.js";
@@ -20,6 +22,10 @@ router.post("/", protectCustomer, createCall);
 
 // ── Partner initiates a call to a customer ────────────────────────────────────
 router.post("/partner", protectPartner, createCallAsPartner);
+
+// ── Call history ─────────────────────────────────────────────────────────────
+router.get("/history/customer", protectCustomer, getCallHistory);
+router.get("/history/partner", protectPartner, getPartnerCallHistory);
 
 // ── Block / Unblock (customer side) ──────────────────────────────────────────
 router.post("/block/partner/:partnerId", protectCustomer, blockPartner);

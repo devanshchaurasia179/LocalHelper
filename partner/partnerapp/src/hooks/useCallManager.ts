@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { connectChatSocket, getChatSocket } from '@/services/chat.socket';
-import { acceptCall, rejectCall, endCall as endCallApi } from '@/api/call.api';
+import { acceptCall, rejectCall, endCall as endCallApi, createCallAsPartner } from '@/api/call.api';
 import Toast from 'react-native-toast-message';
 
 interface IncomingCall {
@@ -171,6 +171,36 @@ export default function useCallManager() {
     }
   }, [activeCall]);
 
+  // Partner initiates a call to a customer
+  const initiateCall = useCallback(async (customerId: string, customerName: string) => {
+    if (activeCall || processing) return;
+
+    try {
+      setProcessing(true);
+      const response = await createCallAsPartner(customerId);
+
+      if (response.success && response.livekit && response.call) {
+        setActiveCall({
+          callId: response.call.id,
+          roomName: response.call.roomName,
+          customerName,
+          livekitUrl: response.livekit.url,
+          livekitToken: response.livekit.token,
+        });
+      } else {
+        throw new Error(response.message || 'Failed to initiate call');
+      }
+    } catch (error: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Call Failed',
+        text2: error?.response?.data?.message || 'Could not initiate call',
+      });
+    } finally {
+      setProcessing(false);
+    }
+  }, [activeCall, processing]);
+
   return {
     incomingCall,
     activeCall,
@@ -178,5 +208,6 @@ export default function useCallManager() {
     handleAcceptCall,
     handleRejectCall,
     handleEndCall,
+    initiateCall,
   };
 }

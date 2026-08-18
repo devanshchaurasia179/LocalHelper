@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AudioSession } from '@livekit/react-native';
-import { Room, RoomEvent } from 'livekit-client';
+import { Room, RoomEvent, Track } from 'livekit-client';
 
 interface CallScreenProps {
   visible: boolean;
@@ -140,8 +140,28 @@ export default function CallScreen({
 
   useEffect(() => {
     if (visible && !hasStartedAudio.current) {
-      AudioSession.startAudioSession().catch(() => {});
       hasStartedAudio.current = true;
+      // Configure audio for voice communication and start session
+      const initAudio = async () => {
+        await AudioSession.configureAudio({
+          android: {
+            preferredOutputList: ['speaker', 'earpiece'],
+            audioTypeOptions: {
+              manageAudioFocus: true,
+              audioMode: 'inCommunication',
+              audioFocusMode: 'gain',
+              audioStreamType: 'voiceCall',
+              audioAttributesUsageType: 'voiceCommunication',
+              audioAttributesContentType: 'speech',
+            },
+          },
+          ios: {
+            defaultOutput: 'speaker',
+          },
+        });
+        await AudioSession.startAudioSession();
+      };
+      initAudio().catch(() => {});
     }
     return () => {
       if (hasStartedAudio.current) {
@@ -169,45 +189,79 @@ export default function CallScreen({
     hasStartedLiveKit.current = true;
 
     let mounted = true;
-    const lkRoom = new Room({
-      adaptiveStream: true,
-      dynacast: true,
-    });
-    roomRef.current = lkRoom;
 
-    const handleDisconnected = () => {
-      if (mounted) {
-        setCallState('ended');
-        setTimeout(() => onEndCallRef.current(), 1500);
-      }
-    };
+    const startConnection = async () => {
+      // Small delay to ensure AudioSession is initialized before connecting
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      if (!mounted) return;
 
-    // When the customer joins the room → call is live, start timer
-    const handleParticipantConnected = () => {
-      if (mounted) {
-        setCallState('connected');
-      }
-    };
+      const lkRoom = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+      });
+      roomRef.current = lkRoom;
 
-    lkRoom.on(RoomEvent.Disconnected, handleDisconnected);
-    lkRoom.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
+      const handleDisconnected = () => {
+        if (mounted) {
+          setCallState('ended');
+          setTimeout(() => onEndCallRef.current(), 1500);
+        }
+      };
 
-    lkRoom
-      .connect(livekitUrl, livekitToken, { autoSubscribe: true })
-      .then(async () => {
+      // When the customer joins the room → call is live, start timer
+      const handleParticipantConnected = () => {
+        if (mounted) {
+          setCallState('connected');
+        }
+      };
+
+      lkRoom.on(RoomEvent.Disconnected, handleDisconnected);
+      lkRoom.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
+
+      // When a remote audio track is subscribed, re-apply audio configuration
+      // to ensure Android routes audio to the correct output
+      const handleTrackSubscribed = (
+        track: any,
+        _publication: any,
+        _participant: any
+      ) => {
+        if (track.kind === Track.Kind.Audio) {
+          AudioSession.configureAudio({
+            android: {
+              preferredOutputList: ['speaker', 'earpiece'],
+              audioTypeOptions: {
+                manageAudioFocus: true,
+                audioMode: 'inCommunication',
+                audioFocusMode: 'gain',
+                audioStreamType: 'voiceCall',
+                audioAttributesUsageType: 'voiceCommunication',
+                audioAttributesContentType: 'speech',
+              },
+            },
+            ios: {
+              defaultOutput: 'speaker',
+            },
+          });
+        }
+      };
+      lkRoom.on(RoomEvent.TrackSubscribed, handleTrackSubscribed);
+
+      try {
+        await lkRoom.connect(livekitUrl, livekitToken, { autoSubscribe: true });
         if (!mounted) {
           lkRoom.disconnect();
           return;
         }
         setRoom(lkRoom);
 
-        // Enable mic after signal connection stabilizes
+        // Enable mic only if the room is still connected
         setTimeout(async () => {
           if (!mounted) return;
+          if (lkRoom.state !== 'connected') return;
           try {
             await lkRoom.localParticipant.setMicrophoneEnabled(true);
           } catch {
-            // Non-fatal
+            // Non-fatal — room may have disconnected in the meantime
           }
         }, 500);
 
@@ -215,25 +269,34 @@ export default function CallScreen({
         if (lkRoom.remoteParticipants.size > 0) {
           setCallState('connected');
         }
-      })
-      .catch(() => {
+      } catch {
         if (mounted) {
           setCallState('ended');
           setTimeout(() => onEndCallRef.current(), 1500);
         }
-      });
+      }
+    };
+
+    startConnection();
 
     return () => {
       mounted = false;
-      lkRoom.off(RoomEvent.Disconnected, handleDisconnected);
-      lkRoom.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
-      // Disconnect if component unmounts or visible changes
-      if (roomRef.current === lkRoom) {
-        lkRoom.disconnect().catch(() => {});
-        roomRef.current = null;
+      if (roomRef.current) {
+        roomRef.current.off(RoomEvent.Disconnected);
+        roomRef.current.off(RoomEvent.ParticipantConnected);
+        roomRef.current.off(RoomEvent.TrackSubscribed);
       }
     };
   }, [visible, livekitUrl, livekitToken]); // stable deps only — runs once per call session
+
+  // Cleanup: disconnect room when the call screen is hidden
+  useEffect(() => {
+    if (!visible && roomRef.current) {
+      roomRef.current.disconnect().catch(() => {});
+      roomRef.current = null;
+      setRoom(null);
+    }
+  }, [visible]);
 
   const handleEndCall = useCallback(() => {
     setCallState('ended');

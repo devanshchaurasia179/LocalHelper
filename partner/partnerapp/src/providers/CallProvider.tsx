@@ -1,9 +1,23 @@
-import React, { useEffect } from 'react';
+import React, { createContext, useContext, useEffect } from 'react';
 import useCallManager from '@/hooks/useCallManager';
 import IncomingCallModal from '@/components/call/IncomingCallModal';
 import CallScreen from '@/components/call/CallScreen';
 import Toast from 'react-native-toast-message';
 import { connectChatSocket } from '@/services/chat.socket';
+
+interface CallContextValue {
+  initiateCall: (customerId: string, customerName: string) => Promise<void>;
+  processing: boolean;
+}
+
+const CallContext = createContext<CallContextValue>({
+  initiateCall: async () => {},
+  processing: false,
+});
+
+export function useCall() {
+  return useContext(CallContext);
+}
 
 interface CallProviderProps {
   children: React.ReactNode;
@@ -12,6 +26,7 @@ interface CallProviderProps {
 /**
  * CallProvider wraps the app and handles incoming calls globally.
  * It shows incoming call modals and active call screens on top of any screen.
+ * Also exposes initiateCall via context for outbound calls.
  */
 export function CallProvider({ children }: CallProviderProps) {
   // Ensure socket is connected as early as possible for receiving calls
@@ -26,10 +41,11 @@ export function CallProvider({ children }: CallProviderProps) {
     handleAcceptCall,
     handleRejectCall,
     handleEndCall,
+    initiateCall,
   } = useCallManager();
 
   return (
-    <>
+    <CallContext.Provider value={{ initiateCall, processing }}>
       {children}
 
       {/* Incoming Call Modal */}
@@ -55,6 +71,6 @@ export function CallProvider({ children }: CallProviderProps) {
 
       {/* Toast container */}
       <Toast />
-    </>
+    </CallContext.Provider>
   );
 }

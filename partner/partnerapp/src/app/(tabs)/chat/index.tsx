@@ -1,8 +1,8 @@
 /**
- * Partner Chat Tab — Conversation List Screen
+ * Partner Chat Tab — Messages & Call History
  *
- * Shows all active conversations the partner has with customers.
- * Taps navigate to the individual chat room.
+ * Segmented control to switch between conversation list and call history.
+ * Call history shows all past calls and allows initiating new calls to customers.
  */
 import React, { useState, useCallback, useEffect } from "react";
 import {
@@ -21,8 +21,13 @@ import { useRouter } from "expo-router";
 import { colors, fonts, spacing, radii } from "@/constants/theme";
 import BottomNav from "@/components/navigation/BottomNav";
 import { useConversations } from "@/hooks/useConversations";
+import { useCallHistory } from "@/hooks/useCallHistory";
+import { useCall } from "@/providers/CallProvider";
 import { connectChatSocket, getChatSocket } from "@/services/chat.socket";
 import type { Conversation } from "@/api/chat.api";
+import type { CallRecord } from "@/api/call.api";
+
+type TabType = "chats" | "calls";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -38,9 +43,74 @@ function formatTime(dateStr: string | null): string {
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
+function formatDuration(seconds: number): string {
+  if (seconds <= 0) return "0s";
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m === 0) return `${s}s`;
+  return `${m}m ${s}s`;
+}
+
 function getInitials(name?: string): string {
   if (!name) return "?";
   return name.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+}
+
+function getCallStatusInfo(status: CallRecord["status"]): { label: string; color: string; icon: string } {
+  switch (status) {
+    case "completed":
+      return { label: "Completed", color: colors.success, icon: "call-outline" };
+    case "missed":
+      return { label: "Missed", color: colors.error, icon: "call-outline" };
+    case "rejected":
+      return { label: "Declined", color: colors.error, icon: "close-circle-outline" };
+    case "cancelled":
+      return { label: "Cancelled", color: colors.textSecondary, icon: "close-outline" };
+    case "failed":
+      return { label: "Failed", color: colors.error, icon: "alert-circle-outline" };
+    case "ringing":
+      return { label: "Ringing", color: colors.primary, icon: "notifications-outline" };
+    case "accepted":
+    case "ongoing":
+      return { label: "Ongoing", color: colors.success, icon: "call-outline" };
+    default:
+      return { label: status, color: colors.textSecondary, icon: "call-outline" };
+  }
+}
+
+// ─── Tab Selector ─────────────────────────────────────────────────────────────
+
+function TabSelector({ activeTab, onTabChange }: { activeTab: TabType; onTabChange: (tab: TabType) => void }) {
+  return (
+    <View style={styles.tabContainer}>
+      <Pressable
+        style={[styles.tab, activeTab === "chats" && styles.tabActive]}
+        onPress={() => onTabChange("chats")}
+      >
+        <Ionicons
+          name="chatbubbles-outline"
+          size={18}
+          color={activeTab === "chats" ? colors.white : colors.textSecondary}
+        />
+        <Text style={[styles.tabText, activeTab === "chats" && styles.tabTextActive]}>
+          Chats
+        </Text>
+      </Pressable>
+      <Pressable
+        style={[styles.tab, activeTab === "calls" && styles.tabActive]}
+        onPress={() => onTabChange("calls")}
+      >
+        <Ionicons
+          name="call-outline"
+          size={18}
+          color={activeTab === "calls" ? colors.white : colors.textSecondary}
+        />
+        <Text style={[styles.tabText, activeTab === "calls" && styles.tabTextActive]}>
+          Calls
+        </Text>
+      </Pressable>
+    </View>
+  );
 }
 
 // ─── Conversation Row ─────────────────────────────────────────────────────────
@@ -98,11 +168,70 @@ function ConversationRow({ conv, onPress }: { conv: Conversation; onPress: () =>
   );
 }
 
+// ─── Call History Row ─────────────────────────────────────────────────────────
+
+function CallRow({ call, onCall }: { call: CallRecord; onCall: (call: CallRecord) => void }) {
+  const customer = call.customer;
+  const name = customer?.name ?? "Customer";
+  const statusInfo = getCallStatusInfo(call.status);
+
+  return (
+    <View style={styles.row}>
+      {/* Avatar */}
+      <View style={styles.avatarWrap}>
+        {customer?.profilePhoto ? (
+          <Image source={{ uri: customer.profilePhoto }} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, styles.avatarFallback]}>
+            <Text style={styles.avatarInitials}>{getInitials(name)}</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Content */}
+      <View style={styles.rowContent}>
+        <View style={styles.rowTop}>
+          <Text style={styles.rowName} numberOfLines={1}>{name}</Text>
+          <Text style={styles.rowTime}>{formatTime(call.createdAt)}</Text>
+        </View>
+        <View style={styles.rowBottom}>
+          <View style={styles.callStatusRow}>
+            <Ionicons
+              name={statusInfo.icon as any}
+              size={14}
+              color={statusInfo.color}
+            />
+            <Text style={[styles.callStatusText, { color: statusInfo.color }]}>
+              {statusInfo.label}
+            </Text>
+            {call.duration > 0 && (
+              <Text style={styles.callDuration}>• {formatDuration(call.duration)}</Text>
+            )}
+          </View>
+        </View>
+      </View>
+
+      {/* Call button */}
+      <Pressable
+        style={styles.callBtn}
+        onPress={() => onCall(call)}
+        hitSlop={8}
+        accessibilityLabel={`Call ${name}`}
+      >
+        <Ionicons name="call" size={20} color={colors.primary} />
+      </Pressable>
+    </View>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ChatScreen() {
   const router = useRouter();
-  const { conversations, loading, refreshing, error, refresh } = useConversations();
+  const [activeTab, setActiveTab] = useState<TabType>("chats");
+  const { conversations, loading: chatsLoading, refreshing: chatsRefreshing, error: chatsError, refresh: refreshChats } = useConversations();
+  const { calls, loading: callsLoading, refreshing: callsRefreshing, error: callsError, loadingMore, refresh: refreshCalls, loadMore } = useCallHistory();
+  const { initiateCall, processing } = useCall();
   const [socketStatus, setSocketStatus] = useState<"connecting" | "connected" | "error">("connecting");
 
   // Connect socket on mount and listen for new messages to refresh the list
@@ -112,12 +241,10 @@ export default function ChatScreen() {
     connectChatSocket()
       .then((socket) => {
         if (!mounted) return;
-        // Sync initial state — socket may or may not be connected yet
         setSocketStatus(socket.connected ? "connected" : "connecting");
 
-        // When a new message arrives in any conversation, refresh the list
         socket.on("new_message", () => {
-          refresh();
+          refreshChats();
         });
 
         socket.on("disconnect", () => {
@@ -141,7 +268,7 @@ export default function ChatScreen() {
       const socket = getChatSocket();
       if (socket) socket.off("new_message");
     };
-  }, [refresh]);
+  }, [refreshChats]);
 
   const handleConvPress = useCallback(
     (conv: Conversation) => {
@@ -155,6 +282,15 @@ export default function ChatScreen() {
       });
     },
     [router]
+  );
+
+  const handleCallCustomer = useCallback(
+    (call: CallRecord) => {
+      if (processing) return;
+      const customerName = call.customer?.name ?? "Customer";
+      initiateCall(call.customer._id, customerName);
+    },
+    [initiateCall, processing]
   );
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -176,47 +312,105 @@ export default function ChatScreen() {
         </View>
       </View>
 
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      ) : error ? (
-        <View style={styles.center}>
-          <Ionicons name="alert-circle-outline" size={40} color={colors.error} />
-          <Text style={styles.errorText}>{error}</Text>
-          <Pressable style={styles.retryBtn} onPress={refresh}>
-            <Text style={styles.retryText}>Retry</Text>
-          </Pressable>
-        </View>
-      ) : (
-        <FlatList
-          data={conversations}
-          keyExtractor={(item) => item._id}
-          renderItem={({ item }) => (
-            <ConversationRow conv={item} onPress={() => handleConvPress(item)} />
-          )}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} />
-          }
-          ItemSeparatorComponent={() => <View style={styles.divider} />}
-          ListEmptyComponent={
-            <View style={styles.emptyWrap}>
-              <Ionicons name="chatbubble-ellipses-outline" size={52} color={colors.navInactive} />
-              <Text style={styles.emptyTitle}>No conversations yet</Text>
-              <Text style={styles.emptySub}>
-                When a customer contacts you, the conversation will appear here.
-              </Text>
+      {/* Tab Selector */}
+      <TabSelector activeTab={activeTab} onTabChange={setActiveTab} />
+
+      {/* Chat List */}
+      {activeTab === "chats" && (
+        <>
+          {chatsLoading ? (
+            <View style={styles.center}>
+              <ActivityIndicator size="large" color={colors.primary} />
             </View>
-          }
-          contentContainerStyle={conversations.length === 0 ? styles.emptyContainer : undefined}
-          showsVerticalScrollIndicator={false}
-        />
+          ) : chatsError ? (
+            <View style={styles.center}>
+              <Ionicons name="alert-circle-outline" size={40} color={colors.error} />
+              <Text style={styles.errorText}>{chatsError}</Text>
+              <Pressable style={styles.retryBtn} onPress={refreshChats}>
+                <Text style={styles.retryText}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <FlatList
+              data={conversations}
+              keyExtractor={(item) => item._id}
+              renderItem={({ item }) => (
+                <ConversationRow conv={item} onPress={() => handleConvPress(item)} />
+              )}
+              refreshControl={
+                <RefreshControl refreshing={chatsRefreshing} onRefresh={refreshChats} tintColor={colors.primary} />
+              }
+              ItemSeparatorComponent={() => <View style={styles.divider} />}
+              ListEmptyComponent={
+                <View style={styles.emptyWrap}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={52} color={colors.navInactive} />
+                  <Text style={styles.emptyTitle}>No conversations yet</Text>
+                  <Text style={styles.emptySub}>
+                    When a customer contacts you, the conversation will appear here.
+                  </Text>
+                </View>
+              }
+              contentContainerStyle={conversations.length === 0 ? styles.emptyContainer : undefined}
+              showsVerticalScrollIndicator={false}
+            />
+          )}
+        </>
+      )}
+
+      {/* Call History */}
+      {activeTab === "calls" && (
+        <>
+          {callsLoading ? (
+            <View style={styles.center}>
+              <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+          ) : callsError ? (
+            <View style={styles.center}>
+              <Ionicons name="alert-circle-outline" size={40} color={colors.error} />
+              <Text style={styles.errorText}>{callsError}</Text>
+              <Pressable style={styles.retryBtn} onPress={refreshCalls}>
+                <Text style={styles.retryText}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <FlatList
+              data={calls}
+              keyExtractor={(item) => item._id}
+              renderItem={({ item }) => (
+                <CallRow call={item} onCall={handleCallCustomer} />
+              )}
+              refreshControl={
+                <RefreshControl refreshing={callsRefreshing} onRefresh={refreshCalls} tintColor={colors.primary} />
+              }
+              onEndReached={loadMore}
+              onEndReachedThreshold={0.5}
+              ItemSeparatorComponent={() => <View style={styles.divider} />}
+              ListFooterComponent={
+                loadingMore ? (
+                  <ActivityIndicator size="small" color={colors.primary} style={{ paddingVertical: spacing.md }} />
+                ) : null
+              }
+              ListEmptyComponent={
+                <View style={styles.emptyWrap}>
+                  <Ionicons name="call-outline" size={52} color={colors.navInactive} />
+                  <Text style={styles.emptyTitle}>No calls yet</Text>
+                  <Text style={styles.emptySub}>
+                    Your call history with customers will appear here.
+                  </Text>
+                </View>
+              }
+              contentContainerStyle={calls.length === 0 ? styles.emptyContainer : undefined}
+              showsVerticalScrollIndicator={false}
+            />
+          )}
+        </>
       )}
 
       <BottomNav />
     </SafeAreaView>
   );
 }
+
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
@@ -256,6 +450,37 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
 
+  // Tab selector
+  tabContainer: {
+    flexDirection: "row",
+    marginHorizontal: spacing.lg,
+    marginVertical: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radii.pill,
+    padding: 4,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    borderRadius: radii.pill,
+    gap: 6,
+  },
+  tabActive: {
+    backgroundColor: colors.primary,
+  },
+  tabText: {
+    fontFamily: fonts.jakartaSemiBold,
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  tabTextActive: {
+    color: colors.white,
+  },
+
+  // Row styles
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -301,6 +526,31 @@ const styles = StyleSheet.create({
   rowLastMessageBold:  { fontFamily: fonts.jostMedium, color: colors.textPrimary },
   badgeWrap:           { backgroundColor: colors.primary, borderRadius: radii.pill, minWidth: 20, height: 20, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
   badge:               { fontFamily: fonts.jakartaBold, fontSize: 11, color: colors.white },
+
+  // Call-specific styles
+  callStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  callStatusText: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 13,
+  },
+  callDuration: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginLeft: 2,
+  },
+  callBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.successLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
   divider: { height: 1, backgroundColor: "#F0F0F0", marginLeft: 52 + spacing.lg + spacing.md },
 
