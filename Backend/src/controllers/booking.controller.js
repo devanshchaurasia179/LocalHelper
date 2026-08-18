@@ -60,6 +60,22 @@ export const createBooking = async (req, res) => {
       });
     }
 
+    // ── Check for existing active booking ─────────────────────────────────────
+    // A customer cannot create a new booking if they already have one that is
+    // pending, accepted, or in_progress.
+    const existingActiveBooking = await Booking.findOne({
+      customer: req.customerId,
+      status: { $in: ["pending", "accepted", "in_progress"] },
+    }).select("_id status").lean();
+
+    if (existingActiveBooking) {
+      return res.status(400).json({
+        code: "ACTIVE_BOOKING_EXISTS",
+        message: `You already have a ${existingActiveBooking.status} booking. Please complete or cancel it before creating a new one.`,
+        existingBookingId: existingActiveBooking._id,
+      });
+    }
+
     // Load customer for address snapshot
     const customer = await Customer.findById(req.customerId).select(
       "addresses currentLocation walletBalance"

@@ -153,16 +153,23 @@ function AnimatedRow({ index, children }: { index: number; children: React.React
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function CategoryPartnersScreen() {
-  const { categoryId, categoryName } = useLocalSearchParams<{
+  const { categoryId, categoryName, subcategoryId, subcategoryName } = useLocalSearchParams<{
     categoryId: string;
     categoryName: string;
+    subcategoryId?: string;
+    subcategoryName?: string;
   }>();
 
   // Seed from cache immediately — no GPS call, no shimmer on first open
   const cachedPartners = useMemo(
-    () => nearbyCache.getPartnersByCategory(categoryId ?? ''),
+    () => {
+      if (subcategoryId) {
+        return nearbyCache.getPartnersBySubcategory(categoryId ?? '', subcategoryId);
+      }
+      return nearbyCache.getPartnersByCategory(categoryId ?? '');
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [categoryId]
+    [categoryId, subcategoryId]
   );
 
   const [partners, setPartners] = useState<NearbyPartner[]>(cachedPartners);
@@ -227,9 +234,18 @@ export default function CategoryPartnersScreen() {
       ]);
 
       nearbyCache.setPartners(res.data.services);
-      setPartners(res.data.services.filter((p) =>
+      let filtered = res.data.services.filter((p) =>
         p.categories.some((c) => c._id === categoryId)
-      ));
+      );
+      // If a subcategory filter is active, narrow down further
+      if (subcategoryId) {
+        filtered = filtered.filter((p) =>
+          p.subcategories?.some(
+            (s) => s.categoryId === categoryId && s.subcategoryId === subcategoryId
+          )
+        );
+      }
+      setPartners(filtered);
       setActiveBookings(bookingsMap as Map<string, ActiveBookingStatus>);
     } catch (err: any) {
       if (!silent) {
@@ -238,7 +254,7 @@ export default function CategoryPartnersScreen() {
         );
       }
     }
-  }, [categoryId]);
+  }, [categoryId, subcategoryId]);
 
   // Intercept Android hardware back button — always go to home, not the
   // previous history entry (which could be an intermediate screen).
@@ -265,9 +281,13 @@ export default function CategoryPartnersScreen() {
         load().finally(() => setLoading(false));
       } else {
         // Cache is fresh — show data instantly, no spinner needed
-        setPartners(nearbyCache.getPartnersByCategory(categoryId ?? ''));
+        if (subcategoryId) {
+          setPartners(nearbyCache.getPartnersBySubcategory(categoryId ?? '', subcategoryId));
+        } else {
+          setPartners(nearbyCache.getPartnersByCategory(categoryId ?? ''));
+        }
       }
-    }, [load, categoryId]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [load, categoryId, subcategoryId]) // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const refresh = useCallback(async () => {
@@ -335,7 +355,7 @@ export default function CategoryPartnersScreen() {
     return list;
   }, [partners, query, sortKey]);
 
-  const title = categoryName ?? 'Nearby Partners';
+  const title = subcategoryName ?? categoryName ?? 'Nearby Partners';
 
   const headerElevation = scrollY.interpolate({
     inputRange: [0, 24],

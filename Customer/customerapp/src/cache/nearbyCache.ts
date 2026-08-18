@@ -42,6 +42,33 @@ export const nearbyCache = {
     );
   },
 
+  /** Filter cached partners by a subcategory ID within a category */
+  getPartnersBySubcategory(categoryId: string, subcategoryId: string): NearbyPartner[] {
+    return _partners.filter((p) =>
+      p.categories.some((c) => c._id === categoryId) &&
+      p.subcategories?.some(
+        (s) => s.categoryId === categoryId && s.subcategoryId === subcategoryId
+      )
+    );
+  },
+
+  /**
+   * Count available partners per subcategory for a given category.
+   * Returns a Map: subcategoryId → partner count.
+   */
+  countPartnersBySubcategory(categoryId: string): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const p of _partners) {
+      if (!p.categories.some((c) => c._id === categoryId)) continue;
+      for (const sub of p.subcategories ?? []) {
+        if (sub.categoryId === categoryId) {
+          counts.set(sub.subcategoryId, (counts.get(sub.subcategoryId) ?? 0) + 1);
+        }
+      }
+    }
+    return counts;
+  },
+
   /**
    * Store the coordinates of the selected address.
    * All screens read this instead of requesting live GPS.

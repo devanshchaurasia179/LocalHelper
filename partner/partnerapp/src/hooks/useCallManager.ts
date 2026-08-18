@@ -61,12 +61,22 @@ export default function useCallManager() {
       });
     };
 
+    const attachListeners = (socket: any) => {
+      socket.on('incoming_call', handleIncomingCall);
+      socket.on('call_ended', handleCallEnded);
+    };
+
     const setupListeners = async () => {
       try {
         const socket = await connectChatSocket();
         if (!mounted) return;
-        socket.on('incoming_call', handleIncomingCall);
-        socket.on('call_ended', handleCallEnded);
+        attachListeners(socket);
+
+        // Re-attach listeners on reconnect (socket.io preserves event handlers
+        // across reconnects on the same instance, but this is defensive)
+        socket.on('connect', () => {
+          // Socket reconnected — listeners are already attached
+        });
       } catch {
         // Socket will retry automatically
       }

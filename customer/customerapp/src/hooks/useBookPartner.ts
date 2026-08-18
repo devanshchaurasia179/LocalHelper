@@ -50,9 +50,15 @@ export function useBookPartner(): UseBookPartnerResult {
         setSuccess(true);
         return true;
       } catch (err: any) {
+        const code = err?.response?.data?.code;
         const msg =
           err?.response?.data?.message ?? "Booking failed. Please try again.";
-        setError(msg);
+
+        if (code === "ACTIVE_BOOKING_EXISTS") {
+          setError("You already have an active booking. Complete or cancel it first.");
+        } else {
+          setError(msg);
+        }
         return false;
       } finally {
         setBooking(false);

@@ -14,7 +14,7 @@ import Header from './Header';
 import SearchBar from './SearchBar';
 import PromoBanner, { PromoSlide } from './PromoBanner';
 import BottomNav from './BottomNav';
-import CategoryGrid, { CategoryGridSkeleton } from './CategoryGrid';
+import NearbyServicesSection, { NearbyServicesSkeleton } from './NearbyServicesSection';
 
 import { useNearbyServices } from '@/hooks/useNearbyServices';
 import type { NearbyCategory } from '@/api/nearby.api';
@@ -105,6 +105,17 @@ export default function Dashboard() {
     }
     return result;
   })();
+
+  // Count available partners per subcategory across all categories
+  const subcategoryPartnerCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const partner of services) {
+      for (const sub of partner.subcategories ?? []) {
+        counts.set(sub.subcategoryId, (counts.get(sub.subcategoryId) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [services]);
 
   const handleNavigate = useCallback((route: NavRoute) => {
     if (route === 'profile')  router.replace(ROUTES.APP.PROFILE  as any);
@@ -198,7 +209,7 @@ export default function Dashboard() {
           <Text style={styles.sectionSubtitle}>Choose a service to find available partners</Text>
 
           {loading ? (
-            <CategoryGridSkeleton />
+            <NearbyServicesSkeleton />
           ) : error ? (
             <View style={styles.messageContainer}>
               <Text style={styles.errorText}>{error}</Text>
@@ -212,9 +223,21 @@ export default function Dashboard() {
               </Text>
             </View>
           ) : (
-            <CategoryGrid
+            <NearbyServicesSection
               categories={filteredCategories}
+              partnerCounts={subcategoryPartnerCounts}
               onCategoryPress={handleCategoryPress}
+              onSubcategoryPress={(category, subId, subName) => {
+                router.push({
+                  pathname: '/(tabs)/nearby/[categoryId]',
+                  params: {
+                    categoryId: category._id,
+                    categoryName: category.name,
+                    subcategoryId: subId,
+                    subcategoryName: subName,
+                  },
+                } as any);
+              }}
             />
           )}
         </View>
