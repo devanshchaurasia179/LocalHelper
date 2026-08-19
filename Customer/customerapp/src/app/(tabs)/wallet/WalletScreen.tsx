@@ -540,10 +540,11 @@ export default function WalletScreen() {
   }, [refreshSummary, refreshTx]);
 
   const handleNavigate = useCallback((route: NavRoute) => {
-    if (route === "home")     router.replace(ROUTES.APP.HOME     as any);
-    if (route === "bookings") router.replace(ROUTES.APP.BOOKINGS as any);
-    if (route === "wallet")   router.replace(ROUTES.APP.WALLET   as any);
-    if (route === "profile")  router.replace(ROUTES.APP.PROFILE  as any);
+    if (route === "wallet") return; // Already here
+    if (route === "home")     router.navigate(ROUTES.APP.HOME     as any);
+    if (route === "bookings") router.navigate(ROUTES.APP.BOOKINGS as any);
+    if (route === "chat")     router.navigate(ROUTES.APP.CHAT     as any);
+    if (route === "profile")  router.navigate(ROUTES.APP.PROFILE  as any);
   }, []);
 
   const balance      = summary?.walletBalance  ?? 0;

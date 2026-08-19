@@ -306,11 +306,12 @@ export default function ChatScreen() {
   }, [refreshCalls]);
 
   const handleNavigate = useCallback((route: NavRoute) => {
-    if (route === "profile")  router.replace(ROUTES.APP.PROFILE  as any);
-    if (route === "bookings") router.replace(ROUTES.APP.BOOKINGS as any);
-    if (route === "home")     router.replace(ROUTES.APP.HOME     as any);
-    if (route === "wallet")   router.replace(ROUTES.APP.WALLET   as any);
-  }, [router]);
+    if (route === "chat") return; // Already here
+    if (route === "profile")  router.navigate(ROUTES.APP.PROFILE  as any);
+    if (route === "bookings") router.navigate(ROUTES.APP.BOOKINGS as any);
+    if (route === "home")     router.navigate(ROUTES.APP.HOME     as any);
+    if (route === "wallet")   router.navigate(ROUTES.APP.WALLET   as any);
+  }, []);
 
   return (
     <SafeAreaView style={styles.safe}>

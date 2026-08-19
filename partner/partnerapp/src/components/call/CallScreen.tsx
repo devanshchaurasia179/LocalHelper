@@ -81,6 +81,11 @@ function CallControls({
         </View>
         <Text style={styles.customerName}>{customerName}</Text>
         <Text style={styles.callStatus}>{formatDuration(callDuration)}</Text>
+        {/* Recording indicator */}
+        <View style={styles.recordingBadge}>
+          <Text style={styles.recordingDot}>🔴</Text>
+          <Text style={styles.recordingText}>Recording</Text>
+        </View>
       </View>
 
       {/* Call Controls */}
@@ -417,5 +422,23 @@ const styles = StyleSheet.create({
     height: 70,
     borderRadius: 35,
     backgroundColor: '#EF4444',
+  },
+  recordingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  recordingDot: {
+    fontSize: 10,
+  },
+  recordingText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#EF4444',
   },
 });

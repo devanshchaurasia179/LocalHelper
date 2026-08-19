@@ -5,6 +5,7 @@ import Call from "../models/call/call.js";
 import Customer from "../models/customer/Customer.js";
 import Partner from "../models/partner/Partner.js";
 import { getIO } from "../socket/index.js";
+import { startCallRecording, stopCallRecording } from "../services/callRecording.service.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -371,6 +372,11 @@ export const acceptCall = async (req, res) => {
       roomName: call.roomName,
     });
 
+    // Start recording (non-blocking — don't let failure affect the call)
+    startCallRecording(call).catch((err) =>
+      console.error("[Call] Recording start error (non-blocking):", err.message)
+    );
+
     // Notify customer via socket that call was accepted — include LiveKit details
     // so the customer can now connect to the room
     try {
@@ -469,6 +475,136 @@ export const rejectCall = async (req, res) => {
   }
 };
 
+// ─── Customer accepts incoming call (from partner) ────────────────────────────
+
+export const acceptCallAsCustomer = async (req, res) => {
+  try {
+    const customerId = req.customerId;
+    const { callId } = req.params;
+
+    const call = await Call.findById(callId);
+
+    if (!call) {
+      return res.status(404).json({ success: false, message: "Call not found" });
+    }
+
+    if (!call.customer.equals(customerId)) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
+
+    if (call.status !== "ringing") {
+      return res.status(400).json({
+        success: false,
+        message: `Call cannot be accepted (current status: ${call.status})`,
+      });
+    }
+
+    // Update call status
+    call.status = "accepted";
+    call.startedAt = new Date();
+    await call.save();
+
+    const customer = await Customer.findById(customerId).select("name");
+
+    // Generate LiveKit token for customer
+    const jwt = await buildLiveKitToken({
+      identity: `customer_${customerId}`,
+      displayName: customer?.name || "Customer",
+      roomName: call.roomName,
+    });
+
+    // Start recording (non-blocking — don't let failure affect the call)
+    startCallRecording(call).catch((err) =>
+      console.error("[Call] Recording start error (non-blocking):", err.message)
+    );
+
+    // Notify partner via socket that call was accepted
+    try {
+      const io = getIO();
+      const chatNS = io.of("/chat");
+      chatNS.to(`partner:${call.partner}`).emit("call_accepted", {
+        callId: call._id.toString(),
+        roomName: call.roomName,
+        customerId: customerId.toString(),
+        customerName: customer?.name || "Customer",
+        timestamp: new Date(),
+      });
+    } catch (socketError) {
+      console.error("[Call] Failed to emit socket event:", socketError);
+    }
+
+    return res.status(200).json({
+      success: true,
+      call: {
+        id: call._id,
+        roomName: call.roomName,
+        status: call.status,
+      },
+      livekit: {
+        url: process.env.LIVEKIT_URL,
+        token: jwt,
+      },
+    });
+  } catch (error) {
+    console.error("Accept call as customer error:", error);
+    return res.status(500).json({ success: false, message: "Failed to accept call" });
+  }
+};
+
+// ─── Customer rejects incoming call (from partner) ────────────────────────────
+
+export const rejectCallAsCustomer = async (req, res) => {
+  try {
+    const customerId = req.customerId;
+    const { callId } = req.params;
+
+    const call = await Call.findById(callId);
+
+    if (!call) {
+      return res.status(404).json({ success: false, message: "Call not found" });
+    }
+
+    if (!call.customer.equals(customerId)) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
+
+    if (call.status !== "ringing") {
+      return res.status(400).json({
+        success: false,
+        message: `Call cannot be rejected (current status: ${call.status})`,
+      });
+    }
+
+    call.status = "rejected";
+    call.endedAt = new Date();
+    await call.save();
+
+    // Notify partner via socket
+    try {
+      const io = getIO();
+      const chatNS = io.of("/chat");
+      chatNS.to(`partner:${call.partner}`).emit("call_rejected", {
+        callId: call._id.toString(),
+        timestamp: new Date(),
+      });
+    } catch (socketError) {
+      console.error("[Call] Failed to emit socket event:", socketError);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Call rejected",
+      call: {
+        id: call._id,
+        status: call.status,
+      },
+    });
+  } catch (error) {
+    console.error("Reject call as customer error:", error);
+    return res.status(500).json({ success: false, message: "Failed to reject call" });
+  }
+};
+
 export const endCall = async (req, res) => {
   try {
     const { callId } = req.params;
@@ -505,6 +641,11 @@ export const endCall = async (req, res) => {
     call.endedAt = endTime;
     call.duration = duration;
     await call.save();
+
+    // Stop recording (non-blocking — don't let failure affect call termination)
+    stopCallRecording(call).catch((err) =>
+      console.error("[Call] Recording stop error (non-blocking):", err.message)
+    );
 
     // Notify the other party
     try {

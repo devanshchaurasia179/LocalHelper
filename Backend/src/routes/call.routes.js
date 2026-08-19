@@ -7,7 +7,9 @@ import {
   blockCustomer,
   unblockCustomer,
   acceptCall,
+  acceptCallAsCustomer,
   rejectCall,
+  rejectCallAsCustomer,
   endCall,
   getCallHistory,
   getPartnerCallHistory,
@@ -38,6 +40,10 @@ router.delete("/block/customer/:customerId", protectPartner, unblockCustomer);
 // ── Accept / Reject / End Call ───────────────────────────────────────────────
 router.post("/:callId/accept", protectPartner, acceptCall);
 router.post("/:callId/reject", protectPartner, rejectCall);
+
+// ── Customer accepts/rejects incoming call (from partner) ───────────────────
+router.post("/:callId/accept-customer", protectCustomer, acceptCallAsCustomer);
+router.post("/:callId/reject-customer", protectCustomer, rejectCallAsCustomer);
 
 // Allow both customer and partner to end a call
 const protectEither = (req, res, next) => {

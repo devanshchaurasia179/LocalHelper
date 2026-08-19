@@ -53,21 +53,48 @@ const callSchema = new mongoose.Schema(
       default: 0,
     },
 
-    // Will be used in the recording phase
-    recordingStatus: {
-      type: String,
-      enum: [
-        "not_started",
-        "recording",
-        "completed",
-        "failed",
-      ],
-      default: "not_started",
-    },
-
-    recordingKey: {
-      type: String,
-      default: null,
+    // ── Recording (LiveKit Egress → Cloudflare R2) ───────────────────────────
+    recording: {
+      egressId: {
+        type: String,
+        default: null,
+      },
+      status: {
+        type: String,
+        enum: [
+          "not_started",
+          "starting",
+          "recording",
+          "processing",
+          "completed",
+          "failed",
+        ],
+        default: "not_started",
+      },
+      storageProvider: {
+        type: String,
+        default: "r2",
+      },
+      objectKey: {
+        type: String,
+        default: null,
+      },
+      durationSeconds: {
+        type: Number,
+        default: null,
+      },
+      startedAt: {
+        type: Date,
+        default: null,
+      },
+      completedAt: {
+        type: Date,
+        default: null,
+      },
+      error: {
+        type: String,
+        default: null,
+      },
     },
   },
   {

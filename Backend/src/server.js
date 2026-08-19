@@ -27,6 +27,8 @@ import chatRoutes from "./routes/chat.routes.js";
 import adminChatRoutes from "./routes/admin/admin.chat.routes.js";
 import cloudinary from "./config/cloudinary.js";
 import callRoutes from "./routes/call.routes.js";
+import livekitWebhookRoutes from "./routes/livekit.webhook.routes.js";
+import adminCallRecordingRoutes from "./routes/admin/admin.callRecording.routes.js";
 import { initSocket } from "./socket/index.js";
 
 dotenv.config();
@@ -46,6 +48,10 @@ app.use(
     credentials: true,
   })
 );
+
+// LiveKit webhook needs raw body for signature verification — must come before express.json()
+app.use("/api/livekit/webhook", express.text({ type: "*/*" }), cors({ origin: true, credentials: true }), livekitWebhookRoutes);
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -73,6 +79,7 @@ app.use("/api/admin/verification", adminVerificationRoutes);
 app.use("/api/admin/categories", adminCategoryRoutes);
 app.use("/api/admin", adminTransactionRoutes);
 app.use("/api/admin", adminChatRoutes);
+app.use("/api/admin/calls", adminCallRecordingRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/calls", callRoutes);
 

@@ -250,11 +250,11 @@ export default function BookingsScreen() {
     catch (e: any) { Alert.alert('Error', e?.message ?? 'Failed to submit.'); }
   }, [submitBookingReview]);
   const handleNavigate = useCallback((route: NavRoute) => {
-    if (route === 'home')    router.replace(ROUTES.APP.HOME    as any);
-    if (route === 'wallet')  router.replace(ROUTES.APP.WALLET  as any);
-    if (route === 'chat')    router.replace(ROUTES.APP.CHAT    as any);
-    if (route === 'profile') router.replace(ROUTES.APP.PROFILE as any);
-    if (route === 'profile') router.replace(ROUTES.APP.PROFILE as any);
+    if (route === 'bookings') return; // Already here
+    if (route === 'home')    router.navigate(ROUTES.APP.HOME    as any);
+    if (route === 'wallet')  router.navigate(ROUTES.APP.WALLET  as any);
+    if (route === 'chat')    router.navigate(ROUTES.APP.CHAT    as any);
+    if (route === 'profile') router.navigate(ROUTES.APP.PROFILE as any);
   }, []);
 
   const activeCfg   = FILTER_COLORS[activeFilter];

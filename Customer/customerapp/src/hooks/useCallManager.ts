@@ -1,20 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { connectChatSocket, getChatSocket } from '@/services/chat.socket';
-import { acceptCall, rejectCall, endCall as endCallApi, createCallAsPartner } from '@/api/call.api';
+import { acceptCallAsCustomer, rejectCallAsCustomer, endCall as endCallApi } from '@/api/call.api';
 import Toast from 'react-native-toast-message';
 
 interface IncomingCall {
   callId: string;
   roomName: string;
-  customerId: string;
-  customerName: string;
+  partnerId: string;
+  partnerName: string;
   timestamp: Date;
 }
 
 interface ActiveCall {
   callId: string;
   roomName: string;
-  customerName: string;
+  partnerName: string;
   livekitUrl: string;
   livekitToken: string;
 }
@@ -30,19 +30,19 @@ export default function useCallManager() {
     mountedRef.current = true;
 
     const handleIncomingCall = (data: IncomingCall) => {
-      console.log('[CallManager] incoming_call event received:', data?.callId);
+      console.log('[CallManager-Customer] incoming_call event received:', data?.callId);
       if (!mountedRef.current) return;
       setIncomingCall(data);
       Toast.show({
         type: 'info',
         text1: 'Incoming Call',
-        text2: `${data.customerName} is calling...`,
+        text2: `${data.partnerName} is calling...`,
         visibilityTime: 5000,
       });
     };
 
     const handleCallEnded = (data: { callId: string; duration: number; endedBy: string }) => {
-      console.log('[CallManager] call_ended event received:', data?.callId);
+      console.log('[CallManager-Customer] call_ended event received:', data?.callId);
       if (!mountedRef.current) return;
 
       setActiveCall((current) => {
@@ -57,7 +57,7 @@ export default function useCallManager() {
         return current;
       });
 
-      // Customer hung up before we answered
+      // Partner hung up before we answered
       setIncomingCall((current) => {
         if (current?.callId === data.callId) return null;
         return current;
@@ -65,33 +65,23 @@ export default function useCallManager() {
     };
 
     const handleCallRejected = (data: { callId: string }) => {
-      console.log('[CallManager] call_rejected event received:', data?.callId);
+      console.log('[CallManager-Customer] call_rejected event received:', data?.callId);
       if (!mountedRef.current) return;
-
-      // Customer rejected our outgoing call
-      setActiveCall((current) => {
-        if (current?.callId === data.callId) {
-          Toast.show({
-            type: 'info',
-            text1: 'Call Declined',
-            text2: 'The customer declined your call',
-          });
-          return null;
-        }
+      // If this call was ringing, dismiss it
+      setIncomingCall((current) => {
+        if (current?.callId === data.callId) return null;
         return current;
       });
     };
 
     const attachListeners = (socket: any) => {
-      // Remove any stale listeners to prevent duplicates
       socket.off('incoming_call', handleIncomingCall);
       socket.off('call_ended', handleCallEnded);
       socket.off('call_rejected', handleCallRejected);
-      // Attach fresh listeners
       socket.on('incoming_call', handleIncomingCall);
       socket.on('call_ended', handleCallEnded);
       socket.on('call_rejected', handleCallRejected);
-      console.log('[CallManager] Listeners attached, socket connected:', socket.connected);
+      console.log('[CallManager-Customer] Listeners attached, socket connected:', socket.connected);
     };
 
     const setupListeners = async () => {
@@ -100,16 +90,11 @@ export default function useCallManager() {
         if (!mountedRef.current) return;
         attachListeners(socket);
 
-        // Re-attach on reconnect — after a reconnect, the socket gets a new
-        // server-side session but the client instance remains the same.
-        // Listeners persist across reconnections in socket.io-client v4+,
-        // but we log for debugging visibility.
         socket.on('connect', () => {
-          console.log('[CallManager] Socket reconnected, id:', socket.id);
+          console.log('[CallManager-Customer] Socket reconnected, id:', socket.id);
         });
       } catch (err) {
-        console.warn('[CallManager] Failed to setup socket listeners, retrying in 3s:', err);
-        // Retry after a short delay — covers the race where _connecting fails
+        console.warn('[CallManager-Customer] Failed to setup socket listeners, retrying in 3s:', err);
         if (mountedRef.current) {
           setTimeout(() => {
             if (mountedRef.current) setupListeners();
@@ -137,13 +122,13 @@ export default function useCallManager() {
 
     try {
       setProcessing(true);
-      const response = await acceptCall(incomingCall.callId);
+      const response = await acceptCallAsCustomer(incomingCall.callId);
 
       if (response.success && response.livekit) {
         setActiveCall({
           callId: incomingCall.callId,
           roomName: incomingCall.roomName,
-          customerName: incomingCall.customerName,
+          partnerName: incomingCall.partnerName,
           livekitUrl: response.livekit.url,
           livekitToken: response.livekit.token,
         });
@@ -169,7 +154,7 @@ export default function useCallManager() {
 
     try {
       setProcessing(true);
-      await rejectCall(incomingCall.callId);
+      await rejectCallAsCustomer(incomingCall.callId);
       setIncomingCall(null);
     } catch {
       setIncomingCall(null);
@@ -192,36 +177,6 @@ export default function useCallManager() {
     }
   }, [activeCall]);
 
-  // Partner initiates a call to a customer
-  const initiateCall = useCallback(async (customerId: string, customerName: string) => {
-    if (activeCall || processing) return;
-
-    try {
-      setProcessing(true);
-      const response = await createCallAsPartner(customerId);
-
-      if (response.success && response.livekit && response.call) {
-        setActiveCall({
-          callId: response.call.id,
-          roomName: response.call.roomName,
-          customerName,
-          livekitUrl: response.livekit.url,
-          livekitToken: response.livekit.token,
-        });
-      } else {
-        throw new Error(response.message || 'Failed to initiate call');
-      }
-    } catch (error: any) {
-      Toast.show({
-        type: 'error',
-        text1: 'Call Failed',
-        text2: error?.response?.data?.message || 'Could not initiate call',
-      });
-    } finally {
-      setProcessing(false);
-    }
-  }, [activeCall, processing]);
-
   return {
     incomingCall,
     activeCall,
@@ -229,6 +184,5 @@ export default function useCallManager() {
     handleAcceptCall,
     handleRejectCall,
     handleEndCall,
-    initiateCall,
   };
 }

@@ -142,11 +142,26 @@ export const registerChatHandlers = (namespace) => {
           });
         }
 
-        await socket.join(conversationRoom(conversationId));
+        // Check who is already in the room BEFORE this socket joins
+        const room = conversationRoom(conversationId);
+        const socketsInRoom = await namespace.in(room).fetchSockets();
+        const otherType = callerType === "customer" ? "partner" : "customer";
+        const otherIsOnline = socketsInRoom.some(
+          (s) => s.data.callerType === otherType
+        );
+
+        await socket.join(room);
         console.log(`[Socket] ${callerType}:${callerId} joined room conv:${conversationId}`);
 
+        // Tell the joiner who is already present in the room
+        socket.emit("user_presence", {
+          conversationId,
+          callerType: otherType,
+          isOnline: otherIsOnline,
+        });
+
         // Notify the other party that this user is now present in the room
-        socket.to(conversationRoom(conversationId)).emit("user_presence", {
+        socket.to(room).emit("user_presence", {
           conversationId,
           callerType,
           isOnline: true,

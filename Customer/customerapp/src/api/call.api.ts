@@ -83,3 +83,31 @@ export const unblockPartner = async (
   const response = await api.delete(`/calls/block/partner/${partnerId}`);
   return response.data;
 };
+
+/**
+ * Customer accepts an incoming call (from partner).
+ */
+export const acceptCallAsCustomer = async (callId: string): Promise<CallResponse> => {
+  const response = await api.post<CallResponse>(`/calls/${callId}/accept-customer`);
+  return response.data;
+};
+
+/**
+ * Customer rejects an incoming call (from partner).
+ */
+export const rejectCallAsCustomer = async (
+  callId: string
+): Promise<{ success: boolean; message: string }> => {
+  const response = await api.post(`/calls/${callId}/reject-customer`);
+  return response.data;
+};
+
+/**
+ * End an ongoing call.
+ */
+export const endCall = async (
+  callId: string
+): Promise<{ success: boolean; message: string; call?: { id: string; status: string; duration: number } }> => {
+  const response = await api.post(`/calls/${callId}/end`);
+  return response.data;
+};

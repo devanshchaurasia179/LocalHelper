@@ -5,65 +5,22 @@ import {
   TouchableOpacity,
   StyleSheet,
   Modal,
-  Animated,
-  Easing,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AudioSession } from '@livekit/react-native';
 import { Room, RoomEvent, Track } from 'livekit-client';
-import { connectChatSocket, getChatSocket } from '@/services/chat.socket';
-import type { NearbyPartner } from '@/api/nearby.api';
 import { colors, spacing } from '@/app/(tabs)/home/theme';
 
-interface CallScreenProps {
+interface IncomingCallScreenProps {
   visible: boolean;
-  partner: NearbyPartner;
-  callId: string;
+  partnerName: string;
   livekitUrl: string;
   livekitToken: string;
   onEndCall: () => void;
 }
 
-type CallState = 'dialling' | 'connecting' | 'connected' | 'ended';
-
-// ─── Dialling UI (pulsing ring animation) ─────────────────────────────────────
-
-function DiallingView({ partnerName, onCancel }: { partnerName: string; onCancel: () => void }) {
-  const pulse = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1.15, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    );
-    anim.start();
-    return () => anim.stop();
-  }, [pulse]);
-
-  return (
-    <>
-      <View style={styles.partnerInfo}>
-        <Animated.View style={[styles.avatarCircle, { transform: [{ scale: pulse }] }]}>
-          <Ionicons name="person" size={60} color={colors.white} />
-        </Animated.View>
-        <Text style={styles.partnerName}>{partnerName}</Text>
-        <Text style={styles.callStatus}>Dialling...</Text>
-      </View>
-
-      <View style={styles.controlsContainer}>
-        <TouchableOpacity
-          style={[styles.controlBtn, styles.endCallBtn]}
-          onPress={onCancel}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="call" size={32} color={colors.white} />
-        </TouchableOpacity>
-      </View>
-    </>
-  );
-}
+type CallState = 'connecting' | 'connected' | 'ended';
 
 // ─── Connected Call Controls ──────────────────────────────────────────────────
 
@@ -81,7 +38,6 @@ function CallControls({
   const [callDuration, setCallDuration] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Start timer immediately — we only render this component when peer joined
   useEffect(() => {
     timerRef.current = setInterval(() => {
       setCallDuration((d) => d + 1);
@@ -168,31 +124,27 @@ function CallControls({
   );
 }
 
-// ─── Main CallScreen ──────────────────────────────────────────────────────────
+// ─── Main IncomingCallScreen ──────────────────────────────────────────────────
 
-export default function CallScreen({
+export default function IncomingCallScreen({
   visible,
-  partner,
-  callId,
+  partnerName,
   livekitUrl,
   livekitToken,
   onEndCall,
-}: CallScreenProps) {
-  const [callState, setCallState] = useState<CallState>('dialling');
+}: IncomingCallScreenProps) {
+  const [callState, setCallState] = useState<CallState>('connecting');
   const [room, setRoom] = useState<Room | null>(null);
   const hasStartedAudio = useRef(false);
   const roomRef = useRef<Room | null>(null);
   const hasStartedLiveKit = useRef(false);
   const onEndCallRef = useRef(onEndCall);
   onEndCallRef.current = onEndCall;
-  // Store the LiveKit credentials (from call_accepted event or original response)
-  const livekitRef = useRef<{ url: string; token: string }>({ url: livekitUrl, token: livekitToken });
 
-  // Start audio session when visible
+  // Start audio session
   useEffect(() => {
     if (visible && !hasStartedAudio.current) {
       hasStartedAudio.current = true;
-      // Configure audio for voice communication and start session
       const initAudio = async () => {
         await AudioSession.configureAudio({
           android: {
@@ -222,174 +174,122 @@ export default function CallScreen({
     };
   }, [visible]);
 
-  // Reset state when call screen becomes visible
+  // Reset state when visible
   useEffect(() => {
     if (visible) {
-      setCallState('dialling');
+      setCallState('connecting');
       setRoom(null);
       roomRef.current = null;
-      livekitRef.current = { url: livekitUrl, token: livekitToken };
       hasStartedLiveKit.current = false;
     }
   }, [visible]);
 
-  // Phase 1: While dialling, listen for call_accepted or call_rejected via Socket.IO.
-  // Do NOT connect to LiveKit yet — wait until partner accepts.
+  // Connect to LiveKit immediately (customer already accepted)
   useEffect(() => {
-    if (!visible || callState !== 'dialling') return;
-
-    let mounted = true;
-
-    const handleCallAccepted = (data: any) => {
-      if (!mounted) return;
-      // If the event includes fresh LiveKit credentials, use those
-      if (data?.livekit?.url && data?.livekit?.token) {
-        livekitRef.current = { url: data.livekit.url, token: data.livekit.token };
-      }
-      setCallState('connecting');
-    };
-
-    const handleCallRejected = () => {
-      if (!mounted) return;
-      setCallState('ended');
-      setTimeout(() => onEndCallRef.current(), 1500);
-    };
-
-    const handleCallEnded = (data: any) => {
-      if (!mounted) return;
-      if (data?.callId === callId) {
-        setCallState('ended');
-        setTimeout(() => onEndCallRef.current(), 1500);
-      }
-    };
-
-    // Set a 60 second timeout — if partner doesn't answer, end the call
-    const timeout = setTimeout(() => {
-      if (!mounted) return;
-      setCallState('ended');
-      setTimeout(() => onEndCallRef.current(), 1500);
-    }, 60000);
-
-    connectChatSocket()
-      .then((socket) => {
-        if (!mounted) return;
-        socket.on('call_accepted', handleCallAccepted);
-        socket.on('call_rejected', handleCallRejected);
-        socket.on('call_ended', handleCallEnded);
-      })
-      .catch(() => {});
-
-    return () => {
-      mounted = false;
-      clearTimeout(timeout);
-      const socket = getChatSocket();
-      if (socket) {
-        socket.off('call_accepted', handleCallAccepted);
-        socket.off('call_rejected', handleCallRejected);
-        socket.off('call_ended', handleCallEnded);
-      }
-    };
-  }, [visible, callState, callId]); // onEndCall removed — using ref
-
-  // Phase 2: Partner accepted — now connect to LiveKit
-
-  useEffect(() => {
-    if (!visible || callState !== 'connecting') return;
-    // Only start once per call session
+    if (!visible) return;
     if (hasStartedLiveKit.current) return;
     hasStartedLiveKit.current = true;
 
     let mounted = true;
-    const { url, token } = livekitRef.current;
 
-    const lkRoom = new Room({
-      adaptiveStream: true,
-      dynacast: true,
-    });
-    roomRef.current = lkRoom;
+    const startConnection = async () => {
+      // Small delay to ensure AudioSession is initialized
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      if (!mounted) return;
 
-    const handleDisconnected = () => {
-      if (mounted) {
-        setCallState('ended');
-        setTimeout(() => onEndCallRef.current(), 1500);
-      }
-    };
+      const lkRoom = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+      });
+      roomRef.current = lkRoom;
 
-    const handleParticipantConnected = () => {
-      if (mounted) {
-        setCallState('connected');
-      }
-    };
+      const handleDisconnected = () => {
+        if (mounted) {
+          setCallState('ended');
+          setTimeout(() => onEndCallRef.current(), 1500);
+        }
+      };
 
-    lkRoom.on(RoomEvent.Disconnected, handleDisconnected);
-    lkRoom.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
+      const handleParticipantConnected = () => {
+        if (mounted) {
+          setCallState('connected');
+        }
+      };
 
-    // When a remote audio track is subscribed, re-apply audio configuration
-    // to ensure Android routes audio to the correct output
-    const handleTrackSubscribed = (
-      track: any,
-      _publication: any,
-      _participant: any
-    ) => {
-      if (track.kind === Track.Kind.Audio) {
-        AudioSession.configureAudio({
-          android: {
-            preferredOutputList: ['speaker', 'earpiece'],
-            audioTypeOptions: {
-              manageAudioFocus: true,
-              audioMode: 'inCommunication',
-              audioFocusMode: 'gain',
-              audioStreamType: 'voiceCall',
-              audioAttributesUsageType: 'voiceCommunication',
-              audioAttributesContentType: 'speech',
+      lkRoom.on(RoomEvent.Disconnected, handleDisconnected);
+      lkRoom.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
+
+      // Re-apply audio config when remote audio track is subscribed
+      const handleTrackSubscribed = (
+        track: any,
+        _publication: any,
+        _participant: any
+      ) => {
+        if (track.kind === Track.Kind.Audio) {
+          AudioSession.configureAudio({
+            android: {
+              preferredOutputList: ['speaker', 'earpiece'],
+              audioTypeOptions: {
+                manageAudioFocus: true,
+                audioMode: 'inCommunication',
+                audioFocusMode: 'gain',
+                audioStreamType: 'voiceCall',
+                audioAttributesUsageType: 'voiceCommunication',
+                audioAttributesContentType: 'speech',
+              },
             },
-          },
-          ios: {
-            defaultOutput: 'speaker',
-          },
-        });
-      }
-    };
-    lkRoom.on(RoomEvent.TrackSubscribed, handleTrackSubscribed);
+            ios: {
+              defaultOutput: 'speaker',
+            },
+          });
+        }
+      };
+      lkRoom.on(RoomEvent.TrackSubscribed, handleTrackSubscribed);
 
-    lkRoom
-      .connect(url, token, { autoSubscribe: true })
-      .then(async () => {
+      try {
+        await lkRoom.connect(livekitUrl, livekitToken, { autoSubscribe: true });
         if (!mounted) {
           lkRoom.disconnect();
           return;
         }
         setRoom(lkRoom);
-        setCallState('connected');
 
-        // Enable mic only if the room is still connected
+        // Enable mic
         setTimeout(async () => {
           if (!mounted) return;
           if (lkRoom.state !== 'connected') return;
           try {
             await lkRoom.localParticipant.setMicrophoneEnabled(true);
           } catch {
-            // Non-fatal — room may have disconnected in the meantime
+            // Non-fatal
           }
         }, 500);
-      })
-      .catch(() => {
+
+        // If partner already connected
+        if (lkRoom.remoteParticipants.size > 0) {
+          setCallState('connected');
+        }
+      } catch {
         if (mounted) {
           setCallState('ended');
           setTimeout(() => onEndCallRef.current(), 1500);
         }
-      });
+      }
+    };
+
+    startConnection();
 
     return () => {
       mounted = false;
-      lkRoom.off(RoomEvent.Disconnected, handleDisconnected);
-      lkRoom.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
-      lkRoom.off(RoomEvent.TrackSubscribed, handleTrackSubscribed);
-      // Room disconnection is handled by the dedicated cleanup effect and handleEndCall
+      if (roomRef.current) {
+        roomRef.current.off(RoomEvent.Disconnected);
+        roomRef.current.off(RoomEvent.ParticipantConnected);
+        roomRef.current.off(RoomEvent.TrackSubscribed);
+      }
     };
-  }, [visible, callState]); // stable deps — hasStartedLiveKit prevents re-execution
+  }, [visible, livekitUrl, livekitToken]);
 
-  // Cleanup: disconnect room when the call screen is hidden
+  // Cleanup when hidden
   useEffect(() => {
     if (!visible && roomRef.current) {
       roomRef.current.disconnect().catch(() => {});
@@ -415,10 +315,6 @@ export default function CallScreen({
     onEndCallRef.current();
   }, []);
 
-  const getPartnerName = () => {
-    return (partner as any).fullName || (partner as any).name || (partner as any).businessName || 'Partner';
-  };
-
   if (!visible) return null;
 
   return (
@@ -429,12 +325,15 @@ export default function CallScreen({
       statusBarTranslucent
     >
       <View style={styles.container}>
-        {(callState === 'dialling' || callState === 'connecting') && (
-          <DiallingView partnerName={getPartnerName()} onCancel={handleEndCall} />
+        {callState === 'connecting' && (
+          <View style={styles.connectingContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.connectingText}>Connecting to {partnerName}...</Text>
+          </View>
         )}
 
         {callState === 'connected' && room && (
-          <CallControls room={room} onEndCall={handleEndCall} partnerName={getPartnerName()} />
+          <CallControls room={room} onEndCall={handleEndCall} partnerName={partnerName} />
         )}
 
         {callState === 'ended' && (
