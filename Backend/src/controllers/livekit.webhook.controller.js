@@ -21,26 +21,39 @@ const getWebhookReceiver = () => {
 // ─── Helper: check if egress status indicates completion ─────────────────────
 
 /**
- * LiveKit SDK v2 can return status as:
- *   - Numeric: 3 (EGRESS_COMPLETE), 4 (EGRESS_FAILED), 5 (EGRESS_ABORTED)
- *   - String enum: "EGRESS_COMPLETE", "EGRESS_FAILED", "EGRESS_ABORTED"
- *   - Or the proto field name in some SDK versions
- * We handle all cases to be safe.
+ * LiveKit SDK v2 returns status as a numeric enum (protobuf):
+ *   - 0: EGRESS_STARTING
+ *   - 1: EGRESS_ACTIVE
+ *   - 2: EGRESS_ENDING (still processing, NOT done)
+ *   - 3: EGRESS_COMPLETE (terminal — file uploaded successfully)
+ *   - 4: EGRESS_FAILED (terminal)
+ *   - 5: EGRESS_ABORTED (terminal)
+ *   - 6: EGRESS_LIMIT_REACHED (terminal)
+ *
+ * The webhook JSON payload may serialize it as a number or a string enum name.
+ * We handle all cases.
  */
 const isEgressComplete = (status) => {
   if (status === 3) return true;
   if (typeof status === "string") {
     const s = status.toUpperCase();
-    return s === "EGRESS_COMPLETE" || s === "EGRESS_ENDING" || s === "3";
+    return s === "EGRESS_COMPLETE" || s === "3";
   }
   return false;
 };
 
 const isEgressFailed = (status) => {
-  if (status === 4 || status === 5) return true;
+  if (status === 4 || status === 5 || status === 6) return true;
   if (typeof status === "string") {
     const s = status.toUpperCase();
-    return s === "EGRESS_FAILED" || s === "EGRESS_ABORTED" || s === "4" || s === "5";
+    return (
+      s === "EGRESS_FAILED" ||
+      s === "EGRESS_ABORTED" ||
+      s === "EGRESS_LIMIT_REACHED" ||
+      s === "4" ||
+      s === "5" ||
+      s === "6"
+    );
   }
   return false;
 };
@@ -66,6 +79,35 @@ export const handleLiveKitWebhook = async (req, res) => {
     console.log(`[LIVEKIT WEBHOOK] Full event payload:`, JSON.stringify(event, null, 2));
 
     switch (event.event) {
+      case "egress_started": {
+        console.log(
+          `[LIVEKIT WEBHOOK] Egress started: ${event.egressInfo?.egressId}`
+        );
+        break;
+      }
+
+      case "egress_updated": {
+        const egressInfo = event.egressInfo;
+        if (!egressInfo) {
+          console.warn("[LIVEKIT WEBHOOK] egress_updated but no egressInfo present");
+          break;
+        }
+
+        const status = egressInfo.status;
+        console.log(`[LIVEKIT WEBHOOK] Egress updated — ID: ${egressInfo.egressId}, Status: ${status} (type: ${typeof status})`);
+
+        // Handle completion/failure if it arrives via egress_updated
+        // (sometimes egress_ended is not delivered, but egress_updated with a terminal status is)
+        if (isEgressComplete(status)) {
+          console.log("[LIVEKIT WEBHOOK] → egress_updated with COMPLETE status, handling as COMPLETED");
+          await handleEgressCompleted(egressInfo);
+        } else if (isEgressFailed(status)) {
+          console.log("[LIVEKIT WEBHOOK] → egress_updated with FAILED status, handling as FAILED");
+          await handleEgressFailed(egressInfo);
+        }
+        break;
+      }
+
       case "egress_ended": {
         const egressInfo = event.egressInfo;
         if (!egressInfo) {
@@ -74,7 +116,7 @@ export const handleLiveKitWebhook = async (req, res) => {
         }
 
         const status = egressInfo.status;
-        console.log(`[LIVEKIT WEBHOOK] Egress ID: ${egressInfo.egressId}, Status: ${status} (type: ${typeof status})`);
+        console.log(`[LIVEKIT WEBHOOK] Egress ended — ID: ${egressInfo.egressId}, Status: ${status} (type: ${typeof status})`);
         console.log(`[LIVEKIT WEBHOOK] File results:`, JSON.stringify(egressInfo.fileResults || egressInfo.file_results || [], null, 2));
 
         if (isEgressComplete(status)) {
@@ -89,13 +131,6 @@ export const handleLiveKitWebhook = async (req, res) => {
           // since LiveKit only sends egress_ended when egress is truly done
           await handleEgressCompleted(egressInfo);
         }
-        break;
-      }
-
-      case "egress_started": {
-        console.log(
-          `[LIVEKIT WEBHOOK] Egress started: ${event.egressInfo?.egressId}`
-        );
         break;
       }
 

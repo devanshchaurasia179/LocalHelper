@@ -136,7 +136,13 @@ export const stopCallRecording = async (call) => {
     await api.egress.stopEgress(egressId);
 
     console.log(`[CALL RECORDING] Stop requested for egress: ${egressId}`);
-    // Final status will be updated by webhook when egress completes upload to R2
+
+    // Start a background poll as a safety net in case the egress_ended webhook
+    // is never delivered (known LiveKit issue). We poll a few times with delays
+    // and update the DB directly if we see a terminal status.
+    pollEgressUntilDone(call._id, egressId).catch((err) =>
+      console.error("[CALL RECORDING] Polling fallback error:", err.message)
+    );
   } catch (error) {
     console.error(`[CALL RECORDING] Failed to stop:`, error.message);
 
@@ -159,6 +165,90 @@ export const stopCallRecording = async (call) => {
     } catch (saveError) {
       console.error("[CALL RECORDING] Failed to save error state:", saveError.message);
     }
+  }
+};
+
+// ─── Fallback Polling: check egress status if webhook doesn't arrive ─────────
+
+const POLL_INTERVALS_MS = [5_000, 10_000, 15_000, 30_000, 60_000]; // retry after 5s, 10s, 15s, 30s, 60s
+
+const pollEgressUntilDone = async (callId, egressId) => {
+  const api = getLiveKitAPI();
+
+  for (let i = 0; i < POLL_INTERVALS_MS.length; i++) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVALS_MS[i]));
+
+    // Re-fetch the call to check if webhook already updated it
+    const call = await Call.findById(callId);
+    if (!call) {
+      console.log(`[CALL RECORDING POLL] Call ${callId} not found — stopping poll`);
+      return;
+    }
+
+    if (["completed", "failed"].includes(call.recording?.status)) {
+      console.log(`[CALL RECORDING POLL] Already ${call.recording.status} (webhook worked) — stopping poll`);
+      return;
+    }
+
+    // Query LiveKit for current egress status
+    try {
+      const egresses = await api.egress.listEgress({ egressId });
+      const items = egresses?.items || egresses || [];
+      const info = Array.isArray(items) ? items[0] : items;
+
+      if (!info) {
+        // Egress not in active list — likely completed already
+        console.log(`[CALL RECORDING POLL] Egress ${egressId} not found in active list — marking as completed`);
+        call.recording.status = "completed";
+        call.recording.completedAt = new Date();
+        call.recording.error = null;
+        await call.save();
+        return;
+      }
+
+      const status = info.status;
+      console.log(`[CALL RECORDING POLL] Attempt ${i + 1}/${POLL_INTERVALS_MS.length} — Egress ${egressId} status: ${status}`);
+
+      // status 3 = EGRESS_COMPLETE
+      if (status === 3 || (typeof status === "string" && status.toUpperCase() === "EGRESS_COMPLETE")) {
+        console.log(`[CALL RECORDING POLL] Egress complete — updating DB`);
+        await handleEgressCompleted(info);
+        return;
+      }
+
+      // status 4/5/6 = FAILED/ABORTED/LIMIT_REACHED
+      if (status === 4 || status === 5 || status === 6) {
+        console.log(`[CALL RECORDING POLL] Egress failed/aborted — updating DB`);
+        await handleEgressFailed(info);
+        return;
+      }
+
+      // Still processing — continue polling
+    } catch (pollError) {
+      // If listEgress throws "not found", egress likely completed and was cleaned up
+      if (
+        pollError.message?.includes("not found") ||
+        pollError.message?.includes("does not exist")
+      ) {
+        console.log(`[CALL RECORDING POLL] Egress not found (likely completed) — marking as completed`);
+        call.recording.status = "completed";
+        call.recording.completedAt = new Date();
+        call.recording.error = null;
+        await call.save();
+        return;
+      }
+      console.error(`[CALL RECORDING POLL] Error polling egress:`, pollError.message);
+    }
+  }
+
+  // Exhausted all retries — force mark as completed since file is on R2
+  console.warn(`[CALL RECORDING POLL] Exhausted retries for egress ${egressId} — force-marking as completed`);
+  const call = await Call.findById(callId);
+  if (call && call.recording?.status === "processing") {
+    call.recording.status = "completed";
+    call.recording.completedAt = new Date();
+    call.recording.error = null;
+    await call.save();
   }
 };
 

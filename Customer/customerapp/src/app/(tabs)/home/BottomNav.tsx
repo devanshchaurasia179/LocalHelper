@@ -1,21 +1,11 @@
 import { memo, useCallback, useMemo } from 'react';
-import { View, Pressable, StyleSheet, Text } from 'react-native';
+import { View, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  interpolate,
-  Easing,
-  useAnimatedReaction,
-} from 'react-native-reanimated';
 import { NavRoute } from './types';
 import { colors, spacing, radii } from './theme';
-
-const EASE = Easing.bezier(0.4, 0, 0.2, 1);
-const ANIM_DURATION = 220;
+import { Text } from 'react-native';
 
 const NAV_ITEMS: {
   route: NavRoute;
@@ -51,35 +41,6 @@ const NavItem = memo(function NavItem({
   isActive: boolean;
   onNavigate: (route: NavRoute) => void;
 }) {
-  const progress = useSharedValue(isActive ? 1 : 0);
-
-  useAnimatedReaction(
-    () => isActive,
-    (active, prev) => {
-      if (active !== prev) {
-        progress.value = withTiming(active ? 1 : 0, {
-          duration: ANIM_DURATION,
-          easing: EASE,
-        });
-      }
-    },
-    [isActive]
-  );
-
-  // Background pill opacity — no layout change, just opacity
-  const bgStyle = useAnimatedStyle(() => ({
-    opacity: progress.value,
-  }));
-
-  // Label: fade + slight slide — no layout impact
-  const labelStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(progress.value, [0.4, 1], [0, 1], 'clamp'),
-    transform: [
-      { translateX: interpolate(progress.value, [0, 1], [-8, 0]) },
-      { scale: interpolate(progress.value, [0.4, 1], [0.8, 1], 'clamp') },
-    ],
-  }));
-
   const handlePress = useCallback(() => {
     onNavigate(item.route);
   }, [item.route, onNavigate]);
@@ -92,23 +53,15 @@ const NavItem = memo(function NavItem({
       accessibilityState={{ selected: isActive }}
       accessibilityLabel={item.label}
     >
-      <View style={styles.pill}>
-        {/* Background — absolutely positioned, animates opacity only */}
-        <Animated.View style={[styles.pillBg, bgStyle]} />
-
-        {/* Icon — always rendered, never animated */}
-        <View style={styles.iconWrapper}>
-          <Ionicons
-            name={isActive ? item.activeIcon : item.icon}
-            size={22}
-            color={isActive ? colors.white : colors.navInactive}
-          />
-        </View>
-
-        {/* Label — always rendered (avoids mount/unmount jitter), hidden via opacity */}
-        <Animated.Text numberOfLines={1} style={[styles.label, labelStyle]}>
-          {item.label}
-        </Animated.Text>
+      <View style={[styles.pill, isActive && styles.pillActive]}>
+        <Ionicons
+          name={isActive ? item.activeIcon : item.icon}
+          size={20}
+          color={isActive ? colors.white : colors.navInactive}
+        />
+        {isActive && (
+          <Text style={styles.label}>{item.label}</Text>
+        )}
       </View>
     </Pressable>
   );
@@ -139,8 +92,8 @@ const styles = StyleSheet.create({
   container: {
     position: 'absolute',
     bottom: 16,
-    left: '5%',
-    right: '5%',
+    left: spacing.md,
+    right: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-evenly',
@@ -155,32 +108,20 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   pill: {
-    height: 44,
+    height: 40,
     borderRadius: radii.pill,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     gap: 6,
-    overflow: 'hidden',
   },
-  // Absolutely positioned background — animates opacity only (GPU composited)
-  pillBg: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: radii.pill,
+  pillActive: {
     backgroundColor: colors.primary,
-  },
-  iconWrapper: {
-    width: 22,
-    height: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1,
   },
   label: {
     fontFamily: 'Jost_600SemiBold',
     color: colors.white,
-    fontSize: 13,
-    zIndex: 1,
+    fontSize: 12,
   },
 });
