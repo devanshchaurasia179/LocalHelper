@@ -177,12 +177,22 @@ export const handleEgressCompleted = async (egressInfo) => {
     }
 
     // Extract duration from file results if available
+    // SDK v2 may use fileResults, file_results, or file (for single file output)
     let durationSeconds = null;
-    if (egressInfo.fileResults && egressInfo.fileResults.length > 0) {
-      const fileResult = egressInfo.fileResults[0];
-      if (fileResult.duration) {
+    const fileResults = egressInfo.fileResults || egressInfo.file_results || [];
+    const fileInfo = egressInfo.file || egressInfo.fileInfo;
+
+    if (fileResults.length > 0) {
+      const fileResult = fileResults[0];
+      const dur = fileResult.duration || fileResult.durationNs;
+      if (dur) {
         // Duration from LiveKit is in nanoseconds
-        durationSeconds = Math.round(Number(fileResult.duration) / 1_000_000_000);
+        durationSeconds = Math.round(Number(dur) / 1_000_000_000);
+      }
+    } else if (fileInfo) {
+      const dur = fileInfo.duration || fileInfo.durationNs;
+      if (dur) {
+        durationSeconds = Math.round(Number(dur) / 1_000_000_000);
       }
     }
 
@@ -196,6 +206,9 @@ export const handleEgressCompleted = async (egressInfo) => {
 
     console.log(`[CALL RECORDING] Completed for call ${call._id}`);
     console.log(`[CALL RECORDING] R2 object: ${call.recording.objectKey}`);
+    if (durationSeconds) {
+      console.log(`[CALL RECORDING] Duration: ${durationSeconds}s`);
+    }
   } catch (error) {
     console.error("[CALL RECORDING] Error handling completion:", error.message);
   }
