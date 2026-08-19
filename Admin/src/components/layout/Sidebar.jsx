@@ -17,6 +17,7 @@ import {
   FileStack,
   Wallet,
   MessageSquare,
+  Phone,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/contexts/AuthContext'
@@ -32,6 +33,7 @@ const NAV_ITEMS = [
   { label: 'Services',            to: '/services',     icon: Wrench },
   { label: 'Transactions',        to: '/transactions', icon: Wallet },
   { label: 'Chats',               to: '/chats',        icon: MessageSquare },
+  { label: 'Calls',               to: '/calls',        icon: Phone },
   { label: 'Payments',            to: '/payments',     icon: CreditCard },
   { label: 'Analytics',           to: '/analytics',    icon: BarChart3 },
   { label: 'Settings',            to: '/settings',     icon: Settings },

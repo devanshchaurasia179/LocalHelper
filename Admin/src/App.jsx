@@ -13,6 +13,7 @@ import ServicesPage             from '@/pages/ServicesPage'
 import TransactionsPage         from '@/pages/TransactionsPage'
 import ChatsPage                from '@/pages/ChatsPage'
 import ChatDetailPage           from '@/pages/ChatDetailPage'
+import CallsPage                from '@/pages/CallsPage'
 import PlaceholderPage          from '@/pages/PlaceholderPage'
 import NotFoundPage             from '@/pages/NotFoundPage'
 
@@ -68,6 +69,7 @@ const App = () => (
             <Route path="/transactions" element={<TransactionsPage />} />
             <Route path="/chats"        element={<ChatsPage />} />
             <Route path="/chats/:conversationId" element={<ChatDetailPage />} />
+            <Route path="/calls"        element={<CallsPage />} />
             <Route path="/payments"     element={<PlaceholderPage title="Payments" />} />
             <Route path="/analytics"    element={<PlaceholderPage title="Analytics" />} />
             <Route path="/settings"     element={<PlaceholderPage title="Settings" />} />
