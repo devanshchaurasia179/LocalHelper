@@ -59,6 +59,7 @@ export function CallProvider({ children }: CallProviderProps) {
       {activeCall && (
         <IncomingCallScreen
           visible={true}
+          callId={activeCall.callId}
           partnerName={activeCall.partnerName}
           livekitUrl={activeCall.livekitUrl}
           livekitToken={activeCall.livekitToken}

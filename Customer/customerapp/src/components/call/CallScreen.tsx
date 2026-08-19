@@ -77,7 +77,7 @@ function CallControls({
   partnerName: string;
 }) {
   const [isMuted, setIsMuted] = useState(false);
-  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -103,17 +103,18 @@ function CallControls({
   };
 
   const toggleSpeaker = () => {
+    const newSpeakerState = !isSpeakerOn;
     AudioSession.configureAudio({
       android: {
-        preferredOutputList: isSpeakerOn
-          ? ['earpiece', 'speaker']
-          : ['speaker', 'earpiece'],
+        preferredOutputList: newSpeakerState
+          ? ['speaker', 'earpiece']
+          : ['earpiece', 'speaker'],
       },
       ios: {
-        defaultOutput: isSpeakerOn ? 'earpiece' : 'speaker',
+        defaultOutput: newSpeakerState ? 'speaker' : 'earpiece',
       },
     });
-    setIsSpeakerOn(!isSpeakerOn);
+    setIsSpeakerOn(newSpeakerState);
   };
 
   return (
@@ -192,11 +193,11 @@ export default function CallScreen({
   useEffect(() => {
     if (visible && !hasStartedAudio.current) {
       hasStartedAudio.current = true;
-      // Configure audio for voice communication and start session
+      // Configure audio for voice communication — default to earpiece (not speaker)
       const initAudio = async () => {
         await AudioSession.configureAudio({
           android: {
-            preferredOutputList: ['speaker', 'earpiece'],
+            preferredOutputList: ['earpiece', 'speaker'],
             audioTypeOptions: {
               manageAudioFocus: true,
               audioMode: 'inCommunication',
@@ -207,7 +208,7 @@ export default function CallScreen({
             },
           },
           ios: {
-            defaultOutput: 'speaker',
+            defaultOutput: 'earpiece',
           },
         });
         await AudioSession.startAudioSession();
@@ -291,6 +292,45 @@ export default function CallScreen({
     };
   }, [visible, callState, callId]); // onEndCall removed — using ref
 
+  // Persistent listener: if the other party ends the call at any point, end it here too
+  useEffect(() => {
+    if (!visible) return;
+    // Only need this after dialling phase (connected/connecting)
+    if (callState === 'dialling' || callState === 'ended') return;
+
+    let mounted = true;
+
+    const handleCallEnded = (data: any) => {
+      if (!mounted) return;
+      if (data?.callId === callId) {
+        setCallState('ended');
+        if (roomRef.current) {
+          roomRef.current.disconnect().catch(() => {});
+          roomRef.current = null;
+          setRoom(null);
+        }
+        if (hasStartedAudio.current) {
+          AudioSession.stopAudioSession().catch(() => {});
+          hasStartedAudio.current = false;
+        }
+        setTimeout(() => onEndCallRef.current(), 1500);
+      }
+    };
+
+    const socket = getChatSocket();
+    if (socket) {
+      socket.on('call_ended', handleCallEnded);
+    }
+
+    return () => {
+      mounted = false;
+      const s = getChatSocket();
+      if (s) {
+        s.off('call_ended', handleCallEnded);
+      }
+    };
+  }, [visible, callState, callId]);
+
   // Phase 2: Partner accepted — now connect to LiveKit
 
   useEffect(() => {
@@ -325,7 +365,7 @@ export default function CallScreen({
     lkRoom.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
 
     // When a remote audio track is subscribed, re-apply audio configuration
-    // to ensure Android routes audio to the correct output
+    // to ensure Android routes audio to the correct output (earpiece by default)
     const handleTrackSubscribed = (
       track: any,
       _publication: any,
@@ -334,7 +374,7 @@ export default function CallScreen({
       if (track.kind === Track.Kind.Audio) {
         AudioSession.configureAudio({
           android: {
-            preferredOutputList: ['speaker', 'earpiece'],
+            preferredOutputList: ['earpiece', 'speaker'],
             audioTypeOptions: {
               manageAudioFocus: true,
               audioMode: 'inCommunication',
@@ -345,7 +385,7 @@ export default function CallScreen({
             },
           },
           ios: {
-            defaultOutput: 'speaker',
+            defaultOutput: 'earpiece',
           },
         });
       }
@@ -362,16 +402,12 @@ export default function CallScreen({
         setRoom(lkRoom);
         setCallState('connected');
 
-        // Enable mic only if the room is still connected
-        setTimeout(async () => {
-          if (!mounted) return;
-          if (lkRoom.state !== 'connected') return;
-          try {
-            await lkRoom.localParticipant.setMicrophoneEnabled(true);
-          } catch {
-            // Non-fatal — room may have disconnected in the meantime
-          }
-        }, 500);
+        // Enable mic immediately after connection
+        try {
+          await lkRoom.localParticipant.setMicrophoneEnabled(true);
+        } catch {
+          // Non-fatal — room may have disconnected in the meantime
+        }
       })
       .catch(() => {
         if (mounted) {

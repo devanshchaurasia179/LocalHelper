@@ -10,10 +10,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { AudioSession } from '@livekit/react-native';
 import { Room, RoomEvent, Track } from 'livekit-client';
+import { getChatSocket } from '@/services/chat.socket';
 import { colors, spacing } from '@/app/(tabs)/home/theme';
 
 interface IncomingCallScreenProps {
   visible: boolean;
+  callId: string;
   partnerName: string;
   livekitUrl: string;
   livekitToken: string;
@@ -34,7 +36,7 @@ function CallControls({
   partnerName: string;
 }) {
   const [isMuted, setIsMuted] = useState(false);
-  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -59,17 +61,18 @@ function CallControls({
   };
 
   const toggleSpeaker = () => {
+    const newSpeakerState = !isSpeakerOn;
     AudioSession.configureAudio({
       android: {
-        preferredOutputList: isSpeakerOn
-          ? ['earpiece', 'speaker']
-          : ['speaker', 'earpiece'],
+        preferredOutputList: newSpeakerState
+          ? ['speaker', 'earpiece']
+          : ['earpiece', 'speaker'],
       },
       ios: {
-        defaultOutput: isSpeakerOn ? 'earpiece' : 'speaker',
+        defaultOutput: newSpeakerState ? 'speaker' : 'earpiece',
       },
     });
-    setIsSpeakerOn(!isSpeakerOn);
+    setIsSpeakerOn(newSpeakerState);
   };
 
   return (
@@ -128,6 +131,7 @@ function CallControls({
 
 export default function IncomingCallScreen({
   visible,
+  callId,
   partnerName,
   livekitUrl,
   livekitToken,
@@ -148,7 +152,7 @@ export default function IncomingCallScreen({
       const initAudio = async () => {
         await AudioSession.configureAudio({
           android: {
-            preferredOutputList: ['speaker', 'earpiece'],
+            preferredOutputList: ['earpiece', 'speaker'],
             audioTypeOptions: {
               manageAudioFocus: true,
               audioMode: 'inCommunication',
@@ -159,7 +163,7 @@ export default function IncomingCallScreen({
             },
           },
           ios: {
-            defaultOutput: 'speaker',
+            defaultOutput: 'earpiece',
           },
         });
         await AudioSession.startAudioSession();
@@ -183,6 +187,43 @@ export default function IncomingCallScreen({
       hasStartedLiveKit.current = false;
     }
   }, [visible]);
+
+  // Listen for call_ended socket event so if partner hangs up, call ends here too
+  useEffect(() => {
+    if (!visible || callState === 'ended') return;
+
+    let mounted = true;
+
+    const handleCallEnded = (data: any) => {
+      if (!mounted) return;
+      if (data?.callId === callId) {
+        setCallState('ended');
+        if (roomRef.current) {
+          roomRef.current.disconnect().catch(() => {});
+          roomRef.current = null;
+          setRoom(null);
+        }
+        if (hasStartedAudio.current) {
+          AudioSession.stopAudioSession().catch(() => {});
+          hasStartedAudio.current = false;
+        }
+        setTimeout(() => onEndCallRef.current(), 1500);
+      }
+    };
+
+    const socket = getChatSocket();
+    if (socket) {
+      socket.on('call_ended', handleCallEnded);
+    }
+
+    return () => {
+      mounted = false;
+      const s = getChatSocket();
+      if (s) {
+        s.off('call_ended', handleCallEnded);
+      }
+    };
+  }, [visible, callState, callId]);
 
   // Connect to LiveKit immediately (customer already accepted)
   useEffect(() => {
@@ -219,7 +260,7 @@ export default function IncomingCallScreen({
       lkRoom.on(RoomEvent.Disconnected, handleDisconnected);
       lkRoom.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
 
-      // Re-apply audio config when remote audio track is subscribed
+      // Re-apply audio config when remote audio track is subscribed (earpiece default)
       const handleTrackSubscribed = (
         track: any,
         _publication: any,
@@ -228,7 +269,7 @@ export default function IncomingCallScreen({
         if (track.kind === Track.Kind.Audio) {
           AudioSession.configureAudio({
             android: {
-              preferredOutputList: ['speaker', 'earpiece'],
+              preferredOutputList: ['earpiece', 'speaker'],
               audioTypeOptions: {
                 manageAudioFocus: true,
                 audioMode: 'inCommunication',
@@ -239,7 +280,7 @@ export default function IncomingCallScreen({
               },
             },
             ios: {
-              defaultOutput: 'speaker',
+              defaultOutput: 'earpiece',
             },
           });
         }
@@ -254,16 +295,12 @@ export default function IncomingCallScreen({
         }
         setRoom(lkRoom);
 
-        // Enable mic
-        setTimeout(async () => {
-          if (!mounted) return;
-          if (lkRoom.state !== 'connected') return;
-          try {
-            await lkRoom.localParticipant.setMicrophoneEnabled(true);
-          } catch {
-            // Non-fatal
-          }
-        }, 500);
+        // Enable mic immediately after connection
+        try {
+          await lkRoom.localParticipant.setMicrophoneEnabled(true);
+        } catch {
+          // Non-fatal
+        }
 
         // If partner already connected
         if (lkRoom.remoteParticipants.size > 0) {

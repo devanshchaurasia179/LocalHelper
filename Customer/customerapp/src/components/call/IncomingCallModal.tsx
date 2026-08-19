@@ -9,6 +9,7 @@ import {
   Vibration,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Audio } from 'expo-av';
 import { colors } from '@/app/(tabs)/home/theme';
 
 interface IncomingCallModalProps {
@@ -25,6 +26,41 @@ export default function IncomingCallModal({
   onReject,
 }: IncomingCallModalProps) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const soundRef = useRef<Audio.Sound | null>(null);
+
+  // Play ringtone when modal is visible
+  useEffect(() => {
+    if (!visible) return;
+
+    let mounted = true;
+
+    const playRingtone = async () => {
+      try {
+        const { sound } = await Audio.Sound.createAsync(
+          require('../../../assets/ringtone.mp3'),
+          { isLooping: true, volume: 1.0 }
+        );
+        if (!mounted) {
+          await sound.unloadAsync();
+          return;
+        }
+        soundRef.current = sound;
+        await sound.playAsync();
+      } catch (err) {
+        console.warn('[IncomingCallModal] Failed to play ringtone:', err);
+      }
+    };
+
+    playRingtone();
+
+    return () => {
+      mounted = false;
+      if (soundRef.current) {
+        soundRef.current.stopAsync().then(() => soundRef.current?.unloadAsync()).catch(() => {});
+        soundRef.current = null;
+      }
+    };
+  }, [visible]);
 
   useEffect(() => {
     if (visible) {

@@ -14,8 +14,12 @@
 
 import mongoose from "mongoose";
 import dotenv from "dotenv";
+import dns from "dns";
 import path from "path";
 import { fileURLToPath } from "url";
+
+// Use public DNS resolvers (same as server.js)
+dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
