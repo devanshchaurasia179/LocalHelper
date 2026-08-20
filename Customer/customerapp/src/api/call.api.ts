@@ -60,6 +60,11 @@ export interface CallBalanceResponse {
   success: boolean;
   callBalance: number; // seconds
   callBalanceMinutes: number;
+  partner?: {
+    _id: string;
+    fullName: string;
+    profilePhoto: string | null;
+  } | null;
   rate: {
     amount: number;
     minutes: number;

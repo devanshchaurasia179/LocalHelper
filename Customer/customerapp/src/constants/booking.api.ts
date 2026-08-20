@@ -116,6 +116,7 @@ export interface InitiateCallResponse {
   charge: number;
   durationMinutes: number;
   walletBalance: number;
+  callBalanceSeconds?: number;
 }
 
 // POST /api/bookings/chat/:partnerId  — deducts chatCharges, call once before opening chat

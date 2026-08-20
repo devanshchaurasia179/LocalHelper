@@ -6,6 +6,7 @@ import {
   RefreshControl,
   View,
   StatusBar,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -17,9 +18,11 @@ import BottomNav from './BottomNav';
 import NearbyServicesSection, { NearbyServicesSkeleton } from './NearbyServicesSection';
 import ActiveBookingCard from './ActiveBookingCard';
 import CallBalanceCard from './CallBalanceCard';
+import CallScreen from '@/components/call/CallScreen';
 
 import { useNearbyServices } from '@/hooks/useNearbyServices';
 import type { NearbyCategory } from '@/api/nearby.api';
+import { initiateCallToPartner } from '@/api/call.api';
 
 import { nearbyCache } from '@/cache/nearbyCache';
 import { NavRoute } from './types';
@@ -70,6 +73,23 @@ export default function Dashboard() {
   const insets = useSafeAreaInsets();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAddressIndex, setSelectedAddressIndex] = useState(0);
+
+  // ── Call screen state ──────────────────────────────────────────────────────
+  const [callScreenVisible, setCallScreenVisible] = useState(false);
+  const [callId, setCallId] = useState('');
+  const [callLivekitUrl, setCallLivekitUrl] = useState('');
+  const [callLivekitToken, setCallLivekitToken] = useState('');
+  const [callPartnerInfo, setCallPartnerInfo] = useState<{
+    _id: string; fullName: string; profilePhoto?: string | null;
+  } | null>(null);
+
+  const handleEndCall = useCallback(() => {
+    setCallScreenVisible(false);
+    setCallId('');
+    setCallLivekitUrl('');
+    setCallLivekitToken('');
+    setCallPartnerInfo(null);
+  }, []);
 
   const addresses: Address[] = (customer?.addresses ?? []) as Address[];
 
@@ -208,7 +228,28 @@ export default function Dashboard() {
           </View>
 
           {/* ── Call Balance ── */}
-          <CallBalanceCard />
+          <CallBalanceCard
+            onCallPartner={async (partnerId, partnerInfo) => {
+              try {
+                setCallPartnerInfo({ _id: partnerId, ...partnerInfo });
+                const res = await initiateCallToPartner(partnerId);
+                if (!res.success || !res.livekit) {
+                  setCallPartnerInfo(null);
+                  Alert.alert('Call Failed', res.message ?? 'Could not reach partner. Try again later.');
+                  return;
+                }
+                // Show the call screen directly
+                setCallId(res.call?.id ?? '');
+                setCallLivekitUrl(res.livekit.url);
+                setCallLivekitToken(res.livekit.token);
+                setCallScreenVisible(true);
+              } catch (err: any) {
+                setCallPartnerInfo(null);
+                const msg = err?.response?.data?.message ?? 'Could not initiate call. Try again.';
+                Alert.alert('Call Failed', msg);
+              }
+            }}
+          />
 
           {/* ── Active Booking ── */}
           <ActiveBookingCard />
@@ -253,6 +294,18 @@ export default function Dashboard() {
       </ScrollView>
 
       <BottomNav onNavigate={handleNavigate} />
+
+      {/* ── Call Screen (LiveKit) ── */}
+      {callScreenVisible && callPartnerInfo && (
+        <CallScreen
+          visible={callScreenVisible}
+          partner={callPartnerInfo as any}
+          callId={callId}
+          livekitUrl={callLivekitUrl}
+          livekitToken={callLivekitToken}
+          onEndCall={handleEndCall}
+        />
+      )}
     </SafeAreaView>
   );
 }

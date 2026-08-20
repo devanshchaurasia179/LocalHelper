@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 
-import { getActiveCall, type ActiveCallInfo } from '@/api/call.api';
+import { getActiveCall, getCallBalance, type ActiveCallInfo } from '@/api/call.api';
+import { getChatSocket } from '@/services/chat.socket';
 import { colors, spacing, radii, fonts } from './theme';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -16,6 +17,15 @@ function formatTime(totalSeconds: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function formatMinutes(totalSeconds: number): string {
+  if (totalSeconds <= 0) return '0 min';
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  if (m === 0) return `${s}s`;
+  if (s === 0) return `${m} min`;
+  return `${m} min ${s}s`;
+}
+
 function getRemainingSeconds(call: ActiveCallInfo): number {
   if (!call.allowedTime) return 0;
   if (!call.startedAt) return call.allowedTime;
@@ -25,115 +35,184 @@ function getRemainingSeconds(call: ActiveCallInfo): number {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function CallBalanceCard() {
+interface CallBalanceCardProps {
+  /** Called when user taps the call button — passes partnerId and partner info */
+  onCallPartner?: (partnerId: string, partnerInfo: { fullName: string; profilePhoto: string | null }) => void;
+}
+
+export default function CallBalanceCard({ onCallPartner }: CallBalanceCardProps) {
   const [activeCall, setActiveCall] = useState<ActiveCallInfo | null>(null);
+  const [callBalanceSeconds, setCallBalanceSeconds] = useState<number>(0);
+  const [balancePartner, setBalancePartner] = useState<{
+    _id: string;
+    fullName: string;
+    profilePhoto: string | null;
+  } | null>(null);
   const [remaining, setRemaining] = useState(0);
-  const [expired, setExpired] = useState(false);   // true when time hits 0
-  const [dismissed, setDismissed] = useState(false); // true after 2-min "ended" banner
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cleanup = useCallback(() => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-    if (dismissTimerRef.current) { clearTimeout(dismissTimerRef.current); dismissTimerRef.current = null; }
   }, []);
 
-  const loadActiveCall = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
-      const data = await getActiveCall();
-      if (data.activeCall) {
-        setActiveCall(data.activeCall);
-        setExpired(false);
-        setDismissed(false);
-        setRemaining(getRemainingSeconds(data.activeCall));
+      const [activeData, balanceData] = await Promise.all([
+        getActiveCall(),
+        getCallBalance(),
+      ]);
+
+      const call = activeData.activeCall;
+
+      // Only treat as active if it's actually in a live state with allowedTime
+      if (call && call.allowedTime && call.allowedTime > 0) {
+        const secs = getRemainingSeconds(call);
+        if (secs > 0) {
+          // Call is still live with time remaining
+          setActiveCall(call);
+          setRemaining(secs);
+        } else {
+          // allowedTime is fully consumed — don't show as active
+          setActiveCall(null);
+        }
       } else {
         setActiveCall(null);
       }
+
+      setCallBalanceSeconds(balanceData.callBalance ?? 0);
+      setBalancePartner(balanceData.partner ?? null);
     } catch {
       setActiveCall(null);
+      setCallBalanceSeconds(0);
+      setBalancePartner(null);
     }
   }, []);
 
   // Fetch on screen focus
   useFocusEffect(
     useCallback(() => {
-      loadActiveCall();
-    }, [loadActiveCall])
+      loadData();
+    }, [loadData])
   );
 
-  // Live countdown timer
+  // Listen for call_ended / call_time_exhausted to refresh immediately
+  useEffect(() => {
+    const socket = getChatSocket();
+    if (!socket) return;
+
+    const handleCallEnded = () => {
+      // Clear active call immediately and refresh balance
+      setActiveCall(null);
+      cleanup();
+      getCallBalance()
+        .then((data) => {
+          setCallBalanceSeconds(data.callBalance ?? 0);
+          setBalancePartner(data.partner ?? null);
+        })
+        .catch(() => {
+          setCallBalanceSeconds(0);
+          setBalancePartner(null);
+        });
+    };
+
+    socket.on('call_ended', handleCallEnded);
+    socket.on('call_time_exhausted', handleCallEnded);
+
+    return () => {
+      socket.off('call_ended', handleCallEnded);
+      socket.off('call_time_exhausted', handleCallEnded);
+    };
+  }, [cleanup]);
+
+  // Live countdown timer for active call
   useEffect(() => {
     cleanup();
 
-    if (!activeCall || !activeCall.startedAt || expired) return;
+    if (!activeCall || !activeCall.startedAt) return;
 
     timerRef.current = setInterval(() => {
       const secs = getRemainingSeconds(activeCall);
       setRemaining(secs);
 
       if (secs <= 0) {
-        // Time is up — switch to "expired" state
-        if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-        setExpired(true);
-
-        // Auto-dismiss the card after 2 minutes
-        dismissTimerRef.current = setTimeout(() => {
-          setDismissed(true);
-        }, 2 * 60 * 1000); // 2 minutes
+        cleanup();
+        // Time exhausted — clear the active call so it shows balance card instead
+        setActiveCall(null);
+        // Refresh balance from server
+        getCallBalance()
+          .then((data) => {
+            setCallBalanceSeconds(data.callBalance ?? 0);
+            setBalancePartner(data.partner ?? null);
+          })
+          .catch(() => {});
       }
     }, 1000);
 
     return cleanup;
-  }, [activeCall, expired, cleanup]);
+  }, [activeCall, cleanup]);
 
-  // Don't render if no active call, or card has been dismissed
-  if (!activeCall || !activeCall.allowedTime || dismissed) return null;
+  // ── Active call: show live countdown ──
+  if (activeCall && activeCall.allowedTime && remaining > 0) {
+    const partnerName = activeCall.partner.fullName;
+    const avatarUri = activeCall.partner.profilePhoto
+      ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(partnerName)}&background=1E40AF&color=fff&size=80`;
 
-  const partnerName = activeCall.partner.fullName;
-  const avatarUri = activeCall.partner.profilePhoto
-    ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(partnerName)}&background=1E40AF&color=fff&size=80`;
+    const isRinging = activeCall.status === 'ringing';
+    const isLow = remaining <= 60;
 
-  const isRinging = activeCall.status === 'ringing';
-  const isLow = !expired && remaining > 0 && remaining <= 60;
-
-  // ── Expired state: show "Purchased call duration ended" for 2 min ──
-  if (expired) {
     return (
-      <View style={[styles.card, styles.cardExpired]}>
+      <View style={[styles.card, isLow && styles.cardLow]}>
         <Image source={{ uri: avatarUri }} style={styles.avatar} contentFit="cover" />
+
         <View style={styles.info}>
           <Text style={styles.partnerName} numberOfLines={1}>{partnerName}</Text>
-          <Text style={styles.expiredText}>Purchased call duration ended</Text>
+          <View style={styles.statusRow}>
+            <View style={[styles.dot, isRinging ? styles.dotRinging : styles.dotActive]} />
+            <Text style={styles.statusText}>
+              {isRinging ? 'Ringing…' : 'On call'}
+            </Text>
+          </View>
         </View>
-        <View style={styles.expiredBadge}>
-          <Ionicons name="time" size={14} color="#DC2626" />
-          <Text style={styles.expiredBadgeText}>0:00</Text>
+
+        <View style={[styles.timeBox, isLow && styles.timeBoxLow]}>
+          <Ionicons name="time-outline" size={14} color={isLow ? '#DC2626' : '#1E40AF'} />
+          <Text style={[styles.timeText, isLow && styles.timeTextLow]}>
+            {formatTime(remaining)}
+          </Text>
         </View>
       </View>
     );
   }
 
-  // ── Active state: show countdown ──
+  // ── No active call — show call balance if > 0 ──
+  if (callBalanceSeconds <= 0) return null;
+
+  const partnerName = balancePartner?.fullName ?? 'Partner';
+  const avatarUri = balancePartner?.profilePhoto
+    ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(partnerName)}&background=1E40AF&color=fff&size=80`;
+
   return (
-    <View style={[styles.card, isLow && styles.cardLow]}>
+    <View style={styles.balanceCard}>
       <Image source={{ uri: avatarUri }} style={styles.avatar} contentFit="cover" />
-
       <View style={styles.info}>
-        <Text style={styles.partnerName} numberOfLines={1}>{partnerName}</Text>
-        <View style={styles.statusRow}>
-          <View style={[styles.dot, isRinging ? styles.dotRinging : styles.dotActive]} />
-          <Text style={styles.statusText}>
-            {isRinging ? 'Ringing…' : 'On call'}
-          </Text>
-        </View>
-      </View>
-
-      <View style={[styles.timeBox, isLow && styles.timeBoxLow]}>
-        <Ionicons name="time-outline" size={14} color={isLow ? '#DC2626' : '#1E40AF'} />
-        <Text style={[styles.timeText, isLow && styles.timeTextLow]}>
-          {formatTime(remaining)}
+        <Text style={styles.balanceTitle} numberOfLines={1}>{partnerName}</Text>
+        <Text style={styles.balanceSubtitle}>
+          {formatMinutes(callBalanceSeconds)} available
         </Text>
       </View>
+      <TouchableOpacity
+        style={styles.callBtn}
+        onPress={() => balancePartner && onCallPartner?.(balancePartner._id, {
+          fullName: balancePartner.fullName,
+          profilePhoto: balancePartner.profilePhoto,
+        })}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel={`Call ${partnerName}`}
+      >
+        <Ionicons name="call" size={16} color="#fff" />
+        <Text style={styles.callBtnText}>Call</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -141,6 +220,7 @@ export default function CallBalanceCard() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  // ── Active call card ──
   card: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -154,10 +234,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   cardLow: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
-  },
-  cardExpired: {
     backgroundColor: '#FEF2F2',
     borderColor: '#FECACA',
   },
@@ -217,24 +293,41 @@ const styles = StyleSheet.create({
   timeTextLow: {
     color: '#DC2626',
   },
-  // Expired state
-  expiredText: {
-    fontFamily: fonts.jostMedium,
-    fontSize: 12,
-    color: '#DC2626',
-  },
-  expiredBadge: {
+  // ── Call balance (no active call) ──
+  balanceCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#FEE2E2',
-    borderRadius: radii.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    padding: spacing.sm + 2,
+    backgroundColor: '#F0F9FF',
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    gap: spacing.sm,
   },
-  expiredBadgeText: {
+  balanceTitle: {
     fontFamily: fonts.jakartaSemiBold,
     fontSize: 14,
-    color: '#DC2626',
+    color: colors.textPrimary,
+  },
+  balanceSubtitle: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 12,
+    color: '#64748B',
+  },
+  callBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#1E40AF',
+    borderRadius: radii.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  callBtnText: {
+    fontFamily: fonts.jakartaSemiBold,
+    fontSize: 13,
+    color: '#fff',
   },
 });
