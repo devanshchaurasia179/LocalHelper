@@ -26,6 +26,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-audio",
       "@livekit/react-native-expo-plugin",
       "@config-plugins/react-native-webrtc",
       "expo-image",
@@ -53,7 +54,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "ad92917d-6a13-412a-bbcf-49bd68511c45"
+        "projectId": "7e5b9014-175a-41aa-8bb3-0888fe181337"
       }
     }
   }

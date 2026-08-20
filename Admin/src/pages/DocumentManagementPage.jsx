@@ -420,7 +420,7 @@ const DocumentTypeRow = ({
               </span>
               {dt.visibleToSubcategories.map((pair, idx) => {
                 const catName = pair.categoryId?.name || 'Cat'
-                const subName = pair.subcategoryId?.name || pair.subcategoryId || 'Sub'
+                const subName = pair.subcategoryId?.name || 'Sub'
                 return <CategoryPill key={idx} label={`${catName} › ${subName}`} color="blue" isSub />
               })}
             </div>
@@ -446,7 +446,7 @@ const DocumentTypeRow = ({
               </span>
               {dt.requiredForSubcategories.map((pair, idx) => {
                 const catName = pair.categoryId?.name || 'Cat'
-                const subName = pair.subcategoryId?.name || pair.subcategoryId || 'Sub'
+                const subName = pair.subcategoryId?.name || 'Sub'
                 return <CategoryPill key={idx} label={`${catName} › ${subName}`} color="violet" isSub />
               })}
             </div>

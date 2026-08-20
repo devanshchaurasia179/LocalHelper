@@ -1,5 +1,6 @@
 import DocumentType from "../../models/verification/DocumentType.js";
 import PartnerDocument from "../../models/verification/PartnerDocument.js";
+import Category from "../../models/Category.js";
 import { uploadToCloudinary } from "../../middleware/upload.middleware.js";
 import cloudinary from "../../config/cloudinary.js";
 
@@ -227,7 +228,34 @@ export const listDocumentTypes = async (req, res) => {
       .populate("updatedBy", "name email")
       .populate("visibleToCategories", "name icon")
       .populate("requiredForCategories", "name icon")
+      .populate("visibleToSubcategories.categoryId", "name subcategories")
+      .populate("requiredForSubcategories.categoryId", "name subcategories")
       .lean();
+
+    // Resolve subcategory names — subcategoryId is an embedded subdoc _id
+    // inside Category.subcategories, so Mongoose can't populate it directly.
+    for (const dt of documentTypes) {
+      for (const pair of dt.visibleToSubcategories || []) {
+        if (pair.categoryId && pair.categoryId.subcategories) {
+          const sub = pair.categoryId.subcategories.find(
+            (s) => s._id.toString() === pair.subcategoryId.toString()
+          );
+          pair.subcategoryId = sub ? { _id: pair.subcategoryId, name: sub.name } : { _id: pair.subcategoryId, name: "Unknown" };
+          // Remove the heavy subcategories array from the response
+          delete pair.categoryId.subcategories;
+        }
+      }
+      for (const pair of dt.requiredForSubcategories || []) {
+        if (pair.categoryId && pair.categoryId.subcategories) {
+          const sub = pair.categoryId.subcategories.find(
+            (s) => s._id.toString() === pair.subcategoryId.toString()
+          );
+          pair.subcategoryId = sub ? { _id: pair.subcategoryId, name: sub.name } : { _id: pair.subcategoryId, name: "Unknown" };
+          // Remove the heavy subcategories array from the response
+          delete pair.categoryId.subcategories;
+        }
+      }
+    }
 
     return res.status(200).json({
       total: documentTypes.length,
@@ -251,10 +279,32 @@ export const getDocumentTypeById = async (req, res) => {
       .populate("updatedBy", "name email")
       .populate("visibleToCategories", "name icon")
       .populate("requiredForCategories", "name icon")
+      .populate("visibleToSubcategories.categoryId", "name subcategories")
+      .populate("requiredForSubcategories.categoryId", "name subcategories")
       .lean();
 
     if (!docType) {
       return res.status(404).json({ message: "Document type not found." });
+    }
+
+    // Resolve subcategory names
+    for (const pair of docType.visibleToSubcategories || []) {
+      if (pair.categoryId && pair.categoryId.subcategories) {
+        const sub = pair.categoryId.subcategories.find(
+          (s) => s._id.toString() === pair.subcategoryId.toString()
+        );
+        pair.subcategoryId = sub ? { _id: pair.subcategoryId, name: sub.name } : { _id: pair.subcategoryId, name: "Unknown" };
+        delete pair.categoryId.subcategories;
+      }
+    }
+    for (const pair of docType.requiredForSubcategories || []) {
+      if (pair.categoryId && pair.categoryId.subcategories) {
+        const sub = pair.categoryId.subcategories.find(
+          (s) => s._id.toString() === pair.subcategoryId.toString()
+        );
+        pair.subcategoryId = sub ? { _id: pair.subcategoryId, name: sub.name } : { _id: pair.subcategoryId, name: "Unknown" };
+        delete pair.categoryId.subcategories;
+      }
     }
 
     // Include upload count so the admin knows how many partners have used this type.
