@@ -4,6 +4,7 @@ import {
   createCallAsPartner,
   blockPartner,
   unblockPartner,
+  getBlockedPartners,
   blockCustomer,
   unblockCustomer,
   acceptCall,
@@ -13,6 +14,9 @@ import {
   endCall,
   getCallHistory,
   getPartnerCallHistory,
+  rechargeCallBalance,
+  getCallBalance,
+  rechargeDuringCall,
 } from "../controllers/call.controller.js";
 import protectCustomer from "../middleware/customer.auth.middleware.js";
 import protectPartner from "../middleware/partner.auth.middleware.js";
@@ -25,11 +29,17 @@ router.post("/", protectCustomer, createCall);
 // ── Partner initiates a call to a customer ────────────────────────────────────
 router.post("/partner", protectPartner, createCallAsPartner);
 
+// ── Call balance (customer) ──────────────────────────────────────────────────
+router.get("/balance", protectCustomer, getCallBalance);
+router.post("/recharge", protectCustomer, rechargeCallBalance);
+router.post("/recharge-during-call", protectCustomer, rechargeDuringCall);
+
 // ── Call history ─────────────────────────────────────────────────────────────
 router.get("/history/customer", protectCustomer, getCallHistory);
 router.get("/history/partner", protectPartner, getPartnerCallHistory);
 
 // ── Block / Unblock (customer side) ──────────────────────────────────────────
+router.get("/blocked-partners", protectCustomer, getBlockedPartners);
 router.post("/block/partner/:partnerId", protectCustomer, blockPartner);
 router.delete("/block/partner/:partnerId", protectCustomer, unblockPartner);
 

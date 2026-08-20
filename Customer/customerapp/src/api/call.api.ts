@@ -84,6 +84,24 @@ export const unblockPartner = async (
   return response.data;
 };
 
+export interface BlockedPartner {
+  _id: string;
+  fullName: string;
+  profilePhoto?: string;
+  phone?: string;
+}
+
+/**
+ * Get list of blocked partners
+ */
+export const getBlockedPartners = async (): Promise<{
+  success: boolean;
+  blockedPartners: BlockedPartner[];
+}> => {
+  const response = await api.get('/calls/blocked-partners');
+  return response.data;
+};
+
 /**
  * Customer accepts an incoming call (from partner).
  */

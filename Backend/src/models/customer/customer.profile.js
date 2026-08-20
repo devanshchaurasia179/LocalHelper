@@ -24,6 +24,14 @@ const profileFields = {
     min: 0,
   },
 
+  // Call balance in seconds — tracks how much talk time is available.
+  // Rate: ₹20 per 10 min (600 seconds). Decreases after each call.
+  callBalance: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+
   // GeoJSON Point — used for finding nearby services
   // No defaults here — keep the field absent until customer sets it.
   // A default on the nested "type" field causes Mongoose to create

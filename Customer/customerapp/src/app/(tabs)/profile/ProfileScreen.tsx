@@ -277,6 +277,8 @@ export default function ProfileScreen() {
                 if (customer?.addresses?.length) openAddressEdit(customer.addresses[0]);
               }} />
               <View style={s.divider} />
+              <MenuRow icon="ban-outline" label="Blocked Partners" onPress={() => router.push('/(tabs)/profile/blocked-partners' as any)} />
+              <View style={s.divider} />
               <MenuRow
                 icon={customer?.phoneVerified ? 'shield-checkmark-outline' : 'shield-outline'}
                 label={`Phone: ${customer?.phone ?? '—'}`}

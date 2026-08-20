@@ -6,6 +6,8 @@ import Customer from "../models/customer/Customer.js";
 import Partner from "../models/partner/Partner.js";
 import { getIO } from "../socket/index.js";
 import { startCallRecording, stopCallRecording } from "../services/callRecording.service.js";
+import { createCommunicationTransaction } from "./customer.wallet.controller.js";
+import { startCallTimer, stopCallTimer } from "../socket/call.socket.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -47,9 +49,18 @@ export const createCall = async (req, res) => {
       });
     }
 
-    const customer = await Customer.findById(customerId).select("blockedPartners name");
+    const customer = await Customer.findById(customerId).select("blockedPartners name callBalance");
     if (!customer) {
       return res.status(404).json({ success: false, message: "Customer not found" });
+    }
+
+    // Check if customer has enough call balance (at least 60 seconds minimum)
+    if (!customer.callBalance || customer.callBalance < 60) {
+      return res.status(402).json({
+        success: false,
+        message: "Insufficient call balance. Please recharge to make calls.",
+        callBalance: customer.callBalance || 0,
+      });
     }
 
     if (customer.blockedPartners?.some((id) => id.equals(partnerId))) {
@@ -78,7 +89,7 @@ export const createCall = async (req, res) => {
       });
     }
 
-    // Create room & call record
+    // Create room & call record with allowedTime from customer's callBalance
     const roomName = `call_${crypto.randomUUID()}`;
 
     const call = await Call.create({
@@ -86,6 +97,8 @@ export const createCall = async (req, res) => {
       partner: partnerId,
       roomName,
       status: "ringing",
+      initiatedBy: "customer",
+      allowedTime: customer.callBalance, // seconds available for this call
     });
 
     // LiveKit token for customer
@@ -139,6 +152,7 @@ export const createCall = async (req, res) => {
         id: call._id,
         roomName: call.roomName,
         status: call.status,
+        allowedTime: call.allowedTime,
       },
       livekit: {
         url: process.env.LIVEKIT_URL,
@@ -196,6 +210,8 @@ export const createCallAsPartner = async (req, res) => {
       partner: partnerId,
       roomName,
       status: "ringing",
+      initiatedBy: "partner",
+      allowedTime: null, // Partner-initiated calls are unlimited
     });
 
     // LiveKit token for partner
@@ -297,6 +313,29 @@ export const unblockPartner = async (req, res) => {
   }
 };
 
+export const getBlockedPartners = async (req, res) => {
+  try {
+    const customerId = req.customerId;
+
+    const customer = await Customer.findById(customerId)
+      .select("blockedPartners")
+      .populate("blockedPartners", "fullName profilePhoto phone")
+      .lean();
+
+    if (!customer) {
+      return res.status(404).json({ success: false, message: "Customer not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      blockedPartners: customer.blockedPartners || [],
+    });
+  } catch (error) {
+    console.error("Get blocked partners error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch blocked partners" });
+  }
+};
+
 export const blockCustomer = async (req, res) => {
   try {
     const partnerId = req.partnerId;
@@ -377,6 +416,17 @@ export const acceptCall = async (req, res) => {
       console.error("[Call] Recording start error (non-blocking):", err.message)
     );
 
+    // Start call timer for customer-initiated calls
+    if (call.initiatedBy === "customer" && call.allowedTime) {
+      try {
+        const io = getIO();
+        const chatNS = io.of("/chat");
+        startCallTimer(chatNS, call);
+      } catch (timerErr) {
+        console.error("[Call] Timer start error (non-blocking):", timerErr.message);
+      }
+    }
+
     // Notify customer via socket that call was accepted — include LiveKit details
     // so the customer can now connect to the room
     try {
@@ -395,6 +445,7 @@ export const acceptCall = async (req, res) => {
         roomName: call.roomName,
         partnerId: partnerId.toString(),
         partnerName: partner?.fullName || "Partner",
+        allowedTime: call.allowedTime,
         livekit: {
           url: process.env.LIVEKIT_URL,
           token: customerJwt,
@@ -642,6 +693,36 @@ export const endCall = async (req, res) => {
     call.duration = duration;
     await call.save();
 
+    // ── Deduct call balance from customer (only for customer-initiated calls) ──
+    if (call.initiatedBy === "customer" && duration > 0) {
+      // Stop the call timer
+      stopCallTimer(call._id.toString());
+
+      const deductSeconds = Math.min(duration, call.allowedTime || duration);
+      await Customer.findByIdAndUpdate(call.customer, {
+        $inc: { callBalance: -deductSeconds },
+      });
+
+      // Calculate charge: ₹20 per 10 min = ₹2/min = ₹0.0333/sec
+      const chargeAmount = Math.ceil((deductSeconds / 600) * 20); // ₹20 per 600 seconds
+      if (chargeAmount > 0) {
+        try {
+          await createCommunicationTransaction(
+            call.customer,
+            call.partner,
+            "call",
+            chargeAmount,
+            `Call charge (${Math.ceil(deductSeconds / 60)} min)`
+          );
+        } catch (txError) {
+          console.error("[Call] Transaction recording error (non-blocking):", txError.message);
+        }
+      }
+    } else {
+      // Still stop the timer if it exists (partner-initiated won't have one, but just in case)
+      stopCallTimer(call._id.toString());
+    }
+
     // Stop recording (non-blocking — don't let failure affect call termination)
     stopCallRecording(call).catch((err) =>
       console.error("[Call] Recording stop error (non-blocking):", err.message)
@@ -681,6 +762,209 @@ export const endCall = async (req, res) => {
   }
 };
 
+
+// ─── Call Balance: Recharge ────────────────────────────────────────────────────
+
+/**
+ * POST /api/calls/recharge
+ * 🔒 customer_token
+ *
+ * Body: { amount } — amount in ₹. Rate: ₹20 = 10 min (600 seconds)
+ *
+ * Deducts from wallet balance and adds to callBalance (in seconds).
+ */
+export const rechargeCallBalance = async (req, res) => {
+  try {
+    const customerId = req.customerId;
+    const { amount } = req.body;
+
+    if (!amount || isNaN(amount) || Number(amount) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount must be a positive number.",
+      });
+    }
+
+    const rechargeAmount = Number(amount);
+
+    // Rate: ₹20 per 10 min = ₹2 per minute = 30 seconds per ₹1
+    const secondsToAdd = Math.floor((rechargeAmount / 20) * 600);
+
+    if (secondsToAdd < 60) {
+      return res.status(400).json({
+        success: false,
+        message: "Minimum recharge is ₹2 (1 minute).",
+      });
+    }
+
+    const customer = await Customer.findById(customerId);
+    if (!customer) {
+      return res.status(404).json({ success: false, message: "Customer not found" });
+    }
+
+    if (customer.walletBalance < rechargeAmount) {
+      return res.status(402).json({
+        success: false,
+        message: "Insufficient wallet balance. Please top up your wallet first.",
+        walletBalance: customer.walletBalance,
+      });
+    }
+
+    // Deduct from wallet and add to callBalance
+    const newWalletBalance = customer.walletBalance - rechargeAmount;
+    const newCallBalance = (customer.callBalance || 0) + secondsToAdd;
+
+    await Customer.findByIdAndUpdate(customerId, {
+      $inc: { walletBalance: -rechargeAmount, callBalance: secondsToAdd },
+    });
+
+    // Record transaction
+    const CustomerTransaction = (await import("../models/customer/customer.wallet.js")).default;
+    await CustomerTransaction.create({
+      customer: customerId,
+      type: "call",
+      amount: rechargeAmount,
+      direction: "debit",
+      balanceAfter: newWalletBalance,
+      status: "completed",
+      description: `Call recharge: ${Math.floor(secondsToAdd / 60)} min added`,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `${Math.floor(secondsToAdd / 60)} minutes added to call balance.`,
+      callBalance: newCallBalance,
+      callBalanceMinutes: Math.floor(newCallBalance / 60),
+      walletBalance: newWalletBalance,
+    });
+  } catch (error) {
+    console.error("Recharge call balance error:", error);
+    return res.status(500).json({ success: false, message: "Failed to recharge call balance" });
+  }
+};
+
+/**
+ * GET /api/calls/balance
+ * 🔒 customer_token
+ *
+ * Returns the customer's current call balance.
+ */
+export const getCallBalance = async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.customerId).select("callBalance");
+    if (!customer) {
+      return res.status(404).json({ success: false, message: "Customer not found" });
+    }
+
+    const callBalance = customer.callBalance || 0;
+
+    return res.status(200).json({
+      success: true,
+      callBalance,
+      callBalanceMinutes: Math.floor(callBalance / 60),
+      rate: {
+        amount: 20,
+        minutes: 10,
+        description: "₹20 per 10 minutes",
+      },
+    });
+  } catch (error) {
+    console.error("Get call balance error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch call balance" });
+  }
+};
+
+/**
+ * POST /api/calls/recharge-during-call
+ * 🔒 customer_token
+ *
+ * Body: { callId, amount }
+ *
+ * Recharges call balance AND extends the current active call's allowed time.
+ * Used when customer gets "call_time_warning" and wants to continue.
+ */
+export const rechargeDuringCall = async (req, res) => {
+  try {
+    const customerId = req.customerId;
+    const { callId, amount } = req.body;
+
+    if (!callId || !amount || isNaN(amount) || Number(amount) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "callId and a positive amount are required.",
+      });
+    }
+
+    const rechargeAmount = Number(amount);
+    const secondsToAdd = Math.floor((rechargeAmount / 20) * 600);
+
+    if (secondsToAdd < 60) {
+      return res.status(400).json({
+        success: false,
+        message: "Minimum recharge is ₹2 (1 minute).",
+      });
+    }
+
+    const customer = await Customer.findById(customerId);
+    if (!customer) {
+      return res.status(404).json({ success: false, message: "Customer not found" });
+    }
+
+    if (customer.walletBalance < rechargeAmount) {
+      return res.status(402).json({
+        success: false,
+        message: "Insufficient wallet balance.",
+        walletBalance: customer.walletBalance,
+      });
+    }
+
+    // Verify the call belongs to this customer and is active
+    const call = await Call.findById(callId);
+    if (!call || !call.customer.equals(customerId)) {
+      return res.status(404).json({ success: false, message: "Call not found" });
+    }
+    if (!["accepted", "ongoing"].includes(call.status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Call is not active.",
+      });
+    }
+
+    // Deduct from wallet, add to callBalance
+    await Customer.findByIdAndUpdate(customerId, {
+      $inc: { walletBalance: -rechargeAmount, callBalance: secondsToAdd },
+    });
+
+    // Record transaction
+    const CustomerTransaction = (await import("../models/customer/customer.wallet.js")).default;
+    const newWalletBalance = customer.walletBalance - rechargeAmount;
+    await CustomerTransaction.create({
+      customer: customerId,
+      type: "call",
+      amount: rechargeAmount,
+      direction: "debit",
+      balanceAfter: newWalletBalance,
+      status: "completed",
+      description: `Mid-call recharge: ${Math.floor(secondsToAdd / 60)} min added`,
+    });
+
+    // Extend the active call timer
+    const { extendCallTime } = await import("../socket/call.socket.js");
+    const io = getIO();
+    const chatNS = io.of("/chat");
+    await extendCallTime(chatNS, callId, secondsToAdd);
+
+    return res.status(200).json({
+      success: true,
+      message: `${Math.floor(secondsToAdd / 60)} minutes added. Call extended.`,
+      callBalance: (customer.callBalance || 0) + secondsToAdd,
+      walletBalance: newWalletBalance,
+    });
+  } catch (error) {
+    console.error("Recharge during call error:", error);
+    return res.status(500).json({ success: false, message: "Failed to recharge" });
+  }
+};
 
 // ─── Call History ─────────────────────────────────────────────────────────────
 

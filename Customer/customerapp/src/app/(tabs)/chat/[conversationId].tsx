@@ -18,6 +18,7 @@ import {
   Image,
   ActionSheetIOS,
   Alert,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,6 +27,7 @@ import * as ImagePicker from "expo-image-picker";
 import { Fonts, Spacing } from "@/constants/theme";
 import { colors, fonts, spacing } from "../home/theme";
 import { useChatRoom } from "@/hooks/useChatRoom";
+import { blockPartner, unblockPartner } from "@/api/call.api";
 import type { ChatMessage } from "@/api/chat.api";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -154,11 +156,13 @@ export default function ChatRoomScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     conversationId: string;
+    partnerId?: string;
     partnerName?: string;
     partnerPhoto?: string;
   }>();
 
   const conversationId = params.conversationId!;
+  const partnerId = params.partnerId ?? "";
   const partnerName = params.partnerName ?? "Partner";
   const partnerPhoto = params.partnerPhoto;
 
@@ -180,6 +184,47 @@ export default function ChatRoomScreen() {
   const [inputText, setInputText] = useState("");
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Three-dot menu state ──────────────────────────────────────────────────
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockLoading, setBlockLoading] = useState(false);
+
+  const handleBlockToggle = useCallback(() => {
+    if (!partnerId) return;
+    setMenuVisible(false);
+
+    const action = isBlocked ? "Unblock" : "Block";
+    const message = isBlocked
+      ? `Unblock ${partnerName}? They will be able to call and message you again.`
+      : `Block ${partnerName}? They won't be able to call or message you.`;
+
+    Alert.alert(`${action} Partner`, message, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: action,
+        style: isBlocked ? "default" : "destructive",
+        onPress: async () => {
+          setBlockLoading(true);
+          try {
+            if (isBlocked) {
+              await unblockPartner(partnerId);
+              setIsBlocked(false);
+              Alert.alert("Unblocked", `${partnerName} has been unblocked.`);
+            } else {
+              await blockPartner(partnerId);
+              setIsBlocked(true);
+              Alert.alert("Blocked", `${partnerName} has been blocked.`);
+            }
+          } catch (err: any) {
+            Alert.alert("Error", err?.response?.data?.message || `Failed to ${action.toLowerCase()} partner.`);
+          } finally {
+            setBlockLoading(false);
+          }
+        },
+      },
+    ]);
+  }, [partnerId, partnerName, isBlocked]);
 
   // ── Scroll to bottom when new message arrives ────────────────────────────
 
@@ -350,8 +395,42 @@ export default function ChatRoomScreen() {
             )}
           </View>
         </View>
-        <View style={{ width: 24 }} />
+        <Pressable
+          onPress={() => setMenuVisible(true)}
+          hitSlop={8}
+          accessibilityLabel="More options"
+          style={styles.menuBtn}
+        >
+          <Ionicons name="ellipsis-vertical" size={20} color={colors.textPrimary} />
+        </Pressable>
       </View>
+
+      {/* ── Three-dot menu modal ────────────────────────────────────────── */}
+      <Modal
+        visible={menuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuVisible(false)}
+      >
+        <Pressable style={styles.menuOverlay} onPress={() => setMenuVisible(false)}>
+          <View style={styles.menuDropdown}>
+            <Pressable
+              style={styles.menuItem}
+              onPress={handleBlockToggle}
+              disabled={blockLoading}
+            >
+              <Ionicons
+                name={isBlocked ? "lock-open-outline" : "ban-outline"}
+                size={18}
+                color={isBlocked ? BRAND : "#EF4444"}
+              />
+              <Text style={[styles.menuItemText, !isBlocked && { color: "#EF4444" }]}>
+                {blockLoading ? "Processing..." : isBlocked ? "Unblock Partner" : "Block Partner"}
+              </Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
 
       {/* Messages + Input wrapped together so keyboard shrinks the list */}
       <KeyboardAvoidingView
@@ -602,4 +681,44 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   sendBtnDisabled: { backgroundColor: "#9CA3AF" },
+
+  // ── Three-dot menu styles ─────────────────────────────────────────────────
+  menuBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    justifyContent: "flex-start",
+    alignItems: "flex-end",
+  },
+  menuDropdown: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    marginTop: 60,
+    marginRight: 16,
+    paddingVertical: 8,
+    minWidth: 180,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  menuItemText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#1C1C28",
+  },
 });

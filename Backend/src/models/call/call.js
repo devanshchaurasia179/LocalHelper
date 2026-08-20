@@ -53,6 +53,22 @@ const callSchema = new mongoose.Schema(
       default: 0,
     },
 
+    // Who initiated the call: "customer" or "partner"
+    // Partner-initiated calls are unlimited (no time deduction).
+    initiatedBy: {
+      type: String,
+      enum: ["customer", "partner"],
+      default: "customer",
+    },
+
+    // Allowed talk time (in seconds) for this call.
+    // Set from customer's callBalance when customer initiates a call.
+    // null = unlimited (partner-initiated calls).
+    allowedTime: {
+      type: Number,
+      default: null,
+    },
+
     // ── Recording (LiveKit Egress → Cloudflare R2) ───────────────────────────
     recording: {
       egressId: {
