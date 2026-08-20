@@ -109,12 +109,13 @@ const styles = StyleSheet.create({
   },
   pill: {
     height: 40,
-    borderRadius: radii.pill,
+    borderRadius: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
     gap: 6,
+    overflow: 'hidden',
   },
   pillActive: {
     backgroundColor: colors.primary,

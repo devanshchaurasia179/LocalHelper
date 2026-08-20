@@ -15,6 +15,7 @@ import {
   Image,
   RefreshControl,
   Dimensions,
+  Linking,
 } from "react-native";
 import React from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -414,6 +415,23 @@ function LiveBookingCard({
                 <Ionicons name="play" size={13} color={colors.white} />
                 <Text style={liveStyles.btnText}>Start Work</Text>
               </Pressable>
+              {booking.serviceAddress?.coordinates?.coordinates && (
+                <Pressable
+                  style={[liveStyles.btn, liveStyles.btnLocation]}
+                  onPress={() => {
+                    const [lng, lat] = booking.serviceAddress!.coordinates!.coordinates;
+                    const url = Platform.select({
+                      ios: `maps:0,0?q=${lat},${lng}`,
+                      default: `geo:${lat},${lng}?q=${lat},${lng}`,
+                    });
+                    Linking.openURL(url);
+                  }}
+                  accessibilityLabel="Show customer location on map"
+                >
+                  <Ionicons name="navigate" size={13} color={colors.white} />
+                  <Text style={liveStyles.btnText}>Location</Text>
+                </Pressable>
+              )}
               <Pressable
                 style={[liveStyles.btn, liveStyles.btnDecline]}
                 onPress={onDecline} disabled={isActioning}
@@ -425,14 +443,32 @@ function LiveBookingCard({
             </>
           )}
           {status === "in_progress" && (
-            <Pressable
-              style={[liveStyles.btn, liveStyles.btnComplete]}
-              onPress={onCompletePress} disabled={isActioning}
-              accessibilityLabel="Complete job — enter customer code"
-            >
-              <Ionicons name="keypad-outline" size={14} color={colors.white} />
-              <Text style={liveStyles.btnText}>Complete — Enter Code</Text>
-            </Pressable>
+            <>
+              <Pressable
+                style={[liveStyles.btn, liveStyles.btnComplete]}
+                onPress={onCompletePress} disabled={isActioning}
+                accessibilityLabel="Complete job — enter customer code"
+              >
+                <Ionicons name="keypad-outline" size={14} color={colors.white} />
+                <Text style={liveStyles.btnText}>Complete — Enter Code</Text>
+              </Pressable>
+              {booking.serviceAddress?.coordinates?.coordinates && (
+                <Pressable
+                  style={[liveStyles.btn, liveStyles.btnLocation]}
+                  onPress={() => {
+                    const [lng, lat] = booking.serviceAddress!.coordinates!.coordinates;
+                    const url = Platform.select({
+                      ios: `maps:0,0?q=${lat},${lng}`,
+                      default: `geo:${lat},${lng}?q=${lat},${lng}`,
+                    });
+                    Linking.openURL(url);
+                  }}
+                  accessibilityLabel="Show customer location on map"
+                >
+                  <Ionicons name="navigate" size={13} color={colors.white} />
+                </Pressable>
+              )}
+            </>
           )}
         </View>
       </View>
@@ -472,6 +508,7 @@ const liveStyles = StyleSheet.create({
   btnDecline: { backgroundColor: colors.error },
   btnStart: { backgroundColor: "#6366F1" },
   btnComplete: { backgroundColor: colors.success },
+  btnLocation: { backgroundColor: "#2563EB", flex: 0.6 },
   btnText: { fontFamily: fonts.jakartaSemiBold, fontSize: 12, color: colors.white },
 });
 

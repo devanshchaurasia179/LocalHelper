@@ -310,7 +310,18 @@ export default function Header({
       if (!coords) coords = await geocodeAddress(addr);
 
       if (coords) {
-        await updateAddress(addr._id, addr, coords);
+        // Pass only plain address fields — not the full addr object which includes
+        // _id, location (GeoJSON format), etc. that don't belong in the request body.
+        const addressPayload = {
+          label:    addr.label    || 'Home',
+          house:    addr.house    || '',
+          street:   addr.street   || '',
+          locality: addr.locality || '',
+          city:     addr.city,
+          state:    addr.state,
+          pincode:  addr.pincode,
+        };
+        await updateAddress(addr._id, addressPayload, coords);
       }
 
       // Bust the cache and trigger a refetch — pass the resolved coords directly

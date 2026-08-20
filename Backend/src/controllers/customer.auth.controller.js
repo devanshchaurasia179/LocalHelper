@@ -12,6 +12,45 @@ const generateOtp = () => String(Math.floor(100000 + Math.random() * 900000));
 const signToken = (customerId) =>
   jwt.sign({ id: customerId }, process.env.JWT_SECRET, { expiresIn: "7d" });
 
+/**
+ * Normalize incoming location data to { latitude, longitude }.
+ * Handles both formats:
+ *   1. { latitude, longitude }  — sent by the frontend form
+ *   2. { type: "Point", coordinates: [lng, lat] }  — GeoJSON (if accidentally spread)
+ * Returns null when coordinates are invalid or missing.
+ */
+const extractCoordinates = (location) => {
+  if (!location) return null;
+
+  let lat, lng;
+
+  if (typeof location.latitude === "number" && typeof location.longitude === "number") {
+    lat = location.latitude;
+    lng = location.longitude;
+  } else if (
+    Array.isArray(location.coordinates) &&
+    location.coordinates.length >= 2
+  ) {
+    // GeoJSON format: coordinates = [longitude, latitude]
+    lng = location.coordinates[0];
+    lat = location.coordinates[1];
+  } else {
+    return null;
+  }
+
+  // Validate coordinate ranges (lat: -90 to 90, lng: -180 to 180)
+  if (
+    typeof lat !== "number" || typeof lng !== "number" ||
+    Number.isNaN(lat) || Number.isNaN(lng) ||
+    lat < -90 || lat > 90 ||
+    lng < -180 || lng > 180
+  ) {
+    return null;
+  }
+
+  return { latitude: lat, longitude: lng };
+};
+
 // ─── STEP 1 : Send OTP ───────────────────────────────────────────────────────
 /**
  * POST /api/customer/auth/send-otp
@@ -340,7 +379,12 @@ export const addAddress = async (req, res) => {
       });
     }
 
-    if (!/^\d{6}$/.test(pincode)) {
+    // Ensure values are strings before trimming
+    const cityStr   = String(city);
+    const stateStr  = String(state);
+    const pincodeStr = String(pincode);
+
+    if (!/^\d{6}$/.test(pincodeStr.trim())) {
       return res.status(400).json({ message: "Pincode must be exactly 6 digits." });
     }
 
@@ -350,31 +394,54 @@ export const addAddress = async (req, res) => {
     }
 
     const newAddress = {
-      label:    label?.trim()    || "Home",
-      house:    house?.trim()    || "",
-      street:   street?.trim()   || "",
-      locality: locality?.trim() || "",
-      city:     city.trim(),
-      state:    state.trim(),
-      pincode:  pincode.trim(),
+      label:    label?.trim?.()    || "Home",
+      house:    house?.trim?.()    || "",
+      street:   street?.trim?.()   || "",
+      locality: locality?.trim?.() || "",
+      city:     cityStr.trim(),
+      state:    stateStr.trim(),
+      pincode:  pincodeStr.trim(),
     };
 
     // ── Store GPS coords inside the address subdocument ───────────────────
-    if (location?.latitude && location?.longitude) {
+    // Accept both { latitude, longitude } and GeoJSON { type, coordinates } formats
+    const coords = extractCoordinates(location);
+    if (coords) {
       newAddress.location = {
         type: "Point",
-        coordinates: [location.longitude, location.latitude],
+        coordinates: [coords.longitude, coords.latitude],
       };
     }
 
     customer.addresses.push(newAddress);
 
     // Also update the top-level currentLocation — used for proximity matching
-    if (location?.latitude && location?.longitude) {
+    if (coords) {
       customer.currentLocation = {
         type: "Point",
-        coordinates: [location.longitude, location.latitude],
+        coordinates: [coords.longitude, coords.latitude],
       };
+    }
+
+    // Safety: remove corrupted currentLocation (e.g. missing coordinates)
+    // that would cause the 2dsphere index to reject the save
+    if (
+      customer.currentLocation &&
+      (!Array.isArray(customer.currentLocation.coordinates) ||
+        customer.currentLocation.coordinates.length < 2)
+    ) {
+      customer.currentLocation = undefined;
+    }
+
+    // Also clean up any corrupted location in addresses subdocuments
+    for (const a of customer.addresses) {
+      if (
+        a.location &&
+        (!Array.isArray(a.location.coordinates) ||
+          a.location.coordinates.length < 2)
+      ) {
+        a.location = undefined;
+      }
     }
 
     await customer.save();
@@ -384,7 +451,10 @@ export const addAddress = async (req, res) => {
       addresses: customer.addresses,
     });
   } catch (error) {
-    console.error("addAddress error:", error);
+    console.error("addAddress error:", error?.message || error);
+    if (error?.name === "ValidationError") {
+      return res.status(400).json({ message: error.message });
+    }
     return res.status(500).json({ message: "Internal server error." });
   }
 };
@@ -409,7 +479,12 @@ export const updateAddress = async (req, res) => {
       });
     }
 
-    if (!/^\d{6}$/.test(pincode)) {
+    // Ensure values are strings before trimming
+    const cityStr   = String(city);
+    const stateStr  = String(state);
+    const pincodeStr = String(pincode);
+
+    if (!/^\d{6}$/.test(pincodeStr.trim())) {
       return res.status(400).json({ message: "Pincode must be exactly 6 digits." });
     }
 
@@ -423,28 +498,51 @@ export const updateAddress = async (req, res) => {
       return res.status(404).json({ message: "Address not found." });
     }
 
-    addr.label    = label?.trim()    || addr.label    || "Home";
-    addr.house    = house?.trim()    ?? addr.house    ?? "";
-    addr.street   = street?.trim()   ?? addr.street   ?? "";
-    addr.locality = locality?.trim() ?? addr.locality ?? "";
-    addr.city     = city.trim();
-    addr.state    = state.trim();
-    addr.pincode  = pincode.trim();
+    addr.label    = label?.trim?.()    || addr.label    || "Home";
+    addr.house    = house?.trim?.()    ?? addr.house    ?? "";
+    addr.street   = street?.trim?.()   ?? addr.street   ?? "";
+    addr.locality = locality?.trim?.() ?? addr.locality ?? "";
+    addr.city     = cityStr.trim();
+    addr.state    = stateStr.trim();
+    addr.pincode  = pincodeStr.trim();
 
     // ── Store GPS coords inside the address subdocument ───────────────────
-    if (location?.latitude && location?.longitude) {
+    // Accept both { latitude, longitude } and GeoJSON { type, coordinates } formats
+    const coords = extractCoordinates(location);
+    if (coords) {
       addr.location = {
         type: "Point",
-        coordinates: [location.longitude, location.latitude],
+        coordinates: [coords.longitude, coords.latitude],
       };
     }
 
     // Also update the top-level currentLocation — used for proximity matching
-    if (location?.latitude && location?.longitude) {
+    if (coords) {
       customer.currentLocation = {
         type: "Point",
-        coordinates: [location.longitude, location.latitude],
+        coordinates: [coords.longitude, coords.latitude],
       };
+    }
+
+    // Safety: remove corrupted currentLocation (e.g. missing coordinates)
+    // that would cause the 2dsphere index to reject the save
+    if (
+      customer.currentLocation &&
+      (!Array.isArray(customer.currentLocation.coordinates) ||
+        customer.currentLocation.coordinates.length < 2)
+    ) {
+      customer.currentLocation = undefined;
+    }
+
+    // Also clean up any corrupted location in addresses subdocuments
+    for (const a of customer.addresses) {
+      if (
+        a.location &&
+        (!Array.isArray(a.location.coordinates) ||
+          a.location.coordinates.length < 2)
+      ) {
+        a.location = undefined;
+      }
     }
 
     await customer.save();
@@ -454,7 +552,10 @@ export const updateAddress = async (req, res) => {
       addresses: customer.addresses,
     });
   } catch (error) {
-    console.error("updateAddress error:", error);
+    console.error("updateAddress error:", error?.message || error);
+    if (error?.name === "ValidationError") {
+      return res.status(400).json({ message: error.message });
+    }
     return res.status(500).json({ message: "Internal server error." });
   }
 };

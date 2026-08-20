@@ -54,6 +54,52 @@ export const getCustomerCallHistory = async (page = 1, limit = 20): Promise<Call
 };
 
 /**
+ * Get customer's current call balance.
+ */
+export interface CallBalanceResponse {
+  success: boolean;
+  callBalance: number; // seconds
+  callBalanceMinutes: number;
+  rate: {
+    amount: number;
+    minutes: number;
+    description: string;
+  };
+}
+
+export const getCallBalance = async (): Promise<CallBalanceResponse> => {
+  const response = await api.get<CallBalanceResponse>('/calls/balance');
+  return response.data;
+};
+
+/**
+ * Get the customer's current active call (ringing/accepted/ongoing).
+ * Returns null if no active call.
+ */
+export interface ActiveCallInfo {
+  _id: string;
+  partner: {
+    _id: string;
+    fullName: string;
+    profilePhoto: string | null;
+  };
+  status: 'ringing' | 'accepted' | 'ongoing';
+  allowedTime: number | null; // total seconds allowed
+  startedAt: string | null;   // ISO date or null if still ringing
+  createdAt: string;
+}
+
+export interface ActiveCallResponse {
+  success: boolean;
+  activeCall: ActiveCallInfo | null;
+}
+
+export const getActiveCall = async (): Promise<ActiveCallResponse> => {
+  const response = await api.get<ActiveCallResponse>('/calls/active');
+  return response.data;
+};
+
+/**
  * Customer initiates a call to a partner.
  * Auth is handled via cookies (withCredentials: true on the api instance).
  */

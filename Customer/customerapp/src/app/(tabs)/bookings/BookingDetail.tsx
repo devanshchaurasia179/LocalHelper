@@ -8,6 +8,8 @@ import {
   ScrollView,
   Alert,
   Animated,
+  Linking,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radii, typography, fonts } from '../home/theme';
@@ -388,6 +390,24 @@ export default function BookingDetail({
                     </Text>
                   </View>
                 </View>
+                {serviceAddress.coordinates?.coordinates && (
+                  <TouchableOpacity
+                    style={styles.showLocationBtn}
+                    onPress={() => {
+                      const [lng, lat] = serviceAddress.coordinates!.coordinates;
+                      const url = Platform.select({
+                        ios: `maps:0,0?q=${lat},${lng}`,
+                        default: `geo:${lat},${lng}?q=${lat},${lng}`,
+                      })!;
+                      Linking.openURL(url);
+                    }}
+                    activeOpacity={0.8}
+                    accessibilityLabel="Show location on map"
+                  >
+                    <Ionicons name="navigate-outline" size={15} color="#fff" />
+                    <Text style={styles.showLocationBtnText}>Show on Map</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
 
@@ -581,6 +601,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textPrimary,
     marginBottom: 2,
+  },
+  showLocationBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#2563EB',
+    borderRadius: radii.pill,
+    paddingVertical: 10,
+    marginTop: spacing.sm,
+  },
+  showLocationBtnText: {
+    fontFamily: fonts.jakartaSemiBold,
+    fontSize: 13,
+    color: '#fff',
   },
 
   // Cancellation

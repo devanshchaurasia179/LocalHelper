@@ -16,6 +16,7 @@ import PromoBanner, { PromoSlide } from './PromoBanner';
 import BottomNav from './BottomNav';
 import NearbyServicesSection, { NearbyServicesSkeleton } from './NearbyServicesSection';
 import ActiveBookingCard from './ActiveBookingCard';
+import CallBalanceCard from './CallBalanceCard';
 
 import { useNearbyServices } from '@/hooks/useNearbyServices';
 import type { NearbyCategory } from '@/api/nearby.api';
@@ -205,6 +206,9 @@ export default function Dashboard() {
               onBookPress={(slide) => console.log('Book', slide.serviceName)}
             />
           </View>
+
+          {/* ── Call Balance ── */}
+          <CallBalanceCard />
 
           {/* ── Active Booking ── */}
           <ActiveBookingCard />

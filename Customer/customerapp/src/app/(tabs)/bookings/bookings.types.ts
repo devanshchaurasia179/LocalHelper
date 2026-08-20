@@ -14,6 +14,11 @@ export interface ServiceAddress {
   city: string;
   state: string;
   pincode?: string;
+  label?: string;
+  coordinates?: {
+    type: string;
+    coordinates: [number, number]; // [longitude, latitude]
+  };
 }
 
 export interface BookingReview {

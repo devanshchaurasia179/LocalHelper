@@ -26,6 +26,10 @@ export interface ServiceAddress {
   city: string;
   state: string;
   pincode?: string;
+  coordinates?: {
+    type: string;
+    coordinates: [number, number]; // [longitude, latitude]
+  };
 }
 
 export interface Booking {
