@@ -49,18 +49,29 @@ export const createCall = async (req, res) => {
       });
     }
 
-    const customer = await Customer.findById(customerId).select("blockedPartners name callBalance");
+    const customer = await Customer.findById(customerId).select("blockedPartners name callBalance walletBalance");
     if (!customer) {
       return res.status(404).json({ success: false, message: "Customer not found" });
     }
 
-    // Check if customer has enough call balance (at least 60 seconds minimum)
-    if (!customer.callBalance || customer.callBalance < 60) {
-      return res.status(402).json({
-        success: false,
-        message: "Insufficient call balance. Please recharge to make calls.",
-        callBalance: customer.callBalance || 0,
-      });
+    // Fetch partner's call charges to determine billing model
+    const partnerForCharges = await Partner.findById(partnerId).select("callCharges");
+    const partnerCallCharge = partnerForCharges?.callCharges?.amount ?? 0;
+
+    // If the partner uses per-call charges (flat fee), the customer pays via
+    // the /api/bookings/call/:partnerId endpoint BEFORE reaching here.
+    // In that case we skip the callBalance check.
+    // If no partner call charges are set, fall back to the callBalance (recharge) model.
+    if (partnerCallCharge === 0) {
+      // Recharge-based model: check callBalance (seconds)
+      if (!customer.callBalance || customer.callBalance < 60) {
+        return res.status(402).json({
+          success: false,
+          message: "Insufficient call balance. Please recharge to make calls.",
+          code: "INSUFFICIENT_BALANCE",
+          callBalance: customer.callBalance || 0,
+        });
+      }
     }
 
     if (customer.blockedPartners?.some((id) => id.equals(partnerId))) {
@@ -89,8 +100,15 @@ export const createCall = async (req, res) => {
       });
     }
 
-    // Create room & call record with allowedTime from customer's callBalance
+    // Create room & call record
     const roomName = `call_${crypto.randomUUID()}`;
+
+    // Determine allowed time:
+    // - If partner has callCharges (flat-fee model): use partner's durationMinutes
+    // - Otherwise (recharge model): use customer's callBalance in seconds
+    const allowedTime = partnerCallCharge > 0
+      ? (partnerForCharges.callCharges.durationMinutes ?? 10) * 60 // convert minutes to seconds
+      : customer.callBalance;
 
     const call = await Call.create({
       customer: customerId,
@@ -98,7 +116,7 @@ export const createCall = async (req, res) => {
       roomName,
       status: "ringing",
       initiatedBy: "customer",
-      allowedTime: customer.callBalance, // seconds available for this call
+      allowedTime,
     });
 
     // LiveKit token for customer
