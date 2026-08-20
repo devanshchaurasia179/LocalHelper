@@ -1,6 +1,8 @@
 import jwt from "jsonwebtoken";
 import Conversation from "../models/chat/Conversation.js";
 import Message from "../models/chat/Message.js";
+import Customer from "../models/customer/Customer.js";
+import Partner from "../models/partner/Partner.js";
 
 // ─── Auth middleware for Socket.IO ────────────────────────────────────────────
 /**
@@ -233,6 +235,26 @@ export const registerChatHandlers = (namespace) => {
           return socket.emit("message_error", {
             tempId,
             error: "This conversation has been closed.",
+          });
+        }
+
+        // ── Block check: prevent messaging if either party has blocked the other ──
+        const customerId = conv.customer.toString();
+        const partnerId  = conv.partner.toString();
+
+        const customerDoc = await Customer.findById(customerId).select("blockedPartners").lean();
+        const partnerDoc  = await Partner.findById(partnerId).select("blockedCustomers").lean();
+
+        if (customerDoc?.blockedPartners?.some((id) => id.toString() === partnerId)) {
+          return socket.emit("message_error", {
+            tempId,
+            error: "You have blocked this partner. Unblock to send messages.",
+          });
+        }
+        if (partnerDoc?.blockedCustomers?.some((id) => id.toString() === customerId)) {
+          return socket.emit("message_error", {
+            tempId,
+            error: "You cannot send messages to this user.",
           });
         }
 

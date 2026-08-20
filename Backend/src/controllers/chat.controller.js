@@ -1,5 +1,7 @@
 import Conversation from "../models/chat/Conversation.js";
 import Message from "../models/chat/Message.js";
+import Customer from "../models/customer/Customer.js";
+import Partner from "../models/partner/Partner.js";
 import { uploadToCloudinary } from "../middleware/upload.middleware.js";
 import { getIO } from "../socket/index.js";
 import { emitNewMessage } from "../socket/chat.socket.js";
@@ -275,6 +277,24 @@ export const sendMessage = async (req, res) => {
     if (conversation.status === "closed") {
       return res.status(400).json({
         message: "This conversation has been closed and no longer accepts messages.",
+      });
+    }
+
+    // ── Block check: prevent messaging if either party has blocked the other ──
+    const customerId = conversation.customer.toString();
+    const partnerId  = conversation.partner.toString();
+
+    const customer = await Customer.findById(customerId).select("blockedPartners").lean();
+    const partner  = await Partner.findById(partnerId).select("blockedCustomers").lean();
+
+    if (customer?.blockedPartners?.some((id) => id.toString() === partnerId)) {
+      return res.status(403).json({
+        message: "You have blocked this partner. Unblock to send messages.",
+      });
+    }
+    if (partner?.blockedCustomers?.some((id) => id.toString() === customerId)) {
+      return res.status(403).json({
+        message: "You cannot send messages to this partner.",
       });
     }
 

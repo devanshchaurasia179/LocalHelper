@@ -27,7 +27,7 @@ import * as ImagePicker from "expo-image-picker";
 import { Fonts, Spacing } from "@/constants/theme";
 import { colors, fonts, spacing } from "../home/theme";
 import { useChatRoom } from "@/hooks/useChatRoom";
-import { blockPartner, unblockPartner } from "@/api/call.api";
+import { blockPartner, unblockPartner, getBlockedPartners } from "@/api/call.api";
 import type { ChatMessage } from "@/api/chat.api";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -189,6 +189,21 @@ export default function ChatRoomScreen() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockLoading, setBlockLoading] = useState(false);
+
+  // Fetch actual block status on mount
+  useEffect(() => {
+    if (!partnerId) return;
+    getBlockedPartners()
+      .then((res) => {
+        if (res.success) {
+          const blocked = res.blockedPartners.some((p) => p._id === partnerId);
+          setIsBlocked(blocked);
+        }
+      })
+      .catch(() => {
+        // silently ignore — default to unblocked
+      });
+  }, [partnerId]);
 
   const handleBlockToggle = useCallback(() => {
     if (!partnerId) return;
