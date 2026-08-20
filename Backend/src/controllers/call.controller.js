@@ -875,10 +875,58 @@ export const getCallBalance = async (req, res) => {
 
     const callBalance = customer.callBalance || 0;
 
+    // Find the partner associated with the balance.
+    // Priority: most recent Call record → if none, check recent "call" transaction description
+    let lastCallPartner = null;
+    if (callBalance > 0) {
+      // 1. Try the most recent Call record
+      const lastCall = await Call.findOne({ customer: req.customerId })
+        .sort({ createdAt: -1 })
+        .populate("partner", "fullName profilePhoto selfiePhoto")
+        .select("partner")
+        .lean();
+
+      if (lastCall?.partner) {
+        lastCallPartner = {
+          _id: lastCall.partner._id,
+          fullName: lastCall.partner.fullName,
+          profilePhoto: lastCall.partner.profilePhoto || lastCall.partner.selfiePhoto || null,
+        };
+      }
+
+      // 2. If no Call record found, try looking at recent call bookings
+      if (!lastCallPartner) {
+        const CustomerTransaction = (await import("../models/customer/customer.wallet.js")).default;
+        const lastTx = await CustomerTransaction.findOne({
+          customer: req.customerId,
+          type: "call",
+          status: "completed",
+        }).sort({ createdAt: -1 }).lean();
+
+        // The transaction description has format: "Call charges (₹X / Y min)"
+        // We can't get the partner from that, but we can check the booking reference
+        if (lastTx?.booking) {
+          const Booking = (await import("../models/partner/partner.booking.js")).default;
+          const booking = await Booking.findById(lastTx.booking)
+            .populate("partner", "fullName profilePhoto selfiePhoto")
+            .select("partner")
+            .lean();
+          if (booking?.partner) {
+            lastCallPartner = {
+              _id: booking.partner._id,
+              fullName: booking.partner.fullName,
+              profilePhoto: booking.partner.profilePhoto || booking.partner.selfiePhoto || null,
+            };
+          }
+        }
+      }
+    }
+
     return res.status(200).json({
       success: true,
       callBalance,
       callBalanceMinutes: Math.floor(callBalance / 60),
+      partner: lastCallPartner,
       rate: {
         amount: 20,
         minutes: 10,
