@@ -723,11 +723,16 @@ export const endCall = async (req, res) => {
       const isPrePaid = (partnerDoc?.callCharges?.amount ?? 0) > 0;
 
       if (!isPrePaid) {
-        // Recharge-based model: deduct seconds from callBalance
+        // Recharge-based model: deduct seconds from callBalance (clamped to 0)
         const deductSeconds = Math.min(duration, call.allowedTime || duration);
-        await Customer.findByIdAndUpdate(call.customer, {
-          $inc: { callBalance: -deductSeconds },
-        });
+        const customer = await Customer.findById(call.customer).select("callBalance");
+        const currentBalance = customer?.callBalance || 0;
+        const actualDeduct = Math.min(deductSeconds, currentBalance);
+        if (actualDeduct > 0) {
+          await Customer.findByIdAndUpdate(call.customer, {
+            $inc: { callBalance: -actualDeduct },
+          });
+        }
       }
       // For pre-paid (flat-fee) model, no deduction needed — already charged.
     } else {

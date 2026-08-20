@@ -931,8 +931,10 @@ export const initiateCall = async (req, res) => {
         description:  `Call charges (₹${charge} / ${durationMinutes} min)`,
       });
 
+      // Deduct wallet charge AND add the purchased time to callBalance
+      const secondsToAdd = durationMinutes * 60;
       await Customer.findByIdAndUpdate(req.customerId, {
-        $inc: { walletBalance: -charge },
+        $inc: { walletBalance: -charge, callBalance: secondsToAdd },
       });
     }
 
@@ -941,6 +943,7 @@ export const initiateCall = async (req, res) => {
       charge,
       durationMinutes,
       walletBalance:   newBalance,
+      callBalanceSeconds: (customer.callBalance || 0) + (charge > 0 ? durationMinutes * 60 : 0),
     });
   } catch (error) {
     console.error("initiateCall error:", error);

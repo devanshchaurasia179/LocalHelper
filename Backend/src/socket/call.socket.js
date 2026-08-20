@@ -106,9 +106,14 @@ export const startCallTimer = (namespace, call) => {
 
             if (!isPrePaid) {
               const deductSeconds = Math.min(duration, callDoc.allowedTime || duration);
-              await Customer.findByIdAndUpdate(callDoc.customer, {
-                $inc: { callBalance: -deductSeconds },
-              });
+              const customerDoc = await Customer.findById(callDoc.customer).select("callBalance");
+              const currentBalance = customerDoc?.callBalance || 0;
+              const actualDeduct = Math.min(deductSeconds, currentBalance);
+              if (actualDeduct > 0) {
+                await Customer.findByIdAndUpdate(callDoc.customer, {
+                  $inc: { callBalance: -actualDeduct },
+                });
+              }
             }
           }
 
