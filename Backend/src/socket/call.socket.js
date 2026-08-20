@@ -1,5 +1,6 @@
 import Call from "../models/call/call.js";
 import Customer from "../models/customer/Customer.js";
+import Partner from "../models/partner/Partner.js";
 
 /**
  * In-memory store for active call timers.
@@ -98,12 +99,17 @@ export const startCallTimer = (namespace, call) => {
           callDoc.duration = duration;
           await callDoc.save();
 
-          // Deduct callBalance
+          // Deduct callBalance only for recharge-based model (no partner callCharges)
           if (duration > 0) {
-            const deductSeconds = Math.min(duration, callDoc.allowedTime || duration);
-            await Customer.findByIdAndUpdate(callDoc.customer, {
-              $inc: { callBalance: -deductSeconds },
-            });
+            const partnerDoc = await Partner.findById(callDoc.partner).select("callCharges");
+            const isPrePaid = (partnerDoc?.callCharges?.amount ?? 0) > 0;
+
+            if (!isPrePaid) {
+              const deductSeconds = Math.min(duration, callDoc.allowedTime || duration);
+              await Customer.findByIdAndUpdate(callDoc.customer, {
+                $inc: { callBalance: -deductSeconds },
+              });
+            }
           }
 
           // Emit call_ended to both parties

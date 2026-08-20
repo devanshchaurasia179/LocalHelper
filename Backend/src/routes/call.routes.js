@@ -17,6 +17,7 @@ import {
   rechargeCallBalance,
   getCallBalance,
   rechargeDuringCall,
+  getActiveCall,
 } from "../controllers/call.controller.js";
 import protectCustomer from "../middleware/customer.auth.middleware.js";
 import protectPartner from "../middleware/partner.auth.middleware.js";
@@ -31,6 +32,7 @@ router.post("/partner", protectPartner, createCallAsPartner);
 
 // ── Call balance (customer) ──────────────────────────────────────────────────
 router.get("/balance", protectCustomer, getCallBalance);
+router.get("/active", protectCustomer, getActiveCall);
 router.post("/recharge", protectCustomer, rechargeCallBalance);
 router.post("/recharge-during-call", protectCustomer, rechargeDuringCall);
 

@@ -6,7 +6,6 @@ import Customer from "../models/customer/Customer.js";
 import Partner from "../models/partner/Partner.js";
 import { getIO } from "../socket/index.js";
 import { startCallRecording, stopCallRecording } from "../services/callRecording.service.js";
-import { createCommunicationTransaction } from "./customer.wallet.controller.js";
 import { startCallTimer, stopCallTimer } from "../socket/call.socket.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -716,26 +715,21 @@ export const endCall = async (req, res) => {
       // Stop the call timer
       stopCallTimer(call._id.toString());
 
-      const deductSeconds = Math.min(duration, call.allowedTime || duration);
-      await Customer.findByIdAndUpdate(call.customer, {
-        $inc: { callBalance: -deductSeconds },
-      });
+      // Determine billing model:
+      // If the partner has callCharges (flat-fee model), the customer already
+      // paid upfront via /api/bookings/call/:partnerId — no further deduction.
+      // If no callCharges, use the recharge-based (callBalance) model.
+      const partnerDoc = await Partner.findById(call.partner).select("callCharges");
+      const isPrePaid = (partnerDoc?.callCharges?.amount ?? 0) > 0;
 
-      // Calculate charge: ₹20 per 10 min = ₹2/min = ₹0.0333/sec
-      const chargeAmount = Math.ceil((deductSeconds / 600) * 20); // ₹20 per 600 seconds
-      if (chargeAmount > 0) {
-        try {
-          await createCommunicationTransaction(
-            call.customer,
-            call.partner,
-            "call",
-            chargeAmount,
-            `Call charge (${Math.ceil(deductSeconds / 60)} min)`
-          );
-        } catch (txError) {
-          console.error("[Call] Transaction recording error (non-blocking):", txError.message);
-        }
+      if (!isPrePaid) {
+        // Recharge-based model: deduct seconds from callBalance
+        const deductSeconds = Math.min(duration, call.allowedTime || duration);
+        await Customer.findByIdAndUpdate(call.customer, {
+          $inc: { callBalance: -deductSeconds },
+        });
       }
+      // For pre-paid (flat-fee) model, no deduction needed — already charged.
     } else {
       // Still stop the timer if it exists (partner-initiated won't have one, but just in case)
       stopCallTimer(call._id.toString());
@@ -981,6 +975,53 @@ export const rechargeDuringCall = async (req, res) => {
   } catch (error) {
     console.error("Recharge during call error:", error);
     return res.status(500).json({ success: false, message: "Failed to recharge" });
+  }
+};
+
+// ─── Active Call (for dashboard card) ─────────────────────────────────────────
+
+/**
+ * GET /api/calls/active
+ * 🔒 customer_token
+ *
+ * Returns the customer's current active call (ringing/accepted/ongoing)
+ * with allowedTime and startedAt so the client can compute remaining time.
+ * Returns null if no active call exists.
+ */
+export const getActiveCall = async (req, res) => {
+  try {
+    const customerId = req.customerId;
+
+    const activeCall = await Call.findOne({
+      customer: customerId,
+      status: { $in: ["ringing", "accepted", "ongoing"] },
+    })
+      .populate("partner", "fullName profilePhoto")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!activeCall) {
+      return res.status(200).json({ success: true, activeCall: null });
+    }
+
+    return res.status(200).json({
+      success: true,
+      activeCall: {
+        _id: activeCall._id,
+        partner: {
+          _id: activeCall.partner._id,
+          fullName: activeCall.partner.fullName,
+          profilePhoto: activeCall.partner.profilePhoto ?? null,
+        },
+        status: activeCall.status,
+        allowedTime: activeCall.allowedTime, // total seconds allowed
+        startedAt: activeCall.startedAt,     // null if not yet started (ringing)
+        createdAt: activeCall.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("Get active call error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch active call" });
   }
 };
 
