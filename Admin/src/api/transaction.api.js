@@ -24,6 +24,16 @@ export const getPartnerTransactions = (partnerId, params = {}) =>
 // ── Payout queue (all partners, pending/processing payouts) ────────
 
 /**
+ * GET /api/admin/transactions/payout-queue
+ * Returns all pending/processing payout requests across all partners.
+ * @param {Object} params — status, page, limit
+ */
+export const getPayoutQueue = (params = {}) =>
+  api
+    .get('/admin/transactions/payout-queue', { params })
+    .then((res) => res.data)
+
+/**
  * GET /api/admin/partners/:partnerId/transactions?type=payout&status=pending
  * Convenience wrapper — returns only the pending payout queue for a partner.
  */

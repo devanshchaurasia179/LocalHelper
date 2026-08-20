@@ -268,6 +268,56 @@ export const requestPayout = async (req, res) => {
   }
 };
 
+// ─── ADMIN: Payout Queue (all partners) ──────────────────────────────────────
+/**
+ * GET /api/admin/transactions/payout-queue
+ * 🔒 admin_token
+ *
+ * Returns all pending/processing payout transactions across all partners,
+ * populated with partner info. Useful for the admin payout processing dashboard.
+ *
+ * Query params:
+ *   status : "pending" | "processing" (default: both)
+ *   page   : number (default 1)
+ *   limit  : number (default 20)
+ */
+export const adminGetPayoutQueue = async (req, res) => {
+  try {
+    const { status, page = 1, limit = 20 } = req.query;
+
+    const filter = { type: "payout" };
+    if (status && ["pending", "processing"].includes(status)) {
+      filter.status = status;
+    } else {
+      filter.status = { $in: ["pending", "processing"] };
+    }
+
+    const [transactions, total] = await Promise.all([
+      PartnerTransaction.find(filter)
+        .sort({ createdAt: -1 })
+        .skip((Number(page) - 1) * Number(limit))
+        .limit(Number(limit))
+        .populate("partner", "fullName phone profilePhoto walletBalance totalEarnings")
+        .populate("initiatedBy", "name email")
+        .select("-__v")
+        .lean(),
+      PartnerTransaction.countDocuments(filter),
+    ]);
+
+    return res.status(200).json({
+      transactions,
+      pagination: {
+        total,
+        page: Number(page),
+        totalPages: Math.ceil(total / Number(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("adminGetPayoutQueue error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
 // ─── ADMIN: Get Partner Transactions ─────────────────────────────────────────
 /**
  * GET /api/admin/partners/:partnerId/transactions

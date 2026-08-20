@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import {
   Wallet,
@@ -9,8 +9,11 @@ import {
   RefreshCw,
   TrendingUp,
   Filter,
+  BanknoteIcon,
+  Clock,
+  Eye,
 } from 'lucide-react'
-import { getPartnerTransactions } from '@/api/transaction.api'
+import { getPartnerTransactions, getPayoutQueue } from '@/api/transaction.api'
 import { getAllPartners, getPartnerById } from '@/api/partner.api'
 import useTransactionMutations from '@/hooks/useTransactionMutations'
 import Card from '@/components/ui/Card'
@@ -24,7 +27,6 @@ import EmptyState from '@/components/ui/EmptyState'
 import ErrorState from '@/components/ui/ErrorState'
 import PageHeader from '@/components/ui/PageHeader'
 import Modal from '@/components/ui/Modal'
-import ConfirmModal from '@/components/ui/ConfirmModal'
 import Avatar from '@/components/ui/Avatar'
 import { formatDateTime, formatCurrency } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
@@ -62,6 +64,184 @@ const DirectionIcon = ({ direction }) =>
   ) : (
     <ArrowUpRight className="w-3.5 h-3.5 text-red-400" aria-hidden="true" />
   )
+
+// ── Payout Queue Section ──────────────────────────────────────────────────────
+
+const PayoutQueueSection = ({ onProcess, onViewPartner }) => {
+  const [page, setPage] = useState(1)
+
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['payout-queue', page],
+    queryFn: () => getPayoutQueue({ page, limit: 10 }),
+    keepPreviousData: true,
+  })
+
+  const transactions = data?.transactions || []
+  const pagination = data?.pagination
+
+  if (isLoading) {
+    return (
+      <Card>
+        <Card.Header>
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-500" />
+            <h3 className="text-sm font-semibold text-slate-800">Payout Requests</h3>
+          </div>
+        </Card.Header>
+        <Card.Body>
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
+          </div>
+        </Card.Body>
+      </Card>
+    )
+  }
+
+  if (isError) {
+    return (
+      <Card>
+        <Card.Header>
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-500" />
+            <h3 className="text-sm font-semibold text-slate-800">Payout Requests</h3>
+          </div>
+        </Card.Header>
+        <Card.Body>
+          <ErrorState message="Could not load payout queue." onRetry={refetch} />
+        </Card.Body>
+      </Card>
+    )
+  }
+
+  if (transactions.length === 0) {
+    return (
+      <Card>
+        <Card.Header>
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-500" />
+            <h3 className="text-sm font-semibold text-slate-800">Payout Requests</h3>
+          </div>
+        </Card.Header>
+        <Card.Body>
+          <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
+              <BanknoteIcon className="w-5 h-5 text-emerald-500" />
+            </div>
+            <p className="text-sm font-medium text-slate-600">No pending payouts</p>
+            <p className="text-xs text-slate-400">All payout requests have been processed.</p>
+          </div>
+        </Card.Body>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <Card.Header>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-500" />
+            <h3 className="text-sm font-semibold text-slate-800">
+              Payout Requests
+            </h3>
+            <span className="bg-amber-100 text-amber-700 text-xs font-semibold px-2 py-0.5 rounded-full">
+              {pagination?.total || transactions.length}
+            </span>
+          </div>
+          <Button variant="ghost" size="sm" leftIcon={<RefreshCw className="w-3.5 h-3.5" />} onClick={refetch}>
+            Refresh
+          </Button>
+        </div>
+      </Card.Header>
+      <Card.Body>
+        <div className="space-y-2">
+          {transactions.map((tx, i) => (
+            <motion.div
+              key={tx._id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.03 }}
+              className="flex items-center gap-4 p-3.5 rounded-xl border border-slate-100 hover:border-slate-200 hover:bg-slate-50/50 transition-all"
+            >
+              {/* Partner info */}
+              <Avatar
+                src={tx.partner?.profilePhoto}
+                name={tx.partner?.fullName}
+                size="sm"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-slate-800 truncate">
+                    {tx.partner?.fullName || 'Unknown Partner'}
+                  </p>
+                  <StatusBadge label={tx.status} variant={getStatusVariant(tx.status)} />
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <p className="text-xs text-slate-400">{tx.partner?.phone}</p>
+                  <span className="text-slate-200">·</span>
+                  <p className="text-xs text-slate-400">{formatDateTime(tx.createdAt)}</p>
+                </div>
+                {/* Payout method */}
+                {tx.payoutDetails?.method === 'bank' && (
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Bank ****{tx.payoutDetails.accountNumber}
+                    {tx.payoutDetails.bankName && ` · ${tx.payoutDetails.bankName}`}
+                  </p>
+                )}
+                {tx.payoutDetails?.method === 'upi' && (
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    UPI: {tx.payoutDetails.upiId}
+                  </p>
+                )}
+              </div>
+
+              {/* Amount */}
+              <div className="text-right flex-shrink-0">
+                <p className="text-base font-bold text-slate-800 tabular-nums">
+                  {formatCurrency(tx.amount)}
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  leftIcon={<Eye className="w-3.5 h-3.5" />}
+                  onClick={() => onViewPartner(tx.partner)}
+                  title="View all transactions"
+                >
+                  View
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  leftIcon={<RefreshCw className="w-3 h-3" />}
+                  onClick={() => onProcess(tx)}
+                >
+                  Process
+                </Button>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* Pagination */}
+        {pagination && pagination.totalPages > 1 && (
+          <div className="mt-4">
+            <Pagination
+              page={pagination.page}
+              totalPages={pagination.totalPages}
+              total={pagination.total}
+              limit={10}
+              onPageChange={setPage}
+            />
+          </div>
+        )}
+      </Card.Body>
+    </Card>
+  )
+}
 
 // ── Partner selector ──────────────────────────────────────────────────────────
 
@@ -312,6 +492,8 @@ const TransactionTable = ({ partnerId, partnerName, onProcess, onAdjust }) => {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 const TransactionsPage = () => {
+  const queryClient = useQueryClient()
+
   const [selectedPartner,    setSelectedPartner]    = useState(null)
   const [partnerModalOpen,   setPartnerModalOpen]   = useState(false)
 
@@ -329,8 +511,12 @@ const TransactionsPage = () => {
   const { processPayoutMutation, adjustBalanceMutation } = useTransactionMutations(
     selectedPartner?._id,
     {
-      onProcessSuccess: () => setProcessModal({ open: false, tx: null }),
-      onAdjustSuccess:  () => setAdjustModal(false),
+      onProcessSuccess: () => {
+        setProcessModal({ open: false, tx: null })
+        // Also invalidate the payout queue
+        queryClient.invalidateQueries({ queryKey: ['payout-queue'] })
+      },
+      onAdjustSuccess: () => setAdjustModal(false),
     }
   )
 
@@ -339,19 +525,36 @@ const TransactionsPage = () => {
     setPartnerModalOpen(false)
   }, [])
 
-  const handleProcessTx = useCallback((tx) => {
-    setProcessModal({ open: true, tx })
+  // Called from the payout queue "View" button
+  const handleViewPartnerFromQueue = useCallback((partner) => {
+    if (partner?._id) {
+      setSelectedPartner(partner)
+    }
   }, [])
+
+  const handleProcessTx = useCallback((tx) => {
+    // If processing from queue, make sure the partner is set for mutation context
+    if (tx.partner?._id && (!selectedPartner || selectedPartner._id !== tx.partner._id)) {
+      setSelectedPartner(tx.partner)
+    }
+    setProcessModal({ open: true, tx })
+  }, [selectedPartner])
 
   return (
     <div className="space-y-5">
       {/* Header */}
       <PageHeader
         title="Transactions"
-        subtitle="View partner ledgers, process payouts, and adjust balances"
+        subtitle="Process payout requests, view partner ledgers, and adjust balances"
       />
 
-      {/* Partner selector card */}
+      {/* ── Payout Queue ────────────────────────────────────────────── */}
+      <PayoutQueueSection
+        onProcess={handleProcessTx}
+        onViewPartner={handleViewPartnerFromQueue}
+      />
+
+      {/* ── Partner selector card ────────────────────────────────────── */}
       <Card>
         <Card.Body>
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
@@ -386,7 +589,7 @@ const TransactionsPage = () => {
                   <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
                     <Filter className="w-4 h-4" />
                   </div>
-                  <p className="text-sm">Select a partner to view transactions</p>
+                  <p className="text-sm">Select a partner to view full transaction history</p>
                 </div>
               )}
             </div>
@@ -401,7 +604,7 @@ const TransactionsPage = () => {
         </Card.Body>
       </Card>
 
-      {/* Transactions table */}
+      {/* ── Transactions table ─────────────────────────────────────── */}
       {selectedPartner ? (
         <Card>
           <Card.Header>

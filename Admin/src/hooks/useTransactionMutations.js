@@ -27,6 +27,8 @@ const useTransactionMutations = (partnerId, callbacks = {}) => {
       const label = variables.status === 'completed' ? 'Payout completed' : 'Payout marked as failed'
       toast.success(label)
       invalidate()
+      // Also invalidate the global payout queue
+      queryClient.invalidateQueries({ queryKey: ['payout-queue'] })
       callbacks.onProcessSuccess?.()
     },
     onError: (err) => {

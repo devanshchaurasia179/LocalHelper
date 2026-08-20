@@ -1,5 +1,6 @@
 import express from "express";
 import {
+  adminGetPayoutQueue,
   adminGetPartnerTransactions,
   adminProcessPayout,
   adminAdjustBalance,
@@ -16,6 +17,7 @@ const router = express.Router();
 router.use(protectAdmin);
 
 // ── Partner transaction routes ────────────────────────────────────────────────
+router.get( "/transactions/payout-queue",                adminGetPayoutQueue);         // GET  /api/admin/transactions/payout-queue
 router.get( "/partners/:partnerId/transactions",         adminGetPartnerTransactions); // GET  /api/admin/partners/:partnerId/transactions
 router.patch("/transactions/:id/process",                adminProcessPayout);          // PATCH /api/admin/transactions/:id/process
 router.post( "/partners/:partnerId/transactions/adjust", adminAdjustBalance);          // POST /api/admin/partners/:partnerId/transactions/adjust
