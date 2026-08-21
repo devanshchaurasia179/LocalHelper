@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AudioSession } from '@livekit/react-native';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import { connectChatSocket, getChatSocket } from '@/services/chat.socket';
+import { endCall as endCallApi } from '@/api/call.api';
 import type { NearbyPartner } from '@/api/nearby.api';
 import { colors, spacing } from '@/app/(tabs)/home/theme';
 
@@ -351,6 +352,8 @@ export default function CallScreen({
     const handleDisconnected = () => {
       if (mounted) {
         setCallState('ended');
+        // Notify backend to end the call and deduct balance
+        if (callId) endCallApi(callId).catch(() => {});
         setTimeout(() => onEndCallRef.current(), 1500);
       }
     };
@@ -361,8 +364,22 @@ export default function CallScreen({
       }
     };
 
+    // When the partner leaves the room (hangs up) → end the call
+    const handleParticipantDisconnected = () => {
+      if (mounted) {
+        setCallState('ended');
+        if (roomRef.current) {
+          roomRef.current.disconnect().catch(() => {});
+        }
+        // Notify backend to end the call and deduct balance
+        if (callId) endCallApi(callId).catch(() => {});
+        setTimeout(() => onEndCallRef.current(), 1500);
+      }
+    };
+
     lkRoom.on(RoomEvent.Disconnected, handleDisconnected);
     lkRoom.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
+    lkRoom.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
 
     // When a remote audio track is subscribed, re-apply audio configuration
     // to ensure Android routes audio to the correct output (earpiece by default)
@@ -420,6 +437,7 @@ export default function CallScreen({
       mounted = false;
       lkRoom.off(RoomEvent.Disconnected, handleDisconnected);
       lkRoom.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
+      lkRoom.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
       lkRoom.off(RoomEvent.TrackSubscribed, handleTrackSubscribed);
       // Room disconnection is handled by the dedicated cleanup effect and handleEndCall
     };
@@ -448,8 +466,13 @@ export default function CallScreen({
       hasStartedAudio.current = false;
     }
 
+    // Call the backend to end the call and deduct callBalance
+    if (callId) {
+      endCallApi(callId).catch(() => {});
+    }
+
     onEndCallRef.current();
-  }, []);
+  }, [callId]);
 
   const getPartnerName = () => {
     return (partner as any).fullName || (partner as any).name || (partner as any).businessName || 'Partner';

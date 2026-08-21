@@ -261,8 +261,20 @@ export default function CallScreen({
         }
       };
 
+      // When the customer leaves the room (hangs up) → end the call
+      const handleParticipantDisconnected = () => {
+        if (mounted && callState !== 'ended') {
+          setCallState('ended');
+          if (roomRef.current) {
+            roomRef.current.disconnect().catch(() => {});
+          }
+          setTimeout(() => onEndCallRef.current(), 1500);
+        }
+      };
+
       lkRoom.on(RoomEvent.Disconnected, handleDisconnected);
       lkRoom.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
+      lkRoom.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
 
       // When a remote audio track is subscribed, re-apply audio configuration
       // to ensure Android routes audio to the correct output (earpiece default)
@@ -326,6 +338,7 @@ export default function CallScreen({
       if (roomRef.current) {
         roomRef.current.off(RoomEvent.Disconnected);
         roomRef.current.off(RoomEvent.ParticipantConnected);
+        roomRef.current.off(RoomEvent.ParticipantDisconnected);
         roomRef.current.off(RoomEvent.TrackSubscribed);
       }
     };

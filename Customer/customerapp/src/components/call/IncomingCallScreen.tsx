@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AudioSession } from '@livekit/react-native';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import { getChatSocket } from '@/services/chat.socket';
+import { endCall as endCallApi } from '@/api/call.api';
 import { colors, spacing } from '@/app/(tabs)/home/theme';
 
 interface IncomingCallScreenProps {
@@ -349,8 +350,13 @@ export default function IncomingCallScreen({
       hasStartedAudio.current = false;
     }
 
+    // Call the backend to properly end the call
+    if (callId) {
+      endCallApi(callId).catch(() => {});
+    }
+
     onEndCallRef.current();
-  }, []);
+  }, [callId]);
 
   if (!visible) return null;
 

@@ -760,6 +760,19 @@ export const endCall = async (req, res) => {
         endedBy: userType,
         timestamp: endTime,
       });
+
+      // Also notify the caller's own room so their UI updates immediately
+      const callerRoom =
+        userType === "customer"
+          ? `customer:${call.customer}`
+          : `partner:${call.partner}`;
+
+      chatNS.to(callerRoom).emit("call_ended", {
+        callId: call._id.toString(),
+        duration,
+        endedBy: userType,
+        timestamp: endTime,
+      });
     } catch (socketError) {
       console.error("[Call] Failed to emit socket event:", socketError);
     }
