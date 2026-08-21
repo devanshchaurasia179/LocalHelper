@@ -17,7 +17,7 @@ import PromoBanner, { PromoSlide } from './PromoBanner';
 import BottomNav from './BottomNav';
 import NearbyServicesSection, { NearbyServicesSkeleton } from './NearbyServicesSection';
 import ActiveBookingCard from './ActiveBookingCard';
-import CallBalanceCard from './CallBalanceCard';
+import RecentCallCard from './RecentCallCard';
 import CallScreen from '@/components/call/CallScreen';
 
 import { useNearbyServices } from '@/hooks/useNearbyServices';
@@ -227,8 +227,8 @@ export default function Dashboard() {
             />
           </View>
 
-          {/* ── Call Balance ── */}
-          <CallBalanceCard
+          {/* ── Recent Call ── */}
+          <RecentCallCard
             onCallPartner={async (partnerId, partnerInfo) => {
               try {
                 setCallPartnerInfo({ _id: partnerId, ...partnerInfo });

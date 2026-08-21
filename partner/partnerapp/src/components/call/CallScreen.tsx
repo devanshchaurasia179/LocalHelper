@@ -5,12 +5,15 @@ import {
   TouchableOpacity,
   StyleSheet,
   Modal,
-  ActivityIndicator,
+  Animated,
+  Easing,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AudioSession } from '@livekit/react-native';
 import { Room, RoomEvent, Track } from 'livekit-client';
-import { getChatSocket } from '@/services/chat.socket';
+import { connectChatSocket, getChatSocket } from '@/services/chat.socket';
+import { endCall as endCallApi } from '@/api/call.api';
 
 interface CallScreenProps {
   visible: boolean;
@@ -18,10 +21,50 @@ interface CallScreenProps {
   customerName: string;
   livekitUrl: string;
   livekitToken: string;
+  initiatedByPartner: boolean;
   onEndCall: () => void;
 }
 
-type CallState = 'connecting' | 'connected' | 'ended';
+type CallState = 'dialling' | 'connecting' | 'connected' | 'ended';
+
+// ─── Dialling UI (pulsing ring animation) ─────────────────────────────────────
+
+function DiallingView({ customerName, onCancel }: { customerName: string; onCancel: () => void }) {
+  const pulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1.15, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [pulse]);
+
+  return (
+    <>
+      <View style={styles.customerInfo}>
+        <Animated.View style={[styles.avatarCircle, { transform: [{ scale: pulse }] }]}>
+          <Ionicons name="person" size={60} color="#fff" />
+        </Animated.View>
+        <Text style={styles.customerName}>{customerName}</Text>
+        <Text style={styles.callStatus}>Dialling...</Text>
+      </View>
+
+      <View style={styles.controlsContainer}>
+        <TouchableOpacity
+          style={[styles.controlBtn, styles.endCallBtn]}
+          onPress={onCancel}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="call" size={32} color="#fff" />
+        </TouchableOpacity>
+      </View>
+    </>
+  );
+}
 
 // ─── Connected Call Controls ──────────────────────────────────────────────────
 
@@ -60,19 +103,38 @@ function CallControls({
     setIsMuted(!isMuted);
   };
 
-  const toggleSpeaker = () => {
+  const toggleSpeaker = async () => {
     const newSpeakerState = !isSpeakerOn;
-    AudioSession.configureAudio({
+    setIsSpeakerOn(newSpeakerState);
+
+    // Reconfigure audio with forceHandleAudioRouting to ensure routing works
+    await AudioSession.configureAudio({
       android: {
         preferredOutputList: newSpeakerState
           ? ['speaker', 'earpiece']
           : ['earpiece', 'speaker'],
+        audioTypeOptions: {
+          manageAudioFocus: true,
+          audioMode: 'inCommunication',
+          audioFocusMode: 'gain',
+          audioStreamType: 'voiceCall',
+          audioAttributesUsageType: 'voiceCommunication',
+          audioAttributesContentType: 'speech',
+          forceHandleAudioRouting: true,
+        },
       },
       ios: {
         defaultOutput: newSpeakerState ? 'speaker' : 'earpiece',
       },
     });
-    setIsSpeakerOn(newSpeakerState);
+
+    // Explicitly select the audio output device
+    // Android: 'speaker' or 'earpiece'; iOS: 'force_speaker' or 'default'
+    if (Platform.OS === 'ios') {
+      await AudioSession.selectAudioOutput(newSpeakerState ? 'force_speaker' : 'default');
+    } else {
+      await AudioSession.selectAudioOutput(newSpeakerState ? 'speaker' : 'earpiece');
+    }
   };
 
   return (
@@ -137,20 +199,23 @@ export default function CallScreen({
   customerName,
   livekitUrl,
   livekitToken,
+  initiatedByPartner,
   onEndCall,
 }: CallScreenProps) {
-  const [callState, setCallState] = useState<CallState>('connecting');
+  const [callState, setCallState] = useState<CallState>(initiatedByPartner ? 'dialling' : 'connecting');
   const [room, setRoom] = useState<Room | null>(null);
   const hasStartedAudio = useRef(false);
   const roomRef = useRef<Room | null>(null);
   const hasStartedLiveKit = useRef(false);
   const onEndCallRef = useRef(onEndCall);
   onEndCallRef.current = onEndCall;
+  // Store LiveKit credentials (from call_accepted event or original response)
+  const livekitRef = useRef<{ url: string; token: string }>({ url: livekitUrl, token: livekitToken });
 
+  // Start audio session when visible
   useEffect(() => {
     if (visible && !hasStartedAudio.current) {
       hasStartedAudio.current = true;
-      // Configure audio for voice communication — default to earpiece (not speaker)
       const initAudio = async () => {
         await AudioSession.configureAudio({
           android: {
@@ -180,19 +245,79 @@ export default function CallScreen({
     };
   }, [visible]);
 
-  // Reset state when visible
+  // Reset state when call screen becomes visible
   useEffect(() => {
     if (visible) {
-      setCallState('connecting');
+      setCallState(initiatedByPartner ? 'dialling' : 'connecting');
       setRoom(null);
       roomRef.current = null;
+      livekitRef.current = { url: livekitUrl, token: livekitToken };
       hasStartedLiveKit.current = false;
     }
   }, [visible]);
 
-  // Listen for call_ended socket event so if customer hangs up, call ends here too
+  // Phase 1: While dialling, listen for call_accepted or call_rejected via Socket.IO.
+  // Do NOT connect to LiveKit yet — wait until customer accepts.
   useEffect(() => {
-    if (!visible || callState === 'ended') return;
+    if (!visible || callState !== 'dialling') return;
+
+    let mounted = true;
+
+    const handleCallAccepted = (data: any) => {
+      if (!mounted) return;
+      // If the event includes fresh LiveKit credentials, use those
+      if (data?.livekit?.url && data?.livekit?.token) {
+        livekitRef.current = { url: data.livekit.url, token: data.livekit.token };
+      }
+      setCallState('connecting');
+    };
+
+    const handleCallRejected = () => {
+      if (!mounted) return;
+      setCallState('ended');
+      setTimeout(() => onEndCallRef.current(), 1500);
+    };
+
+    const handleCallEnded = (data: any) => {
+      if (!mounted) return;
+      if (data?.callId === callId) {
+        setCallState('ended');
+        setTimeout(() => onEndCallRef.current(), 1500);
+      }
+    };
+
+    // Set a 60 second timeout — if customer doesn't answer, end the call
+    const timeout = setTimeout(() => {
+      if (!mounted) return;
+      setCallState('ended');
+      setTimeout(() => onEndCallRef.current(), 1500);
+    }, 60000);
+
+    connectChatSocket()
+      .then((socket) => {
+        if (!mounted) return;
+        socket.on('call_accepted', handleCallAccepted);
+        socket.on('call_rejected', handleCallRejected);
+        socket.on('call_ended', handleCallEnded);
+      })
+      .catch(() => {});
+
+    return () => {
+      mounted = false;
+      clearTimeout(timeout);
+      const socket = getChatSocket();
+      if (socket) {
+        socket.off('call_accepted', handleCallAccepted);
+        socket.off('call_rejected', handleCallRejected);
+        socket.off('call_ended', handleCallEnded);
+      }
+    };
+  }, [visible, callState, callId]);
+
+  // Persistent listener: if the other party ends the call at any point, end it here too
+  useEffect(() => {
+    if (!visible) return;
+    if (callState === 'dialling' || callState === 'ended') return;
 
     let mounted = true;
 
@@ -227,17 +352,64 @@ export default function CallScreen({
     };
   }, [visible, callState, callId]);
 
-  // Connect to LiveKit immediately (partner already accepted).
-  // Timer starts when the remote participant (customer) joins via ParticipantConnected.
+  // Phase 2: Customer accepted — now connect to LiveKit
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || callState !== 'connecting') return;
     if (hasStartedLiveKit.current) return;
     hasStartedLiveKit.current = true;
 
     let mounted = true;
+    const { url, token } = livekitRef.current;
+
+    const handleDisconnected = () => {
+      if (mounted) {
+        setCallState('ended');
+        setTimeout(() => onEndCallRef.current(), 1500);
+      }
+    };
+
+    const handleParticipantConnected = () => {
+      if (mounted) {
+        setCallState('connected');
+      }
+    };
+
+    const handleParticipantDisconnected = () => {
+      if (mounted) {
+        setCallState('ended');
+        if (roomRef.current) {
+          roomRef.current.disconnect().catch(() => {});
+        }
+        setTimeout(() => onEndCallRef.current(), 1500);
+      }
+    };
+
+    const handleTrackSubscribed = (
+      track: any,
+      _publication: any,
+      _participant: any
+    ) => {
+      if (track.kind === Track.Kind.Audio) {
+        AudioSession.configureAudio({
+          android: {
+            preferredOutputList: ['earpiece', 'speaker'],
+            audioTypeOptions: {
+              manageAudioFocus: true,
+              audioMode: 'inCommunication',
+              audioFocusMode: 'gain',
+              audioStreamType: 'voiceCall',
+              audioAttributesUsageType: 'voiceCommunication',
+              audioAttributesContentType: 'speech',
+            },
+          },
+          ios: {
+            defaultOutput: 'earpiece',
+          },
+        });
+      }
+    };
 
     const startConnection = async () => {
-      // Small delay to ensure AudioSession is initialized before connecting
       await new Promise((resolve) => setTimeout(resolve, 300));
       if (!mounted) return;
 
@@ -247,65 +419,13 @@ export default function CallScreen({
       });
       roomRef.current = lkRoom;
 
-      const handleDisconnected = () => {
-        if (mounted) {
-          setCallState('ended');
-          setTimeout(() => onEndCallRef.current(), 1500);
-        }
-      };
-
-      // When the customer joins the room → call is live, start timer
-      const handleParticipantConnected = () => {
-        if (mounted) {
-          setCallState('connected');
-        }
-      };
-
-      // When the customer leaves the room (hangs up) → end the call
-      const handleParticipantDisconnected = () => {
-        if (mounted && callState !== 'ended') {
-          setCallState('ended');
-          if (roomRef.current) {
-            roomRef.current.disconnect().catch(() => {});
-          }
-          setTimeout(() => onEndCallRef.current(), 1500);
-        }
-      };
-
       lkRoom.on(RoomEvent.Disconnected, handleDisconnected);
       lkRoom.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
       lkRoom.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
-
-      // When a remote audio track is subscribed, re-apply audio configuration
-      // to ensure Android routes audio to the correct output (earpiece default)
-      const handleTrackSubscribed = (
-        track: any,
-        _publication: any,
-        _participant: any
-      ) => {
-        if (track.kind === Track.Kind.Audio) {
-          AudioSession.configureAudio({
-            android: {
-              preferredOutputList: ['earpiece', 'speaker'],
-              audioTypeOptions: {
-                manageAudioFocus: true,
-                audioMode: 'inCommunication',
-                audioFocusMode: 'gain',
-                audioStreamType: 'voiceCall',
-                audioAttributesUsageType: 'voiceCommunication',
-                audioAttributesContentType: 'speech',
-              },
-            },
-            ios: {
-              defaultOutput: 'earpiece',
-            },
-          });
-        }
-      };
       lkRoom.on(RoomEvent.TrackSubscribed, handleTrackSubscribed);
 
       try {
-        await lkRoom.connect(livekitUrl, livekitToken, { autoSubscribe: true });
+        await lkRoom.connect(url, token, { autoSubscribe: true });
         if (!mounted) {
           lkRoom.disconnect();
           return;
@@ -316,7 +436,7 @@ export default function CallScreen({
         try {
           await lkRoom.localParticipant.setMicrophoneEnabled(true);
         } catch {
-          // Non-fatal — room may have disconnected in the meantime
+          // Non-fatal
         }
 
         // If customer already connected before we finished setup
@@ -336,13 +456,13 @@ export default function CallScreen({
     return () => {
       mounted = false;
       if (roomRef.current) {
-        roomRef.current.off(RoomEvent.Disconnected);
-        roomRef.current.off(RoomEvent.ParticipantConnected);
-        roomRef.current.off(RoomEvent.ParticipantDisconnected);
-        roomRef.current.off(RoomEvent.TrackSubscribed);
+        roomRef.current.off(RoomEvent.Disconnected, handleDisconnected);
+        roomRef.current.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
+        roomRef.current.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+        roomRef.current.off(RoomEvent.TrackSubscribed, handleTrackSubscribed);
       }
     };
-  }, [visible, livekitUrl, livekitToken]); // stable deps only — runs once per call session
+  }, [visible, callState]); // stable deps — hasStartedLiveKit prevents re-execution
 
   // Cleanup: disconnect room when the call screen is hidden
   useEffect(() => {
@@ -367,8 +487,13 @@ export default function CallScreen({
       hasStartedAudio.current = false;
     }
 
+    // Call the backend to end the call
+    if (callId) {
+      endCallApi(callId).catch(() => {});
+    }
+
     onEndCallRef.current();
-  }, []);
+  }, [callId]);
 
   if (!visible) return null;
 
@@ -380,11 +505,8 @@ export default function CallScreen({
       statusBarTranslucent
     >
       <View style={styles.container}>
-        {callState === 'connecting' && (
-          <View style={styles.connectingContainer}>
-            <ActivityIndicator size="large" color="#16493C" />
-            <Text style={styles.connectingText}>Connecting to {customerName}...</Text>
-          </View>
+        {(callState === 'dialling' || callState === 'connecting') && (
+          <DiallingView customerName={customerName} onCancel={handleEndCall} />
         )}
 
         {callState === 'connected' && room && (

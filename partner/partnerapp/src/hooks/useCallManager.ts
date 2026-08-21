@@ -17,6 +17,7 @@ interface ActiveCall {
   customerName: string;
   livekitUrl: string;
   livekitToken: string;
+  initiatedByPartner: boolean;
 }
 
 export default function useCallManager() {
@@ -146,6 +147,7 @@ export default function useCallManager() {
           customerName: incomingCall.customerName,
           livekitUrl: response.livekit.url,
           livekitToken: response.livekit.token,
+          initiatedByPartner: false,
         });
         setIncomingCall(null);
       } else {
@@ -207,6 +209,7 @@ export default function useCallManager() {
           customerName,
           livekitUrl: response.livekit.url,
           livekitToken: response.livekit.token,
+          initiatedByPartner: true,
         });
       } else {
         throw new Error(response.message || 'Failed to initiate call');

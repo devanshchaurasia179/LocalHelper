@@ -7,6 +7,7 @@ import {
   Modal,
   Animated,
   Easing,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AudioSession } from '@livekit/react-native';
@@ -103,19 +104,38 @@ function CallControls({
     setIsMuted(!isMuted);
   };
 
-  const toggleSpeaker = () => {
+  const toggleSpeaker = async () => {
     const newSpeakerState = !isSpeakerOn;
-    AudioSession.configureAudio({
+    setIsSpeakerOn(newSpeakerState);
+
+    // Reconfigure audio with forceHandleAudioRouting to ensure routing works
+    await AudioSession.configureAudio({
       android: {
         preferredOutputList: newSpeakerState
           ? ['speaker', 'earpiece']
           : ['earpiece', 'speaker'],
+        audioTypeOptions: {
+          manageAudioFocus: true,
+          audioMode: 'inCommunication',
+          audioFocusMode: 'gain',
+          audioStreamType: 'voiceCall',
+          audioAttributesUsageType: 'voiceCommunication',
+          audioAttributesContentType: 'speech',
+          forceHandleAudioRouting: true,
+        },
       },
       ios: {
         defaultOutput: newSpeakerState ? 'speaker' : 'earpiece',
       },
     });
-    setIsSpeakerOn(newSpeakerState);
+
+    // Explicitly select the audio output device
+    // Android: 'speaker' or 'earpiece'; iOS: 'force_speaker' or 'default'
+    if (Platform.OS === 'ios') {
+      await AudioSession.selectAudioOutput(newSpeakerState ? 'force_speaker' : 'default');
+    } else {
+      await AudioSession.selectAudioOutput(newSpeakerState ? 'speaker' : 'earpiece');
+    }
   };
 
   return (

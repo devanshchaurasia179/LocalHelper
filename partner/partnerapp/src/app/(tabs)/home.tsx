@@ -300,7 +300,7 @@ function LiveBookingCard({
   if (!meta) return null;
 
   const scheduledDate = new Date(booking.scheduledAt);
-  const dateStr = scheduledDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  const dateStr = scheduledDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
   const timeStr = scheduledDate.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -308,13 +308,25 @@ function LiveBookingCard({
     if (status !== "pending") return;
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 0.97, duration: 700, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.98, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
       ])
     );
     loop.start();
     return () => loop.stop();
   }, [status, pulseAnim]);
+
+  const hasLocation = !!booking.serviceAddress?.coordinates?.coordinates;
+
+  const openLocation = () => {
+    if (!hasLocation) return;
+    const [lng, lat] = booking.serviceAddress!.coordinates!.coordinates;
+    const url = Platform.select({
+      ios: `maps:0,0?q=${lat},${lng}`,
+      default: `geo:${lat},${lng}?q=${lat},${lng}`,
+    });
+    Linking.openURL(url);
+  };
 
   return (
     <Animated.View
@@ -322,14 +334,17 @@ function LiveBookingCard({
         liveStyles.card,
         { borderColor: meta.border, transform: [{ scale: pulseAnim }] },
         status === "pending" && liveStyles.cardPending,
+        status === "in_progress" && liveStyles.cardInProgress,
       ]}
     >
+      {/* Accent strip on left */}
       <View style={[liveStyles.strip, { backgroundColor: meta.accent }]} />
+
       <View style={liveStyles.body}>
-        {/* Status + badges */}
+        {/* ── Top: Status pill + badges ── */}
         <View style={liveStyles.topRow}>
           <View style={[liveStyles.statusPill, { backgroundColor: meta.bg, borderColor: meta.border }]}>
-            <Ionicons name={meta.icon} size={11} color={meta.accent} />
+            <Ionicons name={meta.icon} size={12} color={meta.accent} />
             <Text style={[liveStyles.statusPillText, { color: meta.accent }]}>{meta.label}</Text>
           </View>
           <View style={liveStyles.topRight}>
@@ -341,14 +356,14 @@ function LiveBookingCard({
             )}
             {booking.visitingCredit != null && (
               <View style={liveStyles.creditChip}>
-                <Ionicons name="cash-outline" size={11} color={colors.success} />
+                <Ionicons name="wallet-outline" size={11} color={colors.success} />
                 <Text style={liveStyles.creditText}>₹{booking.visitingCredit}</Text>
               </View>
             )}
           </View>
         </View>
 
-        {/* Customer info */}
+        {/* ── Customer info ── */}
         <View style={liveStyles.customerRow}>
           <View style={liveStyles.avatar}>
             <Ionicons name="person" size={16} color={colors.white} />
@@ -363,112 +378,96 @@ function LiveBookingCard({
           </View>
         </View>
 
-        {/* Meta chips */}
-        <View style={liveStyles.metaRow}>
-          <View style={liveStyles.metaChip}>
-            <Ionicons name="calendar-outline" size={12} color={colors.textSecondary} />
+        {/* ── Schedule + Location meta ── */}
+        <View style={liveStyles.metaSection}>
+          <View style={liveStyles.metaRow}>
+            <Ionicons name="calendar-outline" size={13} color={colors.primary} />
             <Text style={liveStyles.metaText}>{dateStr} · {timeStr}</Text>
           </View>
-          {booking.serviceAddress?.locality ? (
-            <View style={liveStyles.metaChip}>
-              <Ionicons name="location-outline" size={12} color={colors.textSecondary} />
+          {booking.serviceAddress?.locality && (
+            <View style={liveStyles.metaRow}>
+              <Ionicons name="location-outline" size={13} color={colors.primary} />
               <Text style={liveStyles.metaText} numberOfLines={1}>
                 {booking.serviceAddress.locality}
               </Text>
             </View>
-          ) : null}
+          )}
         </View>
 
+        {/* ── Description ── */}
         {booking.description ? (
           <Text style={liveStyles.description} numberOfLines={2}>{booking.description}</Text>
         ) : null}
 
-        {/* Actions */}
+        {/* ── Location button (separate row, above actions) ── */}
+        {hasLocation && (status === "accepted" || status === "in_progress") && (
+          <Pressable
+            style={liveStyles.locationRow}
+            onPress={openLocation}
+            accessibilityLabel="Open customer location on map"
+          >
+            <View style={liveStyles.locationIconWrap}>
+              <Ionicons name="navigate" size={14} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={liveStyles.locationTitle}>Customer Location</Text>
+              <Text style={liveStyles.locationSub}>Tap to open in maps</Text>
+            </View>
+            <Ionicons name="open-outline" size={14} color={colors.textSecondary} />
+          </Pressable>
+        )}
+
+        {/* ── Action buttons ── */}
         <View style={liveStyles.actionRow}>
           {status === "pending" && (
             <>
               <Pressable
-                style={[liveStyles.btn, liveStyles.btnAccept]}
+                style={[liveStyles.btn, liveStyles.btnAccept, isActioning && liveStyles.btnDisabled]}
                 onPress={onAccept} disabled={isActioning}
                 accessibilityLabel="Accept booking"
               >
-                <Ionicons name="checkmark" size={14} color={colors.white} />
+                <Ionicons name="checkmark-circle" size={15} color={colors.white} />
                 <Text style={liveStyles.btnText}>Accept</Text>
               </Pressable>
               <Pressable
-                style={[liveStyles.btn, liveStyles.btnDecline]}
+                style={[liveStyles.btn, liveStyles.btnDecline, isActioning && liveStyles.btnDisabled]}
                 onPress={onDecline} disabled={isActioning}
                 accessibilityLabel="Decline booking"
               >
-                <Ionicons name="close" size={14} color={colors.white} />
-                <Text style={liveStyles.btnText}>Decline</Text>
+                <Ionicons name="close-circle" size={15} color={colors.error} />
+                <Text style={liveStyles.btnDeclineText}>Decline</Text>
               </Pressable>
             </>
           )}
           {status === "accepted" && (
             <>
               <Pressable
-                style={[liveStyles.btn, liveStyles.btnStart]}
+                style={[liveStyles.btn, liveStyles.btnStart, isActioning && liveStyles.btnDisabled]}
                 onPress={onStart} disabled={isActioning}
                 accessibilityLabel="Start work"
               >
-                <Ionicons name="play" size={13} color={colors.white} />
+                <Ionicons name="play-circle" size={15} color={colors.white} />
                 <Text style={liveStyles.btnText}>Start Work</Text>
               </Pressable>
-              {booking.serviceAddress?.coordinates?.coordinates && (
-                <Pressable
-                  style={[liveStyles.btn, liveStyles.btnLocation]}
-                  onPress={() => {
-                    const [lng, lat] = booking.serviceAddress!.coordinates!.coordinates;
-                    const url = Platform.select({
-                      ios: `maps:0,0?q=${lat},${lng}`,
-                      default: `geo:${lat},${lng}?q=${lat},${lng}`,
-                    });
-                    Linking.openURL(url);
-                  }}
-                  accessibilityLabel="Show customer location on map"
-                >
-                  <Ionicons name="navigate" size={13} color={colors.white} />
-                  <Text style={liveStyles.btnText}>Location</Text>
-                </Pressable>
-              )}
               <Pressable
-                style={[liveStyles.btn, liveStyles.btnDecline]}
+                style={[liveStyles.btn, liveStyles.btnDecline, isActioning && liveStyles.btnDisabled]}
                 onPress={onDecline} disabled={isActioning}
                 accessibilityLabel="Cancel booking"
               >
-                <Ionicons name="close" size={14} color={colors.white} />
-                <Text style={liveStyles.btnText}>Cancel</Text>
+                <Ionicons name="close-circle" size={15} color={colors.error} />
+                <Text style={liveStyles.btnDeclineText}>Cancel</Text>
               </Pressable>
             </>
           )}
           {status === "in_progress" && (
-            <>
-              <Pressable
-                style={[liveStyles.btn, liveStyles.btnComplete]}
-                onPress={onCompletePress} disabled={isActioning}
-                accessibilityLabel="Complete job — enter customer code"
-              >
-                <Ionicons name="keypad-outline" size={14} color={colors.white} />
-                <Text style={liveStyles.btnText}>Complete — Enter Code</Text>
-              </Pressable>
-              {booking.serviceAddress?.coordinates?.coordinates && (
-                <Pressable
-                  style={[liveStyles.btn, liveStyles.btnLocation]}
-                  onPress={() => {
-                    const [lng, lat] = booking.serviceAddress!.coordinates!.coordinates;
-                    const url = Platform.select({
-                      ios: `maps:0,0?q=${lat},${lng}`,
-                      default: `geo:${lat},${lng}?q=${lat},${lng}`,
-                    });
-                    Linking.openURL(url);
-                  }}
-                  accessibilityLabel="Show customer location on map"
-                >
-                  <Ionicons name="navigate" size={13} color={colors.white} />
-                </Pressable>
-              )}
-            </>
+            <Pressable
+              style={[liveStyles.btn, liveStyles.btnComplete, isActioning && liveStyles.btnDisabled]}
+              onPress={onCompletePress} disabled={isActioning}
+              accessibilityLabel="Complete job — enter customer code"
+            >
+              <Ionicons name="keypad-outline" size={15} color={colors.white} />
+              <Text style={liveStyles.btnText}>Complete — Enter Code</Text>
+            </Pressable>
           )}
         </View>
       </View>
@@ -478,38 +477,100 @@ function LiveBookingCard({
 
 const liveStyles = StyleSheet.create({
   card: {
-    flexDirection: "row", backgroundColor: colors.background,
-    borderRadius: radii.md, borderWidth: 1.5, marginBottom: spacing.xs,
-    overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.05,
-    shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2,
+    flexDirection: "row",
+    backgroundColor: colors.background,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
-  cardPending: { backgroundColor: "#f0fdf8" },
-  strip: { width: 3 },
-  body: { flex: 1, padding: spacing.sm, gap: 6 },
+  cardPending: { backgroundColor: "#FAFFFE" },
+  cardInProgress: { backgroundColor: "#FDFAFF" },
+  strip: { width: 4, borderTopLeftRadius: radii.md, borderBottomLeftRadius: radii.md },
+  body: { flex: 1, padding: spacing.md, gap: spacing.sm },
+
+  // Top row
   topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  topRight: { flexDirection: "row", alignItems: "center", gap: 4 },
-  statusPill: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.pill, borderWidth: 1 },
-  statusPillText: { fontFamily: fonts.jakartaSemiBold, fontSize: 9 },
-  emergencyChip: { flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: colors.errorLight, paddingHorizontal: 5, paddingVertical: 1, borderRadius: radii.sm },
-  emergencyText: { fontFamily: fonts.jakartaMedium, fontSize: 9, color: colors.error },
-  creditChip: { flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: colors.successLight, paddingHorizontal: 5, paddingVertical: 1, borderRadius: radii.sm },
-  creditText: { fontFamily: fonts.jakartaSemiBold, fontSize: 10, color: colors.success },
-  customerRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
-  avatar: { width: 26, height: 26, borderRadius: 13, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-  customerName: { fontFamily: fonts.jakartaSemiBold, fontSize: 13, color: colors.textPrimary },
-  categoryText: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary },
-  metaRow: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
-  metaChip: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.surface, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.sm },
-  metaText: { fontFamily: fonts.jostRegular, fontSize: 10, color: colors.textSecondary },
-  description: { fontFamily: fonts.jostRegular, fontSize: 11, color: colors.textSecondary, lineHeight: 15 },
-  actionRow: { flexDirection: "row", gap: spacing.xs, marginTop: 2 },
-  btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: radii.pill, flex: 1 },
+  topRight: { flexDirection: "row", alignItems: "center", gap: 6 },
+  statusPill: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: radii.pill, borderWidth: 1,
+  },
+  statusPillText: { fontFamily: fonts.jakartaSemiBold, fontSize: 10 },
+  emergencyChip: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    backgroundColor: colors.errorLight, paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: radii.pill, borderWidth: 1, borderColor: colors.errorBorder,
+  },
+  emergencyText: { fontFamily: fonts.jakartaSemiBold, fontSize: 9, color: colors.error },
+  creditChip: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    backgroundColor: colors.successLight, paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: radii.pill, borderWidth: 1, borderColor: colors.successBorder,
+  },
+  creditText: { fontFamily: fonts.jakartaSemiBold, fontSize: 10, color: colors.successDark },
+
+  // Customer row
+  customerRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  avatar: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: colors.primary, alignItems: "center", justifyContent: "center",
+  },
+  customerName: { fontFamily: fonts.jakartaSemiBold, fontSize: 14, color: colors.textPrimary },
+  categoryText: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: 1 },
+
+  // Meta section
+  metaSection: {
+    backgroundColor: colors.surface, borderRadius: radii.sm,
+    padding: spacing.sm + 2, gap: 6,
+  },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  metaText: { fontFamily: fonts.jostMedium, fontSize: 12, color: colors.textSecondary, flex: 1 },
+
+  // Description
+  description: {
+    fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary,
+    lineHeight: 17, paddingLeft: 2,
+  },
+
+  // Location row (tappable, above buttons)
+  locationRow: {
+    flexDirection: "row", alignItems: "center", gap: spacing.sm,
+    backgroundColor: "#EDF7F4", borderRadius: radii.sm,
+    padding: spacing.sm + 2, borderWidth: 1, borderColor: "#C6F1E2",
+  },
+  locationIconWrap: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: colors.white, alignItems: "center", justifyContent: "center",
+    shadowColor: colors.primary, shadowOpacity: 0.1, shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 }, elevation: 1,
+  },
+  locationTitle: { fontFamily: fonts.jakartaSemiBold, fontSize: 12, color: colors.primary },
+  locationSub: { fontFamily: fonts.jostRegular, fontSize: 10, color: colors.textSecondary, marginTop: 1 },
+
+  // Action row
+  actionRow: { flexDirection: "row", gap: spacing.sm, marginTop: 2 },
+  btn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 5, paddingHorizontal: 14, paddingVertical: 10,
+    borderRadius: radii.pill, flex: 1,
+  },
+  btnDisabled: { opacity: 0.6 },
   btnAccept: { backgroundColor: colors.primary },
-  btnDecline: { backgroundColor: colors.error },
-  btnStart: { backgroundColor: "#6366F1" },
+  btnDecline: {
+    backgroundColor: colors.errorLight,
+    borderWidth: 1, borderColor: colors.errorBorder,
+  },
+  btnStart: { backgroundColor: colors.primary },
   btnComplete: { backgroundColor: colors.success },
-  btnLocation: { backgroundColor: "#2563EB", flex: 0.6 },
   btnText: { fontFamily: fonts.jakartaSemiBold, fontSize: 12, color: colors.white },
+  btnDeclineText: { fontFamily: fonts.jakartaSemiBold, fontSize: 12, color: colors.error },
 });
 
 // ─── Home Screen ──────────────────────────────────────────────────────────────

@@ -66,6 +66,7 @@ export function CallProvider({ children }: CallProviderProps) {
           customerName={activeCall.customerName}
           livekitUrl={activeCall.livekitUrl}
           livekitToken={activeCall.livekitToken}
+          initiatedByPartner={activeCall.initiatedByPartner}
           onEndCall={handleEndCall}
         />
       )}

@@ -61,13 +61,21 @@ function CallControls({
     setIsMuted(!isMuted);
   };
 
-  const toggleSpeaker = () => {
+  const toggleSpeaker = async () => {
     const newSpeakerState = !isSpeakerOn;
-    AudioSession.configureAudio({
+    await AudioSession.configureAudio({
       android: {
         preferredOutputList: newSpeakerState
           ? ['speaker', 'earpiece']
           : ['earpiece', 'speaker'],
+        audioTypeOptions: {
+          manageAudioFocus: true,
+          audioMode: 'inCommunication',
+          audioFocusMode: 'gain',
+          audioStreamType: 'voiceCall',
+          audioAttributesUsageType: 'voiceCommunication',
+          audioAttributesContentType: 'speech',
+        },
       },
       ios: {
         defaultOutput: newSpeakerState ? 'speaker' : 'earpiece',

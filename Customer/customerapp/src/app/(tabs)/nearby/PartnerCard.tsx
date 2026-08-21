@@ -18,8 +18,8 @@ interface PartnerCardProps {
 
 export default function PartnerCard({ partner, onPress, activeBookingStatus = null, callMinutesLeft = null }: PartnerCardProps) {
   const isBooked = activeBookingStatus !== null;
-  const avatarUri = partner.selfieUrl
-    ?? partner.profilePhoto
+  const avatarUri = partner.profilePhoto
+    ?? partner.selfieUrl
     ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(partner.fullName)}&background=16493c&color=fff&size=200`;
 
   const primaryCategory = partner.categories[0]?.name ?? 'General';
