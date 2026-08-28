@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { protectAdmin } from "../../middleware/admin.auth.middleware.js";
+import { upload } from "../../middleware/upload.middleware.js";
 import {
   listCategories,
   getCategoryById,
@@ -25,9 +26,9 @@ router.patch("/:id", updateCategory);
 router.patch("/:id/toggle", toggleCategory);
 router.delete("/:id", deleteCategory);
 
-// Subcategory routes
-router.post("/:id/subcategories", addSubcategory);
-router.patch("/:id/subcategories/:subId", updateSubcategory);
+// Subcategory routes — accept an optional image upload under the "image" field
+router.post("/:id/subcategories", upload.single("image"), addSubcategory);
+router.patch("/:id/subcategories/:subId", upload.single("image"), updateSubcategory);
 router.delete("/:id/subcategories/:subId", deleteSubcategory);
 
 export default router;

@@ -1,4 +1,6 @@
 import Category from "../../models/Category.js";
+import cloudinary from "../../config/cloudinary.js";
+import { uploadToCloudinary } from "../../middleware/upload.middleware.js";
 
 // ─── LIST ────────────────────────────────────────────────────────────────────
 /**
@@ -241,10 +243,21 @@ export const addSubcategory = async (req, res) => {
       });
     }
 
+    // Optional image upload (multipart, field name "image")
+    let image;
+    if (req.file) {
+      const result = await uploadToCloudinary(
+        req.file.buffer,
+        `categories/${category._id}/subcategories`
+      );
+      image = { url: result.url, publicId: result.publicId };
+    }
+
     category.subcategories.push({
       name: name.trim(),
       description: description?.trim() || undefined,
       icon: icon?.trim() || undefined,
+      image,
     });
 
     await category.save();
@@ -302,7 +315,28 @@ export const updateSubcategory = async (req, res) => {
 
     if (description !== undefined) subcategory.description = description?.trim() || "";
     if (icon !== undefined) subcategory.icon = icon?.trim() || "";
-    if (isActive !== undefined) subcategory.isActive = isActive;
+    // isActive may arrive as a boolean (JSON) or a string ("true"/"false") via multipart
+    if (isActive !== undefined) {
+      subcategory.isActive = isActive === true || isActive === "true";
+    }
+
+    // Replace the image if a new file was uploaded
+    if (req.file) {
+      // Remove the previous Cloudinary asset first (best-effort)
+      if (subcategory.image?.publicId) {
+        try {
+          await cloudinary.uploader.destroy(subcategory.image.publicId);
+        } catch (destroyErr) {
+          console.error("Failed to delete old subcategory image:", destroyErr);
+        }
+      }
+
+      const result = await uploadToCloudinary(
+        req.file.buffer,
+        `categories/${category._id}/subcategories`
+      );
+      subcategory.image = { url: result.url, publicId: result.publicId };
+    }
 
     await category.save();
 
@@ -348,6 +382,15 @@ export const deleteSubcategory = async (req, res) => {
       return res.status(409).json({
         message: `Cannot delete "${subcategory.name}" — ${partnerCount} partner${partnerCount > 1 ? "s" : ""} ${partnerCount > 1 ? "are" : "is"} using this subcategory.`,
       });
+    }
+
+    // Best-effort cleanup of the Cloudinary image
+    if (subcategory.image?.publicId) {
+      try {
+        await cloudinary.uploader.destroy(subcategory.image.publicId);
+      } catch (destroyErr) {
+        console.error("Failed to delete subcategory image:", destroyErr);
+      }
     }
 
     subcategory.deleteOne();

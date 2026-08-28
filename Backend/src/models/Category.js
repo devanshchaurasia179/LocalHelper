@@ -12,7 +12,12 @@ const subcategorySchema = new mongoose.Schema(
       trim: true,
     },
     icon: {
-      type: String, // URL or icon name
+      type: String, // MaterialCommunityIcons glyph name
+    },
+    // Uploaded image (Cloudinary) shown in the customer app
+    image: {
+      url: { type: String },
+      publicId: { type: String },
     },
     isActive: {
       type: Boolean,
