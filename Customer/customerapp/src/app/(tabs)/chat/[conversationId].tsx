@@ -2,7 +2,6 @@
  * Customer Chat Room Screen
  * – Uses static brand colors (home/theme) to avoid the dark-mode black-page bug
  *   that occurred when useTheme() returned Colors.dark.background = '#000000'.
- * – Supports sending images from the photo library or camera
  */
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
@@ -16,18 +15,18 @@ import {
   Platform,
   ActivityIndicator,
   Image,
-  ActionSheetIOS,
   Alert,
   Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as ImagePicker from "expo-image-picker";
 import { Fonts, Spacing } from "@/constants/theme";
 import { colors, fonts, spacing } from "../home/theme";
 import { useChatRoom } from "@/hooks/useChatRoom";
-import { blockPartner, unblockPartner, getBlockedPartners } from "@/api/call.api";
+import { initiateCallToPartner, blockPartner, unblockPartner, getBlockedPartners } from "@/api/call.api";
+import CallScreen from "@/components/call/CallScreen";
+import type { NearbyPartner } from "@/api/nearby.api";
 import type { ChatMessage } from "@/api/chat.api";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -57,6 +56,75 @@ function formatDateSeparator(dateStr: string): string {
     month: "long",
     year: "numeric",
   });
+}
+
+// ─── Phone Number Detection ───────────────────────────────────────────────────
+
+/**
+ * Detects if the text contains a phone/mobile number.
+ * Covers:
+ *  - 10+ consecutive digits (with optional country code, spaces, dashes, dots)
+ *  - English spelled-out numbers (e.g. "nine eight seven six five four three two one zero")
+ *  - Mixed patterns: digits + words together (e.g. "nine 8 seven 6 five 4...")
+ */
+function containsPhoneNumber(text: string): boolean {
+  // Word-to-digit mapping
+  const wordToDigit: Record<string, string> = {
+    zero: "0", one: "1", two: "2", three: "3", four: "4",
+    five: "5", six: "6", seven: "7", eight: "8", nine: "9",
+  };
+
+  // Step 1: Convert the text to a "digit-only" version by replacing number words with digits
+  const lowerText = text.toLowerCase();
+  let converted = lowerText;
+  for (const [word, digit] of Object.entries(wordToDigit)) {
+    converted = converted.replace(new RegExp(`\\b${word}\\b`, "g"), digit);
+  }
+
+  // Step 2: Extract all digits from the converted string
+  const extractedDigits = converted.replace(/[^0-9]/g, "");
+
+  // If we can extract 10+ digits (from raw numbers, spelled words, or a mix), it's a phone number
+  if (extractedDigits.length >= 10) {
+    return true;
+  }
+
+  // Step 3: Standard phone pattern on original text (handles formatted numbers)
+  const phonePattern = /(?:\+?\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/;
+  if (phonePattern.test(text)) {
+    return true;
+  }
+
+  return false;
+}
+
+// ─── Phone Warning Modal Component ───────────────────────────────────────────
+
+function PhoneWarningModal({
+  visible,
+  onClose,
+}: {
+  visible: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={warningStyles.overlay}>
+        <View style={warningStyles.card}>
+          <View style={warningStyles.iconWrap}>
+            <Ionicons name="warning" size={36} color="#EF4444" />
+          </View>
+          <Text style={warningStyles.title}>Warning</Text>
+          <Text style={warningStyles.message}>
+            Sharing mobile numbers is not allowed on this platform. This action can lead to account suspension.
+          </Text>
+          <Pressable style={warningStyles.btn} onPress={onClose}>
+            <Text style={warningStyles.btnText}>I Understand</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -100,21 +168,6 @@ function MessageBubble({
           { backgroundColor: isMe ? BRAND : "#F0F0F3" },
         ]}
       >
-        {msg.mediaUrl && (
-          <View>
-            <Image
-              source={{ uri: msg.mediaUrl }}
-              style={styles.bubbleImage}
-              resizeMode="cover"
-            />
-            {/* Overlay spinner while uploading */}
-            {msg.isSending && (
-              <View style={styles.imageUploadOverlay}>
-                <ActivityIndicator size="small" color="#fff" />
-              </View>
-            )}
-          </View>
-        )}
         {msg.text ? (
           <Text style={[styles.bubbleText, { color: isMe ? "#fff" : colors.textPrimary }]}>
             {msg.text}
@@ -175,13 +228,13 @@ export default function ChatRoomScreen() {
     isOtherOnline,
     isTyping,
     sendMessage,
-    sendImage,
     loadMore,
     onTypingStart,
     onTypingStop,
   } = useChatRoom(conversationId);
 
   const [inputText, setInputText] = useState("");
+  const [phoneWarningVisible, setPhoneWarningVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -189,6 +242,41 @@ export default function ChatRoomScreen() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockLoading, setBlockLoading] = useState(false);
+
+  // ── Call state ────────────────────────────────────────────────────────────
+  const [callScreenVisible, setCallScreenVisible] = useState(false);
+  const [callId, setCallId] = useState("");
+  const [livekitUrl, setLivekitUrl] = useState("");
+  const [livekitToken, setLivekitToken] = useState("");
+
+  const callPartner: NearbyPartner | null = partnerId
+    ? ({ _id: partnerId, fullName: partnerName, profilePhoto: partnerPhoto } as unknown as NearbyPartner)
+    : null;
+
+  const handleCall = useCallback(async () => {
+    if (!partnerId) return;
+    try {
+      const res = await initiateCallToPartner(partnerId);
+      if (!res.success || !res.call || !res.livekit) {
+        Alert.alert("Call Failed", res.message ?? "Could not reach partner. Try again later.");
+        return;
+      }
+      setCallId(res.call.id);
+      setLivekitUrl(res.livekit.url);
+      setLivekitToken(res.livekit.token);
+      setCallScreenVisible(true);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? "Could not initiate call. Try again.";
+      Alert.alert("Call Failed", msg);
+    }
+  }, [partnerId]);
+
+  const handleEndCall = useCallback(() => {
+    setCallScreenVisible(false);
+    setCallId("");
+    setLivekitUrl("");
+    setLivekitToken("");
+  }, []);
 
   // Fetch actual block status on mount
   useEffect(() => {
@@ -288,75 +376,18 @@ export default function ChatRoomScreen() {
   const handleSend = useCallback(() => {
     const trimmed = inputText.trim();
     if (!trimmed) return;
+
+    // Check for phone numbers
+    if (containsPhoneNumber(trimmed)) {
+      setPhoneWarningVisible(true);
+      return;
+    }
+
     sendMessage(trimmed);
     setInputText("");
     onTypingStop();
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
   }, [inputText, sendMessage, onTypingStop]);
-
-  // ── Image picker ──────────────────────────────────────────────────────────
-
-  const pickFromLibrary = useCallback(async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(
-        "Permission needed",
-        "Please allow access to your photo library in Settings."
-      );
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      quality: 0.8,
-      allowsEditing: false,
-    });
-    if (!result.canceled && result.assets.length > 0) {
-      const asset = result.assets[0];
-      sendImage(asset.uri, asset.mimeType ?? "image/jpeg");
-    }
-  }, [sendImage]);
-
-  const pickFromCamera = useCallback(async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(
-        "Permission needed",
-        "Please allow camera access in Settings."
-      );
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"],
-      quality: 0.8,
-      allowsEditing: false,
-    });
-    if (!result.canceled && result.assets.length > 0) {
-      const asset = result.assets[0];
-      sendImage(asset.uri, asset.mimeType ?? "image/jpeg");
-    }
-  }, [sendImage]);
-
-  const handleAttach = useCallback(() => {
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: ["Cancel", "Photo Library", "Take Photo"],
-          cancelButtonIndex: 0,
-        },
-        (index) => {
-          if (index === 1) pickFromLibrary();
-          if (index === 2) pickFromCamera();
-        }
-      );
-    } else {
-      // Android — use a simple Alert as a fallback action sheet
-      Alert.alert("Send Image", "Choose a source", [
-        { text: "Photo Library", onPress: pickFromLibrary },
-        { text: "Take Photo", onPress: pickFromCamera },
-        { text: "Cancel", style: "cancel" },
-      ]);
-    }
-  }, [pickFromLibrary, pickFromCamera]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -410,14 +441,24 @@ export default function ChatRoomScreen() {
             )}
           </View>
         </View>
-        <Pressable
-          onPress={() => setMenuVisible(true)}
-          hitSlop={8}
-          accessibilityLabel="More options"
-          style={styles.menuBtn}
-        >
-          <Ionicons name="ellipsis-vertical" size={20} color={colors.textPrimary} />
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            onPress={handleCall}
+            hitSlop={8}
+            accessibilityLabel="Call partner"
+            style={styles.callBtn}
+          >
+            <Ionicons name="call" size={20} color={BRAND} />
+          </Pressable>
+          <Pressable
+            onPress={() => setMenuVisible(true)}
+            hitSlop={8}
+            accessibilityLabel="More options"
+            style={styles.menuBtn}
+          >
+            <Ionicons name="ellipsis-vertical" size={20} color={colors.textPrimary} />
+          </Pressable>
+        </View>
       </View>
 
       {/* ── Three-dot menu modal ────────────────────────────────────────── */}
@@ -504,16 +545,6 @@ export default function ChatRoomScreen() {
             },
           ]}
         >
-          {/* Attach button */}
-          <Pressable
-            onPress={handleAttach}
-            hitSlop={8}
-            accessibilityLabel="Attach image"
-            style={styles.attachBtn}
-          >
-            <Ionicons name="image-outline" size={24} color={colors.textSecondary} />
-          </Pressable>
-
           <TextInput
             style={[
               styles.input,
@@ -543,6 +574,24 @@ export default function ChatRoomScreen() {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Phone Number Warning Modal */}
+      <PhoneWarningModal
+        visible={phoneWarningVisible}
+        onClose={() => setPhoneWarningVisible(false)}
+      />
+
+      {/* Call Screen Modal */}
+      {callPartner && (
+        <CallScreen
+          visible={callScreenVisible}
+          partner={callPartner}
+          callId={callId}
+          livekitUrl={livekitUrl}
+          livekitToken={livekitToken}
+          onEndCall={handleEndCall}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -645,14 +694,6 @@ const styles = StyleSheet.create({
     gap: 4,
   },
 
-  bubbleImage: { width: 200, height: 200, borderRadius: 8 },
-  imageUploadOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 8,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   bubbleText: { fontFamily: Fonts.sans, fontSize: 14, lineHeight: 20 },
 
   bubbleFooter: {
@@ -670,12 +711,6 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     borderTopWidth: 1,
     gap: Spacing.two,
-  },
-  attachBtn: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
   },
   input: {
     flex: 1,
@@ -698,6 +733,18 @@ const styles = StyleSheet.create({
   sendBtnDisabled: { backgroundColor: "#9CA3AF" },
 
   // ── Three-dot menu styles ─────────────────────────────────────────────────
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  callBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   menuBtn: {
     width: 32,
     height: 32,
@@ -735,5 +782,68 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
     color: "#1C1C28",
+  },
+});
+
+// ─── Warning Modal Styles ─────────────────────────────────────────────────────
+
+const warningStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: Spacing.four,
+  },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    width: "100%",
+    maxWidth: 320,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  iconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#FEE2E2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  title: {
+    fontFamily: Fonts.sans,
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1C1C28",
+    marginBottom: 8,
+  },
+  message: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  btn: {
+    backgroundColor: "#EF4444",
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    width: "100%",
+    alignItems: "center",
+  },
+  btnText: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
   },
 });

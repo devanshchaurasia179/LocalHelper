@@ -256,8 +256,14 @@ export default function CategoryPartnersScreen() {
       // We never request live GPS here — results must match the chosen address.
       const coords = nearbyCache.getCoords() ?? undefined;
 
+      // NOTE: fetch the FULL partner list (no categoryId) so the shared
+      // nearbyCache always holds every category's partners. The backend
+      // categoryId filter would return only this category, and storing that
+      // scoped result via setPartners() would wipe every other category from
+      // the cache — causing "only one category shows partners" after a refresh
+      // or when navigating back. We narrow to the category client-side below.
       const [res, bookingsMap] = await Promise.all([
-        fetchNearbyServices({ ...coords, categoryId }),
+        fetchNearbyServices({ ...coords }),
         fetchActiveBookingsByPartner().catch(() => new Map<string, ActiveBookingStatus>()),
       ]);
 

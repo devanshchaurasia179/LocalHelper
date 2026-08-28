@@ -351,12 +351,20 @@ const IconPicker = ({ value, onChange, error, label, required }) => {
         </label>
       )}
 
-      {/* Trigger button */}
-      <button
-        type="button"
+      {/* Trigger — a div (not a button) so the "Clear" button can nest inside
+          it without producing invalid <button> in <button> HTML. */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setIsOpen(!isOpen)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setIsOpen((prev) => !prev)
+          }
+        }}
         className={cn(
-          'flex items-center gap-3 w-full h-10 px-3.5 rounded-xl border bg-white text-sm transition-colors',
+          'flex items-center gap-3 w-full h-10 px-3.5 rounded-xl border bg-white text-sm transition-colors cursor-pointer',
           'hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent',
           error ? 'border-red-300' : 'border-slate-200',
           !value && 'text-slate-400'
@@ -385,7 +393,7 @@ const IconPicker = ({ value, onChange, error, label, required }) => {
             <X className="w-3.5 h-3.5" />
           </button>
         )}
-      </button>
+      </div>
 
       {/* Dropdown panel */}
       {isOpen && (

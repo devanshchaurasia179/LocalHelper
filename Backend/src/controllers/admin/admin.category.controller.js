@@ -243,7 +243,7 @@ export const addSubcategory = async (req, res) => {
       });
     }
 
-    // Optional image upload (multipart, field name "image")
+    // Optional image upload (multipart, field name "image") — handled by multer
     let image;
     if (req.file) {
       const result = await uploadToCloudinary(
@@ -282,7 +282,7 @@ export const addSubcategory = async (req, res) => {
  */
 export const updateSubcategory = async (req, res) => {
   try {
-    const { name, description, icon, isActive } = req.body;
+    const { name, description, icon, isActive, removeImage } = req.body;
 
     const category = await Category.findById(req.params.id);
 
@@ -320,7 +320,7 @@ export const updateSubcategory = async (req, res) => {
       subcategory.isActive = isActive === true || isActive === "true";
     }
 
-    // Replace the image if a new file was uploaded
+    // Replace the image when a new file is uploaded (multer -> req.file)
     if (req.file) {
       // Remove the previous Cloudinary asset first (best-effort)
       if (subcategory.image?.publicId) {
@@ -336,6 +336,16 @@ export const updateSubcategory = async (req, res) => {
         `categories/${category._id}/subcategories`
       );
       subcategory.image = { url: result.url, publicId: result.publicId };
+    } else if (removeImage === "true" || removeImage === true) {
+      // Explicit removal of the existing image
+      if (subcategory.image?.publicId) {
+        try {
+          await cloudinary.uploader.destroy(subcategory.image.publicId);
+        } catch (destroyErr) {
+          console.error("Failed to delete subcategory image:", destroyErr);
+        }
+      }
+      subcategory.image = undefined;
     }
 
     await category.save();

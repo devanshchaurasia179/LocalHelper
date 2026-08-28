@@ -62,20 +62,51 @@ export const deleteCategory = (id) =>
 // ── Subcategory Management ──────────────────────────────────────────
 
 /**
+ * Build a multipart FormData payload from a subcategory data object.
+ * The `image` field, when present, must be a browser File/Blob.
+ * Undefined / null values are skipped so we don't overwrite with "undefined".
+ */
+const buildSubcategoryFormData = (data) => {
+  const fd = new FormData()
+  if (data.name !== undefined) fd.append('name', data.name)
+  if (data.description !== undefined && data.description !== null)
+    fd.append('description', data.description)
+  if (data.icon !== undefined && data.icon !== null) fd.append('icon', data.icon)
+  if (data.isActive !== undefined) fd.append('isActive', String(data.isActive))
+  if (data.image instanceof File || data.image instanceof Blob)
+    fd.append('image', data.image)
+  // Explicit removal of an existing image
+  if (data.image === null) fd.append('removeImage', 'true')
+  return fd
+}
+
+/**
  * POST /api/admin/categories/:id/subcategories
- * Body: { name*, description, icon }
+ * Body (multipart): { name*, description, icon, image? }
+ * Uploaded via multer on the backend. Content-Type is left undefined so axios
+ * generates the correct multipart/form-data header with a boundary.
  * Response: { message, category }
  */
 export const addSubcategory = (categoryId, data) =>
-  api.post(`/admin/categories/${categoryId}/subcategories`, data).then((res) => res.data)
+  api
+    .post(`/admin/categories/${categoryId}/subcategories`, buildSubcategoryFormData(data), {
+      headers: { 'Content-Type': undefined },
+    })
+    .then((res) => res.data)
 
 /**
  * PATCH /api/admin/categories/:id/subcategories/:subId
- * Body: { name, description, icon, isActive }
+ * Body (multipart): { name, description, icon, isActive, image? }
  * Response: { message, category }
  */
 export const updateSubcategory = (categoryId, subId, data) =>
-  api.patch(`/admin/categories/${categoryId}/subcategories/${subId}`, data).then((res) => res.data)
+  api
+    .patch(
+      `/admin/categories/${categoryId}/subcategories/${subId}`,
+      buildSubcategoryFormData(data),
+      { headers: { 'Content-Type': undefined } }
+    )
+    .then((res) => res.data)
 
 /**
  * DELETE /api/admin/categories/:id/subcategories/:subId

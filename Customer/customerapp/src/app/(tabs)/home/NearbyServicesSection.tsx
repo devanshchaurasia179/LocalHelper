@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
-import { View, Text, Pressable, ScrollView, ImageBackground, StyleSheet, Dimensions } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useEffect } from 'react';
+import { View, Text, Pressable, Image, StyleSheet, Dimensions } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -15,12 +15,15 @@ import { colors, spacing, radii, fonts } from './theme';
 import type { NearbyCategory } from '@/api/nearby.api';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-// 2 cards visible + gap + padding on both sides + room for arrow button
+
+// ─── Grid geometry: max 3 tiles per row, wraps to next row ────────────────────
 const HORIZONTAL_PADDING = spacing.md;
-const ARROW_BUTTON_WIDTH = 36;
-const GAP = spacing.sm + 2;
-const CARD_WIDTH = (SCREEN_WIDTH - HORIZONTAL_PADDING * 2 - ARROW_BUTTON_WIDTH - GAP) / 2;
-const CARD_HEIGHT = 140;
+const COLUMNS = 3;
+const TILE_GAP = spacing.md;
+const TILE_WIDTH =
+  (SCREEN_WIDTH - HORIZONTAL_PADDING * 2 - TILE_GAP * (COLUMNS - 1)) / COLUMNS;
+// Square image area for each tile (label sits below, outside the square)
+const TILE_IMAGE_SIZE = TILE_WIDTH;
 
 // ─── Subcategory → local image map ───────────────────────────────────────────
 
@@ -40,26 +43,6 @@ function getSubcategoryImage(name: string): number {
   return SUBCATEGORY_IMAGES[name.trim().toLowerCase()] ?? FALLBACK_IMAGE;
 }
 
-// ─── Icon fallback map ────────────────────────────────────────────────────────
-
-const CATEGORY_ICONS_FALLBACK: Record<string, keyof typeof Ionicons.glyphMap> = {
-  'home service': 'hammer-outline',
-  'cleaning service': 'sparkles-outline',
-  'appliance service': 'construct-outline',
-  'pest control': 'bug-outline',
-  'beauty & wellness': 'flower-outline',
-  plumber: 'water-outline',
-  carpenter: 'hammer-outline',
-  driver: 'car-outline',
-  electrician: 'flash-outline',
-  cleaner: 'sparkles-outline',
-  painter: 'brush-outline',
-};
-
-function getFallbackIcon(name: string): keyof typeof Ionicons.glyphMap {
-  return CATEGORY_ICONS_FALLBACK[name.trim().toLowerCase()] ?? 'briefcase-outline';
-}
-
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface NearbyServicesSectionProps {
@@ -70,9 +53,9 @@ interface NearbyServicesSectionProps {
   onSubcategoryPress?: (category: NearbyCategory, subcategoryId: string, subcategoryName: string) => void;
 }
 
-// ─── Subcategory Card ─────────────────────────────────────────────────────────
+// ─── Subcategory Tile ─────────────────────────────────────────────────────────
 
-function SubcategoryCard({
+function SubcategoryTile({
   name,
   partnerCount,
   onPress,
@@ -103,35 +86,20 @@ function SubcategoryCard({
       onPressOut={handlePressOut}
       accessibilityRole="button"
       accessibilityLabel={name}
+      style={styles.tile}
     >
-      <Animated.View style={[styles.subcategoryCard, animStyle]}>
-        <ImageBackground
-          source={image}
-          style={styles.subcategoryImageBg}
-          imageStyle={styles.subcategoryImageStyle}
-          resizeMode="cover"
-        >
-          <LinearGradient
-            colors={['rgba(0,0,0,0.05)', 'rgba(0,0,0,0.55)']}
-            locations={[0.3, 1]}
-            style={styles.subcategoryScrim}
-          >
-            {/* Partner count badge — top right */}
-            {partnerCount !== undefined && partnerCount > 0 && (
-              <View style={styles.partnerCountBadge}>
-                <Text style={styles.partnerCountText}>
-                  {partnerCount} {partnerCount === 1 ? 'partner' : 'partners'}
-                </Text>
-              </View>
-            )}
-            <View style={styles.subcategoryBottom}>
-              <Text style={styles.subcategoryName} numberOfLines={2}>
-                {name}
-              </Text>
-            </View>
-          </LinearGradient>
-        </ImageBackground>
+      <Animated.View style={[styles.tileImageWrap, animStyle]}>
+        <Image source={image} style={styles.tileImage} resizeMode="cover" />
+        {/* Partner count badge — top right of the tile */}
+        {partnerCount !== undefined && partnerCount > 0 && (
+          <View style={styles.partnerCountBadge}>
+            <Text style={styles.partnerCountText}>{partnerCount}</Text>
+          </View>
+        )}
       </Animated.View>
+      <Text style={styles.tileLabel} numberOfLines={2}>
+        {name}
+      </Text>
     </Pressable>
   );
 }
@@ -149,82 +117,41 @@ function CategorySection({
   onCategoryPress: () => void;
   onSubcategoryPress?: (subcategoryId: string, subcategoryName: string) => void;
 }) {
-  const fallbackIcon = getFallbackIcon(category.name);
   const allSubcategories = category.subcategories ?? [];
-  // Only show subcategories that have at least one available partner
+  // Only show subcategories that have at least one available partner nearby
   const subcategories = partnerCounts
     ? allSubcategories.filter((sub) => (partnerCounts.get(sub._id) ?? 0) > 0)
     : allSubcategories;
-  const scrollRef = useRef<ScrollView>(null);
-  const scrollOffset = useRef(0);
 
-  const handleScrollRight = () => {
-    scrollOffset.current += CARD_WIDTH + GAP;
-    scrollRef.current?.scrollTo({ x: scrollOffset.current, animated: true });
-  };
+  if (subcategories.length === 0) return null;
 
   return (
     <View style={styles.categorySection}>
-      {/* Category Title Row */}
+      {/* Category title heading */}
       <Pressable
         onPress={onCategoryPress}
         style={styles.categoryHeader}
         accessibilityRole="button"
         accessibilityLabel={`View all ${category.name}`}
       >
-        <View style={styles.categoryTitleRow}>
-          <View style={styles.categoryIconCircle}>
-            {category.icon ? (
-              <MaterialCommunityIcons name={category.icon as any} size={18} color={colors.primary} />
-            ) : (
-              <Ionicons name={fallbackIcon} size={18} color={colors.primary} />
-            )}
-          </View>
-          <Text style={styles.categoryName}>{category.name}</Text>
-        </View>
+        <Text style={styles.categoryName}>{category.name}</Text>
         <View style={styles.viewAllRow}>
           <Text style={styles.viewAllText}>View All</Text>
           <Ionicons name="chevron-forward" size={14} color={colors.primary} />
         </View>
       </Pressable>
 
-      {/* Subcategory Cards — horizontal scroll with arrow */}
-      {subcategories.length > 0 && (
-        <View style={styles.subcategoryRow}>
-          <ScrollView
-            ref={scrollRef}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.subcategoryScroll}
-            onScroll={(e) => {
-              scrollOffset.current = e.nativeEvent.contentOffset.x;
-            }}
-            scrollEventThrottle={16}
-            style={styles.subcategoryScrollView}
-          >
-            {subcategories.map((sub) => (
-              <SubcategoryCard
-                key={sub._id}
-                name={sub.name}
-                partnerCount={partnerCounts?.get(sub._id)}
-                onPress={() => onSubcategoryPress?.(sub._id, sub.name)}
-              />
-            ))}
-          </ScrollView>
-
-          {/* Arrow button — only show when more than 2 subcategories */}
-          {subcategories.length > 2 && (
-            <Pressable
-              onPress={handleScrollRight}
-              style={styles.arrowButton}
-              accessibilityRole="button"
-              accessibilityLabel="See more subcategories"
-            >
-              <Ionicons name="chevron-forward" size={18} color={colors.primary} />
-            </Pressable>
-          )}
-        </View>
-      )}
+      {/* Subcategory tiles — grid, max 3 per row, wraps to next row */}
+      <View style={styles.tileGrid}>
+        {subcategories.map((sub) => (
+          <SubcategoryTile
+            key={sub._id}
+            name={sub.name}
+            partnerCount={partnerCounts?.get(sub._id)}
+            onPress={() => onSubcategoryPress?.(sub._id, sub.name)}
+          />
+        ))}
+      </View>
     </View>
   );
 }
@@ -276,22 +203,22 @@ function SkeletonBlock() {
   return (
     <View style={styles.skeletonSection}>
       {/* Title skeleton */}
-      <View style={styles.skeletonTitleRow}>
-        <View style={styles.skeletonCircle} />
-        <View style={styles.skeletonTitleBar} />
-      </View>
-      {/* Cards skeleton */}
-      <View style={styles.skeletonCardsRow}>
-        {[0, 1, 2].map((i) => (
-          <View key={i} style={styles.skeletonCard}>
-            <Animated.View style={[StyleSheet.absoluteFill, animStyle]}>
-              <LinearGradient
-                colors={['transparent', 'rgba(255,255,255,0.4)', 'transparent']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={StyleSheet.absoluteFill}
-              />
-            </Animated.View>
+      <View style={styles.skeletonTitleBar} />
+      {/* Tile grid skeleton */}
+      <View style={styles.tileGrid}>
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <View key={i} style={styles.skeletonTile}>
+            <View style={styles.skeletonTileImage}>
+              <Animated.View style={[StyleSheet.absoluteFill, animStyle]}>
+                <LinearGradient
+                  colors={['transparent', 'rgba(255,255,255,0.4)', 'transparent']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={StyleSheet.absoluteFill}
+                />
+              </Animated.View>
+            </View>
+            <View style={styles.skeletonTileLabel} />
           </View>
         ))}
       </View>
@@ -302,7 +229,7 @@ function SkeletonBlock() {
 export function NearbyServicesSkeleton() {
   return (
     <View style={styles.container}>
-      {[0, 1, 2].map((i) => (
+      {[0, 1].map((i) => (
         <SkeletonBlock key={i} />
       ))}
     </View>
@@ -320,31 +247,17 @@ const styles = StyleSheet.create({
 
   // ── Category Section ──
   categorySection: {
-    gap: spacing.sm,
+    gap: spacing.md,
   },
-
   categoryHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-  },
-  categoryTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  categoryIconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: 'rgba(22, 73, 60, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: HORIZONTAL_PADDING,
   },
   categoryName: {
-    fontFamily: fonts.jakartaSemiBold,
-    fontSize: 16,
+    fontFamily: fonts.jakartaBold,
+    fontSize: 18,
     color: colors.textPrimary,
   },
   viewAllRow: {
@@ -358,109 +271,84 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
 
-  // ── Subcategory row with arrow ──
-  subcategoryRow: {
+  // ── Tile grid (max 3 per row, wraps) ──
+  tileGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
-  },
-  subcategoryScrollView: {
-    flex: 1,
-  },
-  subcategoryScroll: {
-    paddingLeft: HORIZONTAL_PADDING,
-    paddingRight: spacing.sm,
-    gap: GAP,
-  },
-  arrowButton: {
-    width: ARROW_BUTTON_WIDTH,
-    height: CARD_HEIGHT,
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.sm,
+    flexWrap: 'wrap',
+    paddingHorizontal: HORIZONTAL_PADDING,
+    columnGap: TILE_GAP,
+    rowGap: spacing.md,
   },
 
-  // ── Subcategory Card ──
-  subcategoryCard: {
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT,
+  // ── Subcategory tile ──
+  tile: {
+    width: TILE_WIDTH,
+    alignItems: 'center',
+  },
+  tileImageWrap: {
+    width: TILE_IMAGE_SIZE,
+    height: TILE_IMAGE_SIZE,
     borderRadius: radii.md,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
+    backgroundColor: colors.surfaceAlt,
   },
-  subcategoryImageBg: {
-    flex: 1,
-  },
-  subcategoryImageStyle: {
-    borderRadius: radii.md,
-  },
-  subcategoryScrim: {
-    flex: 1,
-    justifyContent: 'space-between',
-    padding: spacing.sm,
-    borderRadius: radii.md,
+  tileImage: {
+    width: '100%',
+    height: '100%',
   },
   partnerCountBadge: {
-    alignSelf: 'flex-end',
-    backgroundColor: colors.primary,
+    position: 'absolute',
+    top: spacing.xs,
+    right: spacing.xs,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
     borderRadius: radii.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   partnerCountText: {
-    fontFamily: fonts.jostMedium,
-    fontSize: 10,
-    color: colors.white,
-  },
-  subcategoryBottom: {
-    gap: 2,
-  },
-  subcategoryName: {
     fontFamily: fonts.jostSemiBold,
-    fontSize: 13,
+    fontSize: 11,
     color: colors.white,
-    lineHeight: 17,
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
+  },
+  tileLabel: {
+    marginTop: spacing.sm,
+    fontFamily: fonts.jostMedium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.textPrimary,
+    textAlign: 'center',
   },
 
   // ── Skeleton ──
   skeletonSection: {
-    gap: spacing.sm,
-  },
-  skeletonTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  skeletonCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#E0E0E0',
+    gap: spacing.md,
   },
   skeletonTitleBar: {
-    width: 120,
-    height: 16,
+    width: 150,
+    height: 18,
     borderRadius: 4,
     backgroundColor: '#E0E0E0',
+    marginHorizontal: HORIZONTAL_PADDING,
   },
-  skeletonCardsRow: {
-    flexDirection: 'row',
-    paddingHorizontal: spacing.md,
-    gap: GAP,
+  skeletonTile: {
+    width: TILE_WIDTH,
+    alignItems: 'center',
   },
-  skeletonCard: {
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT,
+  skeletonTileImage: {
+    width: TILE_IMAGE_SIZE,
+    height: TILE_IMAGE_SIZE,
     borderRadius: radii.md,
     backgroundColor: '#E8E8E8',
     overflow: 'hidden',
+  },
+  skeletonTileLabel: {
+    marginTop: spacing.sm,
+    width: TILE_WIDTH * 0.7,
+    height: 12,
+    borderRadius: 4,
+    backgroundColor: '#E0E0E0',
   },
 });

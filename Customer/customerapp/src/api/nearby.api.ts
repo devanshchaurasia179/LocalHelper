@@ -2,12 +2,20 @@ import { api } from "@/constants/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/** A subcategory embedded on a Category document */
+export interface NearbySubcategoryItem {
+  _id: string;
+  name: string;
+  /** Admin-uploaded image (Cloudinary) shown in the app */
+  image?: { url?: string; publicId?: string };
+}
+
 export interface NearbyCategory {
   _id: string;
   name: string;
   icon?: string;
   /** Embedded subcategories on the Category document */
-  subcategories?: { _id: string; name: string }[];
+  subcategories?: NearbySubcategoryItem[];
 }
 
 export interface NearbySubcategory {

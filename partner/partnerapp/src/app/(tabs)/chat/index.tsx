@@ -276,6 +276,7 @@ export default function ChatScreen() {
         pathname: "/(tabs)/chat/[conversationId]" as any,
         params: {
           conversationId: conv._id,
+          customerId: conv.customer?._id ?? "",
           customerName: conv.customer?.fullName ?? conv.customer?.name ?? "Customer",
           customerPhoto: conv.customer?.profilePhoto ?? "",
         },

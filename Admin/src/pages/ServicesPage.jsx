@@ -581,10 +581,14 @@ const SubcategoryRow = ({ sub, onEdit, onDelete, disabled }) => {
           : 'bg-slate-100/50 border-slate-200'
       )}
     >
-      {/* Icon & Name */}
+      {/* Image / Icon & Name */}
       <div className="flex items-center gap-3 flex-1">
-        <div className="w-6 h-6 rounded bg-slate-100 flex items-center justify-center flex-shrink-0">
-          <FolderOpen className="w-3.5 h-3.5 text-slate-400" />
+        <div className="w-8 h-8 rounded bg-slate-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
+          {sub.image?.url ? (
+            <img src={sub.image.url} alt={sub.name} className="w-full h-full object-cover" />
+          ) : (
+            <FolderOpen className="w-3.5 h-3.5 text-slate-400" />
+          )}
         </div>
         <div className="flex-1 min-w-0">
           <p className={cn('text-sm font-medium', sub.isActive ? 'text-slate-800' : 'text-slate-500')}>

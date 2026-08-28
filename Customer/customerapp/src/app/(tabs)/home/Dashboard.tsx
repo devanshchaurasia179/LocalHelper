@@ -13,12 +13,15 @@ import { router } from 'expo-router';
 
 import Header from './Header';
 import SearchBar from './SearchBar';
-import PromoBanner, { PromoSlide } from './PromoBanner';
+import RotatingText from './RotatingText';
 import BottomNav from './BottomNav';
 import NearbyServicesSection, { NearbyServicesSkeleton } from './NearbyServicesSection';
+import NearbyEmptyState from './NearbyEmptyState';
 import ActiveBookingCard from './ActiveBookingCard';
 import RecentCallCard from './RecentCallCard';
 import CallScreen from '@/components/call/CallScreen';
+import FilterDropdown from './FilterModal';
+import SearchDropdown from './SearchModal';
 
 import { useNearbyServices } from '@/hooks/useNearbyServices';
 import type { NearbyCategory } from '@/api/nearby.api';
@@ -31,39 +34,14 @@ import { useAuth } from '@/providers/AuthProvider';
 import { ROUTES } from '@/constants/routes';
 import type { Address } from './Header';
 
-// ─── Static promos (replace with real API when ready) ────────────────────────
+// ─── Rotating hero taglines (the big moving text) ─────────────────────────────
+// Each phrase slides through the hero like a carousel. Use \n to control the
+// line break so the two-line layout stays consistent.
 
-const PROMO_SLIDES: PromoSlide[] = [
-  {
-    // Slide 1 — deep forest green (brand primary)
-    discountPercent: 10,
-    badgeLabel: 'LIMITED OFFER',
-    description: 'Discount for every cleaning order this week',
-    serviceName: 'Floor Cleaning',
-    servicePrice: 25,
-    gradientColors: ['#16493c', '#0d2e26'],
-    accentColor: 'rgba(255,255,255,0.20)',
-  },
-  {
-    // Slide 2 — warm teal-to-cyan; adjacent to green on the wheel
-    discountPercent: 15,
-    badgeLabel: 'FLASH DEAL',
-    description: 'Fast & reliable plumbers at your doorstep',
-    serviceName: 'Plumbing Fix',
-    servicePrice: 35,
-    gradientColors: ['#0e6655', '#084a3d'],
-    accentColor: 'rgba(255,255,255,0.20)',
-  },
-  {
-    // Slide 3 — deep olive-charcoal; earthy & cohesive with the green family
-    discountPercent: 20,
-    badgeLabel: 'WEEKEND SPECIAL',
-    description: 'Expert electricians for all your home needs',
-    serviceName: 'Electrical Work',
-    servicePrice: 45,
-    gradientColors: ['#1b3a2f', '#102820'],
-    accentColor: 'rgba(255,255,255,0.20)',
-  },
+const HERO_TAGLINES: string[] = [
+  'From Hassles To\nSolutions In One Tap.',
+  'Trusted Local Helpers\nAt Your Doorstep.',
+  'Book Verified Partners\nIn Just One Tap.',
 ];
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -71,7 +49,7 @@ const PROMO_SLIDES: PromoSlide[] = [
 export default function Dashboard() {
   const { customer } = useAuth();
   const insets = useSafeAreaInsets();
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchModalVisible, setSearchModalVisible] = useState(false);
   const [selectedAddressIndex, setSelectedAddressIndex] = useState(0);
 
   // ── Call screen state ──────────────────────────────────────────────────────
@@ -111,6 +89,14 @@ export default function Dashboard() {
   }, [selectedAddressCoords]);
 
   const { services, loading, refreshing, error, refresh } = useNearbyServices(selectedAddressCoords);
+
+  // Pull-to-refresh must reuse the selected address coords. RefreshControl
+  // calls onRefresh with a native event (not coords), so calling `refresh`
+  // directly would send no lat/lng and make the backend fall back to the
+  // saved currentLocation — returning a different, smaller set of partners.
+  const handlePullToRefresh = useCallback(() => {
+    refresh(selectedAddressCoords);
+  }, [refresh, selectedAddressCoords]);
 
   // Derive unique categories from nearby partners — only categories that
   // actually have at least one available partner nearby are shown.
@@ -156,11 +142,64 @@ export default function Dashboard() {
 
   const firstName = customer?.name?.split(' ')[0] ?? 'there';
 
-  // Filter categories by search query
-  const filteredCategories = nearbyCategories.filter((cat) => {
-    if (!searchQuery.trim()) return true;
-    return cat.name.toLowerCase().includes(searchQuery.toLowerCase());
-  });
+  // ── Filter state ───────────────────────────────────────────────────────────
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<{
+    subcategoryIds: string[];
+    onlineOnly: boolean;
+    maxDistance: number | null; // km, null = no limit
+  }>({ subcategoryIds: [], onlineOnly: true, maxDistance: null });
+
+  // Determine if any filter is active (for badge indicator)
+  const hasActiveFilters =
+    activeFilters.subcategoryIds.length > 0 ||
+    activeFilters.onlineOnly ||
+    activeFilters.maxDistance !== null;
+
+  // ── Filter logic (only filters affect the nearby section, NOT search) ─────
+  const filteredCategories = useMemo(() => {
+    if (!hasActiveFilters) return nearbyCategories;
+
+    let results = nearbyCategories;
+
+    // Apply subcategory filter from FilterModal — keep categories that contain
+    // at least one of the selected subcategories.
+    if (activeFilters.subcategoryIds.length > 0) {
+      const selected = new Set(activeFilters.subcategoryIds);
+      results = results.filter((cat) =>
+        (cat.subcategories ?? []).some((sub) => selected.has(sub._id))
+      );
+    }
+
+    // Apply distance filter — exclude categories where no partner is within the max distance
+    if (activeFilters.maxDistance !== null) {
+      const maxDist = activeFilters.maxDistance;
+      const categoriesWithNearbyPartners = new Set<string>();
+      for (const partner of services) {
+        if (partner.distanceKm <= maxDist) {
+          for (const cat of partner.categories) {
+            categoriesWithNearbyPartners.add(cat._id);
+          }
+        }
+      }
+      results = results.filter((cat) => categoriesWithNearbyPartners.has(cat._id));
+    }
+
+    // Apply online-only filter
+    if (activeFilters.onlineOnly) {
+      const onlineCategories = new Set<string>();
+      for (const partner of services) {
+        if (partner.isOnline) {
+          for (const cat of partner.categories) {
+            onlineCategories.add(cat._id);
+          }
+        }
+      }
+      results = results.filter((cat) => onlineCategories.has(cat._id));
+    }
+
+    return results;
+  }, [nearbyCategories, activeFilters, hasActiveFilters, services]);
 
   return (
     // edges={['bottom']} — no top safe-area inset so hero touches the status bar
@@ -174,7 +213,7 @@ export default function Dashboard() {
         bounces={false}
         overScrollMode="never"
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={refresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={handlePullToRefresh} />
         }
       >
         {/* ── Hero: scrolls with the page ── */}
@@ -206,12 +245,22 @@ export default function Dashboard() {
           />
           <View style={styles.titleBlock}>
             <Text style={styles.titleGreeting}>Hello, {firstName} </Text>
-            <Text style={styles.titleTagline}>From Hassles To{'\n'}Solutions In One Tap.</Text>
+            {/* Big hero tagline as a moving carousel — each phrase slides
+                out to the left and the next slides in from the right. */}
+            <RotatingText
+              items={HERO_TAGLINES}
+              textStyle={styles.titleTagline}
+              numberOfLines={2}
+              align="flex-start"
+              holdDuration={2600}
+              transitionDuration={550}
+            />
           </View>
+
           <SearchBar
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            onFilterPress={() => console.log('Open filters')}
+            onPress={() => setSearchModalVisible(true)}
+            onFilterPress={() => setFilterModalVisible(true)}
+            hasActiveFilters={hasActiveFilters}
           />
         </View>
 
@@ -219,13 +268,6 @@ export default function Dashboard() {
         <View style={styles.contentCard}>
           {/* drag handle */}
           <View style={styles.handle} />
-
-          <View style={styles.promoBannerWrapper}>
-            <PromoBanner
-              slides={PROMO_SLIDES}
-              onBookPress={(slide) => console.log('Book', slide.serviceName)}
-            />
-          </View>
 
           {/* ── Recent Call ── */}
           <RecentCallCard
@@ -261,17 +303,28 @@ export default function Dashboard() {
           {loading ? (
             <NearbyServicesSkeleton />
           ) : error ? (
-            <View style={styles.messageContainer}>
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
+            <NearbyEmptyState
+              variant="error"
+              message={error}
+              onRetry={handlePullToRefresh}
+            />
           ) : filteredCategories.length === 0 ? (
-            <View style={styles.messageContainer}>
-              <Text style={styles.emptyText}>
-                {searchQuery.trim()
-                  ? 'No services match your search.'
-                  : 'No service categories available right now.'}
-              </Text>
-            </View>
+            // Distinguish "filters hid everything" from "nothing nearby at all":
+            // if partners exist but filters removed them, guide the user to
+            // clear filters; otherwise there are genuinely no services nearby.
+            nearbyCategories.length > 0 && hasActiveFilters ? (
+              <NearbyEmptyState
+                variant="filtered"
+                onClearFilters={() =>
+                  setActiveFilters({ subcategoryIds: [], onlineOnly: false, maxDistance: null })
+                }
+              />
+            ) : (
+              <NearbyEmptyState
+                variant="no-services"
+                onRetry={handlePullToRefresh}
+              />
+            )
           ) : (
             <NearbyServicesSection
               categories={filteredCategories}
@@ -306,6 +359,27 @@ export default function Dashboard() {
           onEndCall={handleEndCall}
         />
       )}
+
+      {/* ── Filter Dropdown Card ── */}
+      <FilterDropdown
+        visible={filterModalVisible}
+        onClose={() => setFilterModalVisible(false)}
+        categories={nearbyCategories}
+        subcategoryPartnerCounts={subcategoryPartnerCounts}
+        activeFilters={activeFilters}
+        onApply={(filters) => {
+          setActiveFilters(filters);
+          setFilterModalVisible(false);
+        }}
+      />
+
+      {/* ── Search Dropdown Card ── */}
+      <SearchDropdown
+        visible={searchModalVisible}
+        onClose={() => setSearchModalVisible(false)}
+        categories={nearbyCategories}
+        partnerCounts={subcategoryPartnerCounts}
+      />
     </SafeAreaView>
   );
 }
@@ -521,12 +595,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
 
-  // ── Promo banner ─────────────────────────────────────────────────────────────
-  promoBannerWrapper: {
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.sm,
-  },
-
   sectionTitle: {
     ...typography.heading,
     paddingHorizontal: spacing.md,
@@ -537,18 +605,5 @@ const styles = StyleSheet.create({
     ...typography.caption,
     paddingHorizontal: spacing.md,
     marginBottom: spacing.xs,
-  },
-  messageContainer: {
-    paddingHorizontal: spacing.md,
-    marginTop: spacing.lg,
-  },
-  errorText: {
-    ...typography.body,
-    color: '#E53935',
-    textAlign: 'center',
-  },
-  emptyText: {
-    ...typography.caption,
-    textAlign: 'center',
   },
 });
