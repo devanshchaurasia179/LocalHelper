@@ -154,6 +154,7 @@ export default function ActiveBookingCard() {
         visible={detailVisible}
         onClose={handleDetailClose}
         onCancelled={handleCancelled}
+        hideAddress
         onReviewPress={() => {
           // Close modal — review can be done from bookings tab
           setDetailVisible(false);

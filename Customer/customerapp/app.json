@@ -18,7 +18,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.dc24106031.CustomerApp"
+      "package": "com.dc24106031.CustomerApp",
+      "googleServicesFile": "./android/app/google-services.json"
     },
     "web": {
       "output": "static",
@@ -27,6 +28,8 @@
     "plugins": [
       "expo-router",
       "expo-audio",
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging",
       "@livekit/react-native-expo-plugin",
       "@config-plugins/react-native-webrtc",
       [

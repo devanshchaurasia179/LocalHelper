@@ -14,6 +14,7 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import Toast from 'react-native-toast-message';
@@ -340,6 +341,7 @@ export default function PartnerDetailSheet({
 }: PartnerDetailSheetProps) {
   const { booking, error, book, reset } = useBookPartner();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const scrollViewRef = useRef<ScrollView>(null);
   const descriptionInputRef = useRef<TextInput>(null);
 
@@ -1030,7 +1032,7 @@ export default function PartnerDetailSheet({
           </ScrollView>
 
           {/* ── Book Now CTA ─────────────────────────────────────────────────── */}
-          <View style={styles.footer}>
+          <View style={[styles.footer, { paddingBottom: spacing.md + insets.bottom }]}>
             {/* Chat + Call row */}
             <View style={styles.commsRow}>
               <TouchableOpacity
@@ -1352,7 +1354,8 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: 'column',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
     gap: spacing.sm,

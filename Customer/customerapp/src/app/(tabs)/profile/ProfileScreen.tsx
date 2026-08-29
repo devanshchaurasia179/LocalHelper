@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,17 +20,18 @@ import * as Location from 'expo-location';
 import { router } from 'expo-router';
 
 import { useAuth } from '@/providers/AuthProvider';
-import { colors, spacing, radii } from '../home/theme';
+import { colors, spacing, radii, fonts } from '../home/theme';
 import BottomNav from '../home/BottomNav';
 import { NavRoute } from '../home/types';
 import { ROUTES } from '@/constants/routes';
 
-// ─── Theme accent (keeps green primary, uses it as our hero colour) ────────────
-const HERO = colors.primary;        // #12493B  — green hero band
-const ACCENT = colors.primary;      // icon / toggle accent
+// ─── Theme accents ─────────────────────────────────────────────────────────────
+const HERO = colors.primary;        // green hero band
+const ACCENT = colors.primary;      // toggle / active accent
 const HERO_TEXT = '#FFFFFF';
-const SURFACE = '#F7F7FB';
-const DIVIDER = 'rgba(0,0,0,0.07)';
+const SURFACE = colors.surface;
+const DIVIDER = 'rgba(0,0,0,0.06)';
+const DANGER = '#EF4444';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const GENDERS = ['Male', 'Female', 'Other', 'Prefer not to say'] as const;
@@ -39,6 +40,17 @@ const EMPTY_ADDRESS_FORM = {
   label: '', house: '', street: '', locality: '',
   city: '', state: '', pincode: '',
 };
+
+// Per-row icon tints — softer than a single solid green everywhere.
+type Tint = { fg: string; bg: string };
+const TINT = {
+  green:  { fg: HERO,      bg: `${HERO}14` },
+  blue:   { fg: '#2563EB', bg: '#2563EB14' },
+  amber:  { fg: '#B45309', bg: '#B4530914' },
+  rose:   { fg: '#BE123C', bg: '#BE123C14' },
+  slate:  { fg: '#475569', bg: '#47556914' },
+  violet: { fg: '#7C3AED', bg: '#7C3AED14' },
+} satisfies Record<string, Tint>;
 
 // ─── Helper: silently get GPS coords ─────────────────────────────────────────
 async function getCoordsSilently(): Promise<{ latitude: number; longitude: number } | null> {
@@ -52,53 +64,67 @@ async function getCoordsSilently(): Promise<{ latitude: number; longitude: numbe
   }
 }
 
-function formatAddress(addr: {
-  label?: string; house?: string; street?: string;
-  locality?: string; city: string; state: string; pincode: string;
-}) {
-  const parts = [addr.house, addr.street, addr.locality, addr.city].filter(Boolean).join(', ');
-  return `${parts} — ${addr.state} ${addr.pincode}`;
+function formatAddressLine(addr?: {
+  house?: string; street?: string; locality?: string;
+  city?: string; state?: string; pincode?: string;
+}): string {
+  if (!addr) return '';
+  return [addr.house, addr.street, addr.locality, addr.city]
+    .filter(Boolean)
+    .join(', ');
 }
 
 // ─── Menu row ─────────────────────────────────────────────────────────────────
 function MenuRow({
-  icon, label, onPress, showChevron = true,
+  icon, tint = TINT.green, label, subtitle, onPress, showChevron = true, trailing,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
+  tint?: Tint;
   label: string;
+  subtitle?: string;
   onPress?: () => void;
   showChevron?: boolean;
+  trailing?: ReactNode;
 }) {
   return (
-    <TouchableOpacity
-      style={menuStyles.row}
+    <Pressable
+      style={({ pressed }) => [menuStyles.row, pressed && onPress && menuStyles.rowPressed]}
       onPress={onPress}
-      activeOpacity={0.7}
+      disabled={!onPress}
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={subtitle ? `${label}, ${subtitle}` : label}
     >
-      <View style={menuStyles.iconBox}>
-        <Ionicons name={icon} size={18} color={HERO_TEXT} />
+      <View style={[menuStyles.iconBox, { backgroundColor: tint.bg }]}>
+        <Ionicons name={icon} size={18} color={tint.fg} />
       </View>
-      <Text style={menuStyles.label}>{label}</Text>
+      <View style={menuStyles.textWrap}>
+        <Text style={menuStyles.label} numberOfLines={1}>{label}</Text>
+        {!!subtitle && <Text style={menuStyles.subtitle} numberOfLines={1}>{subtitle}</Text>}
+      </View>
+      {trailing}
       {showChevron && (
-        <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+        <Ionicons name="chevron-forward" size={18} color={colors.navInactive} />
       )}
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
 const menuStyles = StyleSheet.create({
   row: {
     flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 14, gap: 14,
+    paddingVertical: 12, gap: 14,
+    borderRadius: radii.sm,
+    paddingHorizontal: 6,
+    marginHorizontal: -6,
   },
+  rowPressed: { backgroundColor: 'rgba(0,0,0,0.035)' },
   iconBox: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: ACCENT,
+    width: 38, height: 38, borderRadius: 11,
     alignItems: 'center', justifyContent: 'center',
   },
-  label: { flex: 1, fontSize: 15, color: colors.textPrimary, fontWeight: '500' },
+  textWrap: { flex: 1 },
+  label: { fontFamily: fonts.jakartaSemiBold, fontSize: 14.5, color: colors.textPrimary },
+  subtitle: { fontFamily: fonts.jostRegular, fontSize: 12, color: colors.textSecondary, marginTop: 2 },
 });
 
 // ─── Profile Screen ───────────────────────────────────────────────────────────
@@ -194,6 +220,12 @@ export default function ProfileScreen() {
     setEditing(false);
   }, [customer]);
 
+  const openEdit = useCallback(() => {
+    setEditName(customer?.name ?? '');
+    setEditGender(customer?.gender ?? '');
+    setEditing(true);
+  }, [customer]);
+
   const handleSignOut = useCallback(() => {
     Alert.alert('Sign out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -215,9 +247,20 @@ export default function ProfileScreen() {
   const initials = (customer?.name ?? 'U')
     .split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
-  const city = customer?.addresses?.[0]?.city ?? 'Location not set';
-  const state = customer?.addresses?.[0]?.state ?? '';
+  const primaryAddress = customer?.addresses?.[0];
+  const city = primaryAddress?.city ?? 'Location not set';
+  const state = primaryAddress?.state ?? '';
   const locationLabel = state ? `${city}, ${state}` : city;
+  const hasAddress = !!primaryAddress;
+  const addressSubtitle = hasAddress
+    ? (formatAddressLine(primaryAddress) || `${city}${state ? `, ${state}` : ''}`)
+    : 'Add your address';
+  const genderLabel = customer?.gender ? customer.gender : 'Not set';
+
+  const openSavedAddresses = useCallback(() => {
+    if (primaryAddress) openAddressEdit(primaryAddress);
+    else router.navigate(ROUTES.APP.HOME as any);
+  }, [primaryAddress, openAddressEdit]);
 
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
@@ -231,19 +274,22 @@ export default function ProfileScreen() {
           <View style={s.hero}>
             {/* Top bar */}
             <View style={s.topBar}>
-              <TouchableOpacity style={s.iconBtn} onPress={() => router.back()}
-                accessibilityRole="button" accessibilityLabel="Go back">
+              <Pressable
+                style={({ pressed }) => [s.iconBtn, pressed && s.iconBtnPressed]}
+                onPress={() => router.back()}
+                accessibilityRole="button" accessibilityLabel="Go back"
+              >
                 <Ionicons name="chevron-back" size={20} color={HERO} />
-              </TouchableOpacity>
-              <Text style={s.heroTitle}>Profile</Text>
-              <TouchableOpacity
-                style={s.iconBtn}
-                onPress={() => setEditing(true)}
+              </Pressable>
+              <Text style={s.heroTitle}>My Profile</Text>
+              <Pressable
+                style={({ pressed }) => [s.iconBtn, pressed && s.iconBtnPressed]}
+                onPress={openEdit}
                 accessibilityRole="button"
                 accessibilityLabel="Edit profile"
               >
-                <Ionicons name="pencil-outline" size={18} color={HERO} />
-              </TouchableOpacity>
+                <Ionicons name="pencil" size={16} color={HERO} />
+              </Pressable>
             </View>
 
             {/* Avatar sits on the curve boundary */}
@@ -256,57 +302,105 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          {/* ── Name + location ──────────────────────────────────────────── */}
+          {/* ── Name + verified + location ───────────────────────────────── */}
           <View style={s.identity}>
-            <Text style={s.userName}>{customer?.name ?? '—'}</Text>
+            <View style={s.nameRow}>
+              <Text style={s.userName}>{customer?.name ?? '—'}</Text>
+              {customer?.phoneVerified && (
+                <Ionicons name="checkmark-circle" size={18} color={HERO} />
+              )}
+            </View>
+
             <View style={s.locationRow}>
-              <View style={s.locationDot} />
-              <Text style={s.locationText}>{locationLabel}</Text>
+              <Ionicons name="location-sharp" size={13} color={colors.textSecondary} />
+              <Text style={s.locationText} numberOfLines={1}>{locationLabel}</Text>
+            </View>
+
+            {/* Quick chips */}
+            <View style={s.chipsRow}>
+              <View style={s.infoChip}>
+                <Ionicons name="call-outline" size={12} color={HERO} />
+                <Text style={s.infoChipText}>{customer?.phone ?? '—'}</Text>
+              </View>
+              {customer?.phoneVerified && (
+                <View style={[s.infoChip, s.verifiedChip]}>
+                  <Ionicons name="shield-checkmark" size={12} color={HERO} />
+                  <Text style={s.infoChipText}>Verified</Text>
+                </View>
+              )}
             </View>
           </View>
 
-          {/* ════════════════════════════════════════════════════════════
-              ACCOUNT section
-          ════════════════════════════════════════════════════════════ */}
+          {/* ════════════════ ACCOUNT ════════════════ */}
           <View style={s.section}>
             <Text style={s.sectionHeading}>Account</Text>
             <View style={s.menuCard}>
-              <MenuRow icon="person-outline" label="Personal Data" onPress={() => setEditing(true)} />
-              <View style={s.divider} />
-              <MenuRow icon="home-outline" label="Saved Addresses" onPress={() => {
-                if (customer?.addresses?.length) openAddressEdit(customer.addresses[0]);
-              }} />
-              <View style={s.divider} />
-              <MenuRow icon="ban-outline" label="Blocked Partners" onPress={() => router.push('/(tabs)/profile/blocked-partners' as any)} />
+              <MenuRow
+                icon="person-outline" tint={TINT.green}
+                label="Personal Data"
+                subtitle={genderLabel === 'Not set' ? 'Name, gender' : genderLabel}
+                onPress={openEdit}
+              />
               <View style={s.divider} />
               <MenuRow
-                icon={customer?.phoneVerified ? 'shield-checkmark-outline' : 'shield-outline'}
-                label={`Phone: ${customer?.phone ?? '—'}`}
-                showChevron={false}
+                icon="location-outline" tint={TINT.blue}
+                label="Saved Address"
+                subtitle={addressSubtitle}
+                onPress={openSavedAddresses}
+              />
+              <View style={s.divider} />
+              <MenuRow
+                icon="ban-outline" tint={TINT.rose}
+                label="Blocked Partners"
+                onPress={() => router.push('/(tabs)/profile/blocked-partners' as any)}
               />
             </View>
           </View>
 
-          {/* ════════════════════════════════════════════════════════════
-              NOTIFICATION section
-          ════════════════════════════════════════════════════════════ */}
+          {/* ════════════════ PREFERENCES ════════════════ */}
           <View style={s.section}>
-            <View style={s.notifHeader}>
-              <Text style={s.sectionHeading}>Notifications</Text>
-              <Switch
-                value={notifEnabled}
-                onValueChange={setNotifEnabled}
-                trackColor={{ false: '#ccc', true: ACCENT }}
-                thumbColor={HERO_TEXT}
-                accessibilityLabel="Toggle notifications"
+            <Text style={s.sectionHeading}>Preferences</Text>
+            <View style={s.menuCard}>
+              <MenuRow
+                icon="notifications-outline" tint={TINT.amber}
+                label="Push Notifications"
+                subtitle={notifEnabled ? 'On' : 'Off'}
+                showChevron={false}
+                trailing={
+                  <Switch
+                    value={notifEnabled}
+                    onValueChange={setNotifEnabled}
+                    trackColor={{ false: '#D1D1DB', true: ACCENT }}
+                    thumbColor={HERO_TEXT}
+                    accessibilityLabel="Toggle notifications"
+                  />
+                }
+              />
+              <View style={s.divider} />
+              <MenuRow
+                icon="settings-outline" tint={TINT.slate}
+                label="Settings"
+                onPress={() => Alert.alert('Settings', 'Coming soon')}
               />
             </View>
+          </View>
+
+          {/* ════════════════ SUPPORT ════════════════ */}
+          <View style={s.section}>
+            <Text style={s.sectionHeading}>Support</Text>
             <View style={s.menuCard}>
-              <MenuRow icon="chatbubble-ellipses-outline" label="Contact Us" onPress={() => Alert.alert('Contact Us', 'support@localhelpers.app')} />
+              <MenuRow
+                icon="chatbubble-ellipses-outline" tint={TINT.green}
+                label="Contact Us"
+                subtitle="support@localhelpers.app"
+                onPress={() => Alert.alert('Contact Us', 'support@localhelpers.app')}
+              />
               <View style={s.divider} />
-              <MenuRow icon="document-text-outline" label="Privacy Policy" onPress={() => Alert.alert('Privacy Policy', 'Coming soon')} />
-              <View style={s.divider} />
-              <MenuRow icon="settings-outline" label="Settings" onPress={() => Alert.alert('Settings', 'Coming soon')} />
+              <MenuRow
+                icon="document-text-outline" tint={TINT.violet}
+                label="Privacy Policy"
+                onPress={() => Alert.alert('Privacy Policy', 'Coming soon')}
+              />
             </View>
           </View>
 
@@ -319,10 +413,10 @@ export default function ProfileScreen() {
             accessibilityLabel="Sign out"
           >
             {signingOut ? (
-              <ActivityIndicator color="#EF4444" />
+              <ActivityIndicator color={DANGER} />
             ) : (
               <>
-                <Ionicons name="log-out-outline" size={18} color="#EF4444" />
+                <Ionicons name="log-out-outline" size={18} color={DANGER} />
                 <Text style={s.signOutText}>Sign out</Text>
               </>
             )}
@@ -332,9 +426,7 @@ export default function ProfileScreen() {
         <BottomNav onNavigate={handleNavigate} />
       </KeyboardAvoidingView>
 
-      {/* ════════════════════════════════════════════════════════════════════
-          EDIT PROFILE MODAL
-      ════════════════════════════════════════════════════════════════════ */}
+      {/* ════════════════ EDIT PROFILE MODAL ════════════════ */}
       <Modal visible={editing} transparent animationType="slide" onRequestClose={handleCancelEdit}>
         <KeyboardAvoidingView style={modal.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <Pressable style={modal.backdrop} onPress={handleCancelEdit}>
@@ -342,7 +434,7 @@ export default function ProfileScreen() {
               <View style={modal.handle} />
               <View style={modal.headerRow}>
                 <Text style={modal.title}>Edit Profile</Text>
-                <TouchableOpacity onPress={handleCancelEdit}>
+                <TouchableOpacity onPress={handleCancelEdit} hitSlop={8}>
                   <Ionicons name="close" size={22} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
@@ -376,7 +468,7 @@ export default function ProfileScreen() {
                     style={[modal.saveBtn, (editName.trim().length < 2 || saving) && modal.saveBtnDisabled]}
                     onPress={handleSave} disabled={editName.trim().length < 2 || saving} accessibilityRole="button"
                   >
-                    {saving ? <ActivityIndicator color={colors.white} size="small" /> : <Text style={modal.saveBtnText}>Save</Text>}
+                    {saving ? <ActivityIndicator color={colors.white} size="small" /> : <Text style={modal.saveBtnText}>Save changes</Text>}
                   </Pressable>
                 </View>
               </ScrollView>
@@ -385,9 +477,7 @@ export default function ProfileScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ════════════════════════════════════════════════════════════════════
-          EDIT ADDRESS MODAL
-      ════════════════════════════════════════════════════════════════════ */}
+      {/* ════════════════ EDIT ADDRESS MODAL ════════════════ */}
       <Modal visible={addrFormVisible} transparent animationType="slide" onRequestClose={() => setAddrFormVisible(false)}>
         <KeyboardAvoidingView style={addrModal.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <Pressable style={addrModal.backdrop} onPress={() => setAddrFormVisible(false)}>
@@ -395,7 +485,7 @@ export default function ProfileScreen() {
               <View style={addrModal.handle} />
               <View style={addrModal.headerRow}>
                 <Text style={addrModal.title}>Edit address</Text>
-                <TouchableOpacity onPress={() => setAddrFormVisible(false)}>
+                <TouchableOpacity onPress={() => setAddrFormVisible(false)} hitSlop={8}>
                   <Ionicons name="close" size={22} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
@@ -451,52 +541,64 @@ const s = StyleSheet.create({
     backgroundColor: HERO_TEXT,
     alignItems: 'center', justifyContent: 'center',
   },
-  heroTitle: { fontSize: 18, fontWeight: '700', color: HERO_TEXT },
+  iconBtnPressed: { opacity: 0.7, transform: [{ scale: 0.96 }] },
+  heroTitle: { fontFamily: fonts.oswaldSemiBold, fontSize: 18, color: HERO_TEXT, letterSpacing: 0.4 },
 
   // Avatar (centred, overlapping the curve)
   avatarWrap: { alignItems: 'center', marginTop: 4, marginBottom: -85 },
   avatarRing: {
-    width: 100, height: 100, borderRadius: 50,
+    width: 104, height: 104, borderRadius: 52,
     borderWidth: 4, borderColor: HERO_TEXT,
     backgroundColor: HERO_TEXT,
     overflow: 'hidden',
     alignItems: 'center', justifyContent: 'center',
-    // subtle shadow
-    shadowColor: '#000', shadowOpacity: 0.15,
-    shadowOffset: { width: 0, height: 4 }, shadowRadius: 8, elevation: 6,
+    shadowColor: '#000', shadowOpacity: 0.18,
+    shadowOffset: { width: 0, height: 6 }, shadowRadius: 10, elevation: 8,
   },
   avatar: {
-    width: 92, height: 92, borderRadius: 46,
-    backgroundColor: `${HERO}22`,
+    width: 96, height: 96, borderRadius: 48,
+    backgroundColor: `${HERO}18`,
     alignItems: 'center', justifyContent: 'center',
   },
-  avatarText: { fontSize: 32, fontWeight: '700', color: HERO },
+  avatarText: { fontFamily: fonts.oswaldBold, fontSize: 34, color: HERO },
 
   // Identity block
-  identity: { alignItems: 'center', marginTop: 60, marginBottom: spacing.lg },
-  userName: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginBottom: 6 },
-  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  locationDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.textSecondary },
-  locationText: { fontSize: 13, color: colors.textSecondary },
+  identity: { alignItems: 'center', marginTop: 62, marginBottom: spacing.lg },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  userName: { fontFamily: fonts.jakartaBold, fontSize: 22, color: colors.textPrimary },
+  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+  locationText: { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, maxWidth: 260 },
+
+  chipsRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  infoChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: radii.pill, backgroundColor: `${HERO}12`,
+  },
+  verifiedChip: { backgroundColor: `${HERO}12` },
+  infoChipText: { fontFamily: fonts.jakartaMedium, fontSize: 12, color: colors.textPrimary },
 
   // Sections
   section: { paddingHorizontal: spacing.md, marginBottom: spacing.md },
-  sectionHeading: { fontSize: 17, fontWeight: '700', color: colors.textPrimary, marginBottom: 10 },
-  notifHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  sectionHeading: {
+    fontFamily: fonts.oswaldSemiBold, fontSize: 14, color: colors.textSecondary,
+    letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 10, marginLeft: 2,
+  },
   menuCard: {
     backgroundColor: SURFACE, borderRadius: radii.md,
     paddingHorizontal: spacing.md, paddingVertical: 4,
+    borderWidth: 1, borderColor: 'rgba(0,0,0,0.04)',
   },
-  divider: { height: 1, backgroundColor: DIVIDER, marginLeft: 50 },
+  divider: { height: 1, backgroundColor: DIVIDER, marginLeft: 52 },
 
   // Sign out
   signOutBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: spacing.sm, marginHorizontal: spacing.md, marginBottom: spacing.lg,
+    gap: spacing.sm, marginHorizontal: spacing.md, marginBottom: spacing.lg, marginTop: spacing.xs,
     paddingVertical: spacing.md, borderRadius: radii.md,
-    borderWidth: 1.5, borderColor: '#EF444440', backgroundColor: '#FEF2F2',
+    borderWidth: 1.5, borderColor: '#EF444433', backgroundColor: '#FEF2F2',
   },
-  signOutText: { fontSize: 15, fontWeight: '600', color: '#EF4444' },
+  signOutText: { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: DANGER },
 });
 
 // ─── Edit-profile modal styles ────────────────────────────────────────────────
@@ -509,12 +611,12 @@ const modal = StyleSheet.create({
   },
   handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#DDD', alignSelf: 'center', marginBottom: spacing.sm },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
-  title: { fontSize: 16, fontWeight: '700', color: colors.textPrimary },
-  fieldLabel: { fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginBottom: 6 },
+  title: { fontFamily: fonts.jakartaBold, fontSize: 17, color: colors.textPrimary },
+  fieldLabel: { fontFamily: fonts.jakartaMedium, fontSize: 12, color: colors.textSecondary, marginBottom: 6 },
   input: {
     backgroundColor: SURFACE, borderRadius: radii.sm,
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 4,
-    fontSize: 15, color: colors.textPrimary,
+    fontFamily: fonts.jostRegular, fontSize: 15, color: colors.textPrimary,
     borderWidth: 1.5, borderColor: '#E5E5E5',
   },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
@@ -523,17 +625,17 @@ const modal = StyleSheet.create({
     borderRadius: radii.pill, borderWidth: 1.5, borderColor: '#E5E5E5', backgroundColor: SURFACE,
   },
   chipSelected: { backgroundColor: HERO, borderColor: HERO },
-  chipText: { fontSize: 13, fontWeight: '500', color: colors.textPrimary },
-  chipTextSelected: { color: colors.white },
-  actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
+  chipText: { fontFamily: fonts.jostMedium, fontSize: 13, color: colors.textPrimary },
+  chipTextSelected: { fontFamily: fonts.jakartaSemiBold, color: colors.white },
+  actions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   cancelBtn: {
     flex: 1, paddingVertical: spacing.sm + 4, borderRadius: radii.sm,
     alignItems: 'center', borderWidth: 1.5, borderColor: '#E5E5E5', backgroundColor: SURFACE,
   },
-  cancelBtnText: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },
+  cancelBtnText: { fontFamily: fonts.jakartaSemiBold, fontSize: 14, color: colors.textSecondary },
   saveBtn: { flex: 1, paddingVertical: spacing.sm + 4, borderRadius: radii.sm, alignItems: 'center', backgroundColor: HERO },
   saveBtnDisabled: { opacity: 0.4 },
-  saveBtnText: { fontSize: 14, fontWeight: '600', color: colors.white },
+  saveBtnText: { fontFamily: fonts.jakartaSemiBold, fontSize: 14, color: colors.white },
 });
 
 // ─── Edit-address modal styles ────────────────────────────────────────────────
@@ -546,18 +648,18 @@ const addrModal = StyleSheet.create({
   },
   handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#DDD', alignSelf: 'center', marginBottom: spacing.sm },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
-  title: { fontSize: 16, fontWeight: '700', color: colors.textPrimary },
-  fieldLabel: { fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  title: { fontFamily: fonts.jakartaBold, fontSize: 17, color: colors.textPrimary },
+  fieldLabel: { fontFamily: fonts.jakartaMedium, fontSize: 12, color: colors.textSecondary, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   chipRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
   chip: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, borderRadius: radii.pill, borderWidth: 1.5, borderColor: '#DDD', backgroundColor: SURFACE },
   chipActive: { borderColor: HERO, backgroundColor: `${HERO}18` },
-  chipText: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
-  chipTextActive: { color: HERO, fontWeight: '700' },
+  chipText: { fontFamily: fonts.jostMedium, fontSize: 13, color: colors.textSecondary },
+  chipTextActive: { fontFamily: fonts.jakartaSemiBold, color: HERO },
   fieldWrap: { marginBottom: spacing.md },
-  input: { borderWidth: 1.5, borderColor: '#E5E5E5', borderRadius: radii.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2, fontSize: 14, color: colors.textPrimary, backgroundColor: SURFACE },
+  input: { borderWidth: 1.5, borderColor: '#E5E5E5', borderRadius: radii.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2, fontFamily: fonts.jostRegular, fontSize: 14, color: colors.textPrimary, backgroundColor: SURFACE },
   saveBtn: { backgroundColor: HERO, borderRadius: radii.md, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.sm, marginBottom: spacing.lg },
   saveBtnDisabled: { opacity: 0.6 },
-  saveBtnText: { color: colors.white, fontSize: 15, fontWeight: '700' },
+  saveBtnText: { fontFamily: fonts.jakartaSemiBold, color: colors.white, fontSize: 15 },
 });
 
 // ─── AddrField sub-component ──────────────────────────────────────────────────

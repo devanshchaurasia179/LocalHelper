@@ -16,14 +16,18 @@ import type { NearbyCategory } from '@/api/nearby.api';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
-// ─── Grid geometry: max 3 tiles per row, wraps to next row ────────────────────
+// ─── Grid geometry: exactly 3 tiles per row, equally spaced ───────────────────
+// Three evenly-sized tiles per row with a consistent gap between them. The tile
+// width is derived from the screen so the whole row fills the padded content
+// area edge-to-edge (no leftover gap on the right).
 const HORIZONTAL_PADDING = spacing.md;
 const COLUMNS = 3;
-const TILE_GAP = spacing.md;
+const TILE_GAP = spacing.sm + spacing.xs; // 12px between tiles
 const TILE_WIDTH =
   (SCREEN_WIDTH - HORIZONTAL_PADDING * 2 - TILE_GAP * (COLUMNS - 1)) / COLUMNS;
-// Square image area for each tile (label sits below, outside the square)
-const TILE_IMAGE_SIZE = TILE_WIDTH;
+// Rectangular (landscape) image area — shorter than it is wide (~4:3) so each
+// tile reads as a rectangle while the artwork still covers the full tile width.
+const TILE_IMAGE_HEIGHT = Math.round(TILE_WIDTH * 0.75);
 
 // ─── Subcategory → local image map ───────────────────────────────────────────
 
@@ -57,15 +61,17 @@ interface NearbyServicesSectionProps {
 
 function SubcategoryTile({
   name,
-  partnerCount,
+  imageUrl,
   onPress,
 }: {
   name: string;
-  partnerCount?: number;
+  /** Admin-uploaded image URL (Cloudinary) — takes priority over local assets */
+  imageUrl?: string;
   onPress: () => void;
 }) {
   const scale = useSharedValue(1);
-  const image = getSubcategoryImage(name);
+  // Prefer the admin-uploaded image; fall back to the bundled local asset.
+  const image = imageUrl ? { uri: imageUrl } : getSubcategoryImage(name);
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -90,12 +96,6 @@ function SubcategoryTile({
     >
       <Animated.View style={[styles.tileImageWrap, animStyle]}>
         <Image source={image} style={styles.tileImage} resizeMode="cover" />
-        {/* Partner count badge — top right of the tile */}
-        {partnerCount !== undefined && partnerCount > 0 && (
-          <View style={styles.partnerCountBadge}>
-            <Text style={styles.partnerCountText}>{partnerCount}</Text>
-          </View>
-        )}
       </Animated.View>
       <Text style={styles.tileLabel} numberOfLines={2}>
         {name}
@@ -147,7 +147,7 @@ function CategorySection({
           <SubcategoryTile
             key={sub._id}
             name={sub.name}
-            partnerCount={partnerCounts?.get(sub._id)}
+            imageUrl={sub.image?.url}
             onPress={() => onSubcategoryPress?.(sub._id, sub.name)}
           />
         ))}
@@ -271,7 +271,7 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
 
-  // ── Tile grid (max 3 per row, wraps) ──
+  // ── Tile grid (exactly 3 per row, equally spaced) ──
   tileGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -286,38 +286,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tileImageWrap: {
-    width: TILE_IMAGE_SIZE,
-    height: TILE_IMAGE_SIZE,
-    borderRadius: radii.md,
+    alignSelf: 'stretch', // fill the full tile width so the image always covers
+    height: TILE_IMAGE_HEIGHT,
+    borderRadius: radii.sm + 2,
     overflow: 'hidden',
     backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
   },
   tileImage: {
     width: '100%',
     height: '100%',
   },
-  partnerCountBadge: {
-    position: 'absolute',
-    top: spacing.xs,
-    right: spacing.xs,
-    minWidth: 20,
-    height: 20,
-    paddingHorizontal: 6,
-    borderRadius: radii.pill,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  partnerCountText: {
-    fontFamily: fonts.jostSemiBold,
-    fontSize: 11,
-    color: colors.white,
-  },
   tileLabel: {
-    marginTop: spacing.sm,
+    marginTop: spacing.xs + 2,
     fontFamily: fonts.jostMedium,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 11,
+    lineHeight: 14,
     color: colors.textPrimary,
     textAlign: 'center',
   },
@@ -338,16 +323,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   skeletonTileImage: {
-    width: TILE_IMAGE_SIZE,
-    height: TILE_IMAGE_SIZE,
-    borderRadius: radii.md,
+    width: TILE_WIDTH,
+    height: TILE_IMAGE_HEIGHT,
+    borderRadius: radii.sm + 2,
     backgroundColor: '#E8E8E8',
     overflow: 'hidden',
   },
   skeletonTileLabel: {
-    marginTop: spacing.sm,
-    width: TILE_WIDTH * 0.7,
-    height: 12,
+    marginTop: spacing.xs + 2,
+    width: TILE_WIDTH * 0.75,
+    height: 10,
     borderRadius: 4,
     backgroundColor: '#E0E0E0',
   },

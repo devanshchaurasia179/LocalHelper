@@ -48,3 +48,7 @@ example
 .elasticbeanstalk/*
 !.elasticbeanstalk/*.cfg.yml
 !.elasticbeanstalk/*.global.yml
+
+# Firebase (contains project keys) — provide via EAS secret / file, do not commit
+google-services.json
+GoogleService-Info.plist

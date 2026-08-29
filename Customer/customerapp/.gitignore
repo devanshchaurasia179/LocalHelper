@@ -42,3 +42,8 @@ example
 # generated native folders
 /ios
 # /android — committed for bare workflow (EAS build requires it)
+
+# Firebase (contains project keys) — provide via EAS secret / file, do not commit
+google-services.json
+android/app/google-services.json
+GoogleService-Info.plist

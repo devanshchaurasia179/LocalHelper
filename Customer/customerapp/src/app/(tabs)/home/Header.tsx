@@ -42,8 +42,12 @@ interface HeaderProps {
   addresses: Address[];
   selectedIndex: number;
   onSelectAddress: (index: number) => void;
-  hasNotification?: boolean;
-  onNotificationPress?: () => void;
+  /** Opens the chat page */
+  onChatPress?: () => void;
+  /** Opens the wallet page */
+  onWalletPress?: () => void;
+  /** Current available wallet balance (₹). When undefined, a placeholder is shown. */
+  walletBalance?: number;
   /** Called after the active address changes so the home screen can refetch nearby services */
   onLocationChange?: (coords?: { lat: number; lng: number }) => void;
 }
@@ -262,8 +266,9 @@ export default function Header({
   addresses,
   selectedIndex,
   onSelectAddress,
-  hasNotification = true,
-  onNotificationPress,
+  onChatPress,
+  onWalletPress,
+  walletBalance,
   onLocationChange,
 }: HeaderProps) {
   const { addAddress, updateAddress } = useAuth();
@@ -501,11 +506,37 @@ export default function Header({
         </TouchableOpacity>
       </View>
 
-      {/* ── Right: notification bell ─────────────────────────────────────── */}
-      <TouchableOpacity style={styles.bellButton} onPress={onNotificationPress} activeOpacity={0.7}>
-        <Ionicons name="notifications-outline" size={20} color={colors.white} />
-        {hasNotification && <View style={styles.dot} />}
-      </TouchableOpacity>
+      {/* ── Right: chat + wallet actions ─────────────────────────────────── */}
+      <View style={styles.actions}>
+        {/* Chat */}
+        <TouchableOpacity
+          style={styles.iconButton}
+          onPress={onChatPress}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Open chats"
+        >
+          <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.white} />
+        </TouchableOpacity>
+
+        {/* Wallet — shows available balance */}
+        <TouchableOpacity
+          style={styles.walletButton}
+          onPress={onWalletPress}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={
+            walletBalance !== undefined
+              ? `Open wallet, balance ${Math.round(walletBalance)} rupees`
+              : 'Open wallet'
+          }
+        >
+          <Ionicons name="wallet-outline" size={18} color={colors.white} />
+          <Text style={styles.walletBalance} numberOfLines={1}>
+            {walletBalance !== undefined ? `₹${Math.round(walletBalance)}` : '₹--'}
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       {/* ══════════════════════════════════════════════════════════════════
           ADDRESS PICKER MODAL
@@ -779,7 +810,12 @@ const styles = StyleSheet.create({
     ...typography.locationValue,
     maxWidth: '90%',
   },
-  bellButton: {
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  iconButton: {
     width: 44,
     height: 44,
     borderRadius: radii.pill,
@@ -789,16 +825,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dot: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 8,
-    height: 8,
+  walletButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 44,
+    paddingHorizontal: spacing.sm + 4,
     borderRadius: radii.pill,
-    backgroundColor: '#FF4D4D',
-    borderWidth: 1.5,
-    borderColor: '#f5f5f5',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  walletBalance: {
+    fontFamily: fonts.oswaldSemiBold,
+    fontSize: 15,
+    color: colors.white,
+    letterSpacing: 0.3,
   },
 
   // ── shared modal pieces ──────────────────────────────────────────────────────

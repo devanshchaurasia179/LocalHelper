@@ -135,8 +135,8 @@ export const verifyOtp = async (req, res) => {
       return res.status(400).json({ message: "OTP has expired. Please request a new one." });
     }
 
-    // Validate hash
-    const isMatch = await bcrypt.compare(otp, customer.phoneOtp.hash);
+    // Validate hash — coerce otp to a string since JSON clients may send it as a number
+    const isMatch = await bcrypt.compare(String(otp), customer.phoneOtp.hash);
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid OTP." });
     }

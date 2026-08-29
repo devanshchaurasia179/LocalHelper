@@ -7,6 +7,11 @@ import Partner from "../models/partner/Partner.js";
 import { getIO } from "../socket/index.js";
 import { startCallRecording, stopCallRecording } from "../services/callRecording.service.js";
 import { startCallTimer, stopCallTimer } from "../socket/call.socket.js";
+import { sendToUser } from "../services/notification.service.js";
+
+// ─── Helper: count a user's registered FCM tokens ──────────────────────────────
+const countFcmTokens = (user) =>
+  (user?.fcmTokens || []).filter((t) => typeof t?.token === "string" && t.token.length > 0).length;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -80,7 +85,7 @@ export const createCall = async (req, res) => {
       });
     }
 
-    const partner = await Partner.findById(partnerId).select("blockedCustomers accountStatus fullName");
+    const partner = await Partner.findById(partnerId).select("blockedCustomers accountStatus fullName fcmTokens");
     if (!partner) {
       return res.status(404).json({ success: false, message: "Partner not found" });
     }
@@ -131,35 +136,58 @@ export const createCall = async (req, res) => {
       const chatNS = io.of("/chat");
       const partnerRoom = `partner:${partnerId}`;
       const socketsInRoom = await chatNS.in(partnerRoom).fetchSockets();
-      
-      if (socketsInRoom.length === 0) {
-        console.warn(`[Call] No sockets in room ${partnerRoom} — partner is offline`);
-        // Mark call as failed since partner can't receive it
-        call.status = "failed";
-        await call.save();
-        return res.status(422).json({
-          success: false,
-          message: "Partner is currently offline. Please try again later.",
-        });
-      }
 
-      chatNS.to(partnerRoom).emit("incoming_call", {
-        callId: call._id.toString(),
-        roomName: call.roomName,
-        customerId: customerId.toString(),
-        customerName: customer.name || "Customer",
-        timestamp: new Date(),
-      });
-      console.log(`[Call] incoming_call emitted to ${partnerRoom} (${socketsInRoom.length} sockets), callId: ${call._id}`);
+      if (socketsInRoom.length === 0) {
+        console.warn(`[Call] No sockets in room ${partnerRoom} — partner socket is offline`);
+        // Socket offline is no longer a hard failure: if the partner has FCM
+        // tokens, the push below will wake the device. Only fail if there are
+        // no tokens at all (nothing can reach them).
+        if (countFcmTokens(partner) === 0) {
+          call.status = "failed";
+          await call.save();
+          return res.status(422).json({
+            success: false,
+            message: "Partner is currently offline. Please try again later.",
+          });
+        }
+      } else {
+        chatNS.to(partnerRoom).emit("incoming_call", {
+          callId: call._id.toString(),
+          roomName: call.roomName,
+          customerId: customerId.toString(),
+          customerName: customer.name || "Customer",
+          timestamp: new Date(),
+        });
+        console.log(`[Call] incoming_call emitted to ${partnerRoom} (${socketsInRoom.length} sockets), callId: ${call._id}`);
+      }
     } catch (socketError) {
       console.error("[Call] Failed to emit socket event:", socketError);
-      call.status = "failed";
-      await call.save();
-      return res.status(500).json({
-        success: false,
-        message: "Failed to notify partner. Please try again.",
-      });
+      // Don't hard-fail on socket errors if the partner has FCM tokens to wake.
+      if (countFcmTokens(partner) === 0) {
+        call.status = "failed";
+        await call.save();
+        return res.status(500).json({
+          success: false,
+          message: "Failed to notify partner. Please try again.",
+        });
+      }
     }
+
+    // High-priority DATA push to wake the partner's device (fires regardless of
+    // socket state; the service no-ops when there are no tokens).
+    sendToUser({
+      userType: "partner",
+      userId: partnerId.toString(),
+      type: "incoming_call",
+      data: {
+        callId: call._id.toString(),
+        roomName: call.roomName,
+        callerName: customer.name || "Customer",
+        callerId: customerId.toString(),
+      },
+    }).catch((err) =>
+      console.error("[Call] FCM incoming_call push error (non-blocking):", err?.message || err)
+    );
 
     // Return call info but NOT the LiveKit token yet.
     // Customer should wait for "call_accepted" socket event before connecting to LiveKit.
@@ -208,7 +236,7 @@ export const createCallAsPartner = async (req, res) => {
       });
     }
 
-    const customer = await Customer.findById(customerId).select("blockedPartners name");
+    const customer = await Customer.findById(customerId).select("blockedPartners name fcmTokens");
     if (!customer) {
       return res.status(404).json({ success: false, message: "Customer not found" });
     }
@@ -246,32 +274,56 @@ export const createCallAsPartner = async (req, res) => {
       const socketsInRoom = await chatNS.in(customerRoom).fetchSockets();
 
       if (socketsInRoom.length === 0) {
-        console.warn(`[Call] No sockets in room ${customerRoom} — customer is offline`);
-        call.status = "failed";
-        await call.save();
-        return res.status(422).json({
-          success: false,
-          message: "Customer is currently offline. Please try again later.",
+        console.warn(`[Call] No sockets in room ${customerRoom} — customer socket is offline`);
+        // Socket offline is no longer a hard failure: if the customer has FCM
+        // tokens, the push below will wake the device. Only fail if there are
+        // no tokens at all (nothing can reach them).
+        if (countFcmTokens(customer) === 0) {
+          call.status = "failed";
+          await call.save();
+          return res.status(422).json({
+            success: false,
+            message: "Customer is currently offline. Please try again later.",
+          });
+        }
+      } else {
+        chatNS.to(customerRoom).emit("incoming_call", {
+          callId: call._id.toString(),
+          roomName: call.roomName,
+          partnerId: partnerId.toString(),
+          partnerName: partner.fullName || "Partner",
+          timestamp: new Date(),
         });
+        console.log(`[Call] incoming_call emitted to ${customerRoom} (${socketsInRoom.length} sockets), callId: ${call._id}`);
       }
-
-      chatNS.to(customerRoom).emit("incoming_call", {
-        callId: call._id.toString(),
-        roomName: call.roomName,
-        partnerId: partnerId.toString(),
-        partnerName: partner.fullName || "Partner",
-        timestamp: new Date(),
-      });
-      console.log(`[Call] incoming_call emitted to ${customerRoom} (${socketsInRoom.length} sockets), callId: ${call._id}`);
     } catch (socketError) {
       console.error("[Call] Failed to emit socket event:", socketError);
-      call.status = "failed";
-      await call.save();
-      return res.status(500).json({
-        success: false,
-        message: "Failed to notify customer. Please try again.",
-      });
+      // Don't hard-fail on socket errors if the customer has FCM tokens to wake.
+      if (countFcmTokens(customer) === 0) {
+        call.status = "failed";
+        await call.save();
+        return res.status(500).json({
+          success: false,
+          message: "Failed to notify customer. Please try again.",
+        });
+      }
     }
+
+    // High-priority DATA push to wake the customer's device (fires regardless of
+    // socket state; the service no-ops when there are no tokens).
+    sendToUser({
+      userType: "customer",
+      userId: customerId.toString(),
+      type: "incoming_call",
+      data: {
+        callId: call._id.toString(),
+        roomName: call.roomName,
+        callerName: partner.fullName || "Partner",
+        callerId: partnerId.toString(),
+      },
+    }).catch((err) =>
+      console.error("[Call] FCM incoming_call push error (non-blocking):", err?.message || err)
+    );
 
     return res.status(201).json({
       success: true,
@@ -473,6 +525,16 @@ export const acceptCall = async (req, res) => {
       console.error("[Call] Failed to emit socket event:", socketError);
     }
 
+    // DATA push so any native incoming-call UI on the partner's device dismisses.
+    sendToUser({
+      userType: "partner",
+      userId: partnerId.toString(),
+      type: "call_cancel",
+      data: { callId: call._id.toString() },
+    }).catch((err) =>
+      console.error("[Call] FCM call_cancel push error (non-blocking):", err?.message || err)
+    );
+
     return res.status(200).json({
       success: true,
       call: {
@@ -528,6 +590,16 @@ export const rejectCall = async (req, res) => {
     } catch (socketError) {
       console.error("[Call] Failed to emit socket event:", socketError);
     }
+
+    // DATA push so any native incoming-call UI on the partner's device dismisses.
+    sendToUser({
+      userType: "partner",
+      userId: partnerId.toString(),
+      type: "call_cancel",
+      data: { callId: call._id.toString() },
+    }).catch((err) =>
+      console.error("[Call] FCM call_cancel push error (non-blocking):", err?.message || err)
+    );
 
     return res.status(200).json({
       success: true,
@@ -601,6 +673,16 @@ export const acceptCallAsCustomer = async (req, res) => {
       console.error("[Call] Failed to emit socket event:", socketError);
     }
 
+    // DATA push so any native incoming-call UI on the customer's device dismisses.
+    sendToUser({
+      userType: "customer",
+      userId: customerId.toString(),
+      type: "call_cancel",
+      data: { callId: call._id.toString() },
+    }).catch((err) =>
+      console.error("[Call] FCM call_cancel push error (non-blocking):", err?.message || err)
+    );
+
     return res.status(200).json({
       success: true,
       call: {
@@ -658,6 +740,16 @@ export const rejectCallAsCustomer = async (req, res) => {
     } catch (socketError) {
       console.error("[Call] Failed to emit socket event:", socketError);
     }
+
+    // DATA push so any native incoming-call UI on the customer's device dismisses.
+    sendToUser({
+      userType: "customer",
+      userId: customerId.toString(),
+      type: "call_cancel",
+      data: { callId: call._id.toString() },
+    }).catch((err) =>
+      console.error("[Call] FCM call_cancel push error (non-blocking):", err?.message || err)
+    );
 
     return res.status(200).json({
       success: true,
@@ -776,6 +868,24 @@ export const endCall = async (req, res) => {
     } catch (socketError) {
       console.error("[Call] Failed to emit socket event:", socketError);
     }
+
+    // DATA push to both parties so any native call UI dismisses on end.
+    sendToUser({
+      userType: "partner",
+      userId: call.partner.toString(),
+      type: "call_cancel",
+      data: { callId: call._id.toString() },
+    }).catch((err) =>
+      console.error("[Call] FCM call_cancel push error (non-blocking):", err?.message || err)
+    );
+    sendToUser({
+      userType: "customer",
+      userId: call.customer.toString(),
+      type: "call_cancel",
+      data: { callId: call._id.toString() },
+    }).catch((err) =>
+      console.error("[Call] FCM call_cancel push error (non-blocking):", err?.message || err)
+    );
 
     return res.status(200).json({
       success: true,

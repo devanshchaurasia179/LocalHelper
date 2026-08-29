@@ -12,11 +12,13 @@ import partnerDocumentRoutes from "./routes/partner.documents.routes.js";
 import partnerVerificationRoutes from "./routes/partner.verification.routes.js";
 import partnerTransactionAccountRoutes from "./routes/partner.transactionaccount.routes.js";
 import partnerTransactionRoutes from "./routes/partner.transaction.routes.js";
+import partnerNotificationRoutes from "./routes/partner.notification.routes.js";
 import adminTransactionRoutes from "./routes/admin/admin.transaction.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import customerAuthRoutes from "./routes/customer.auth.routes.js";
 import customerNearbyRoutes from "./routes/customer.nearby.routes.js";
 import customerWalletRoutes from "./routes/customer.wallet.routes.js";
+import customerNotificationRoutes from "./routes/customer.notification.routes.js";
 import bookingRoutes from "./routes/booking.routes.js";
 import adminAuthRoutes from "./routes/admin/admin.auth.routes.js";
 import adminPartnerRoutes from "./routes/admin/admin.partner.routes.js";
@@ -26,12 +28,17 @@ import adminCategoryRoutes from "./routes/admin/admin.category.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
 import adminChatRoutes from "./routes/admin/admin.chat.routes.js";
 import cloudinary from "./config/cloudinary.js";
+import { initFirebase } from "./config/firebase.js";
 import callRoutes from "./routes/call.routes.js";
 import livekitWebhookRoutes from "./routes/livekit.webhook.routes.js";
 import adminCallRecordingRoutes from "./routes/admin/admin.callRecording.routes.js";
 import { initSocket } from "./socket/index.js";
 
 dotenv.config();
+
+// Initialize Firebase Admin SDK (push notifications).
+// Logs a warning and continues if credentials are missing/invalid.
+initFirebase();
 
 // Change DNS
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -67,10 +74,12 @@ app.use("/api/partner/documents", partnerDocumentRoutes);       // old hardcoded
 app.use("/api/partner/verification", partnerVerificationRoutes); // new dynamic routes
 app.use("/api/partner/transaction-account", partnerTransactionAccountRoutes);
 app.use("/api/partner/transactions", partnerTransactionRoutes);
+app.use("/api/partner", partnerNotificationRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/customer/auth", customerAuthRoutes);
 app.use("/api/customer/services", customerNearbyRoutes);
 app.use("/api/customer/transactions", customerWalletRoutes);
+app.use("/api/customer", customerNotificationRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/admin", adminAuthRoutes);
 app.use("/api/admin/partners", adminPartnerRoutes);

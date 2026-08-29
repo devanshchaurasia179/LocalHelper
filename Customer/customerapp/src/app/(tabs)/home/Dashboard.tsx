@@ -9,7 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 
 import Header from './Header';
 import SearchBar from './SearchBar';
@@ -24,6 +24,7 @@ import FilterDropdown from './FilterModal';
 import SearchDropdown from './SearchModal';
 
 import { useNearbyServices } from '@/hooks/useNearbyServices';
+import { useWalletSummary } from '@/hooks/useWallet';
 import type { NearbyCategory } from '@/api/nearby.api';
 import { initiateCallToPartner } from '@/api/call.api';
 
@@ -49,6 +50,17 @@ const HERO_TAGLINES: string[] = [
 export default function Dashboard() {
   const { customer } = useAuth();
   const insets = useSafeAreaInsets();
+  const { summary: walletSummary, refresh: refreshWallet } = useWalletSummary();
+
+  // Re-fetch the wallet balance every time the home tab regains focus so the
+  // header stays in sync with the wallet screen after top-ups, bookings, or
+  // calls. Tabs use `freezeOnBlur`, so without this the balance would only
+  // reflect the value fetched on the very first mount.
+  useFocusEffect(
+    useCallback(() => {
+      refreshWallet();
+    }, [refreshWallet]),
+  );
   const [searchModalVisible, setSearchModalVisible] = useState(false);
   const [selectedAddressIndex, setSelectedAddressIndex] = useState(0);
 
@@ -96,7 +108,8 @@ export default function Dashboard() {
   // saved currentLocation — returning a different, smaller set of partners.
   const handlePullToRefresh = useCallback(() => {
     refresh(selectedAddressCoords);
-  }, [refresh, selectedAddressCoords]);
+    refreshWallet();
+  }, [refresh, selectedAddressCoords, refreshWallet]);
 
   // Derive unique categories from nearby partners — only categories that
   // actually have at least one available partner nearby are shown.
@@ -235,7 +248,9 @@ export default function Dashboard() {
             addresses={addresses}
             selectedIndex={selectedAddressIndex}
             onSelectAddress={setSelectedAddressIndex}
-            onNotificationPress={() => console.log('Open notifications')}
+            walletBalance={walletSummary?.walletBalance}
+            onChatPress={() => router.navigate(ROUTES.APP.CHAT as any)}
+            onWalletPress={() => router.navigate(ROUTES.APP.WALLET as any)}
             onLocationChange={(coords) => {
               // coords are also written to nearbyCache via the useEffect above;
               // but write eagerly here too so [categoryId] gets them immediately.

@@ -5,10 +5,22 @@ import Customer from "../models/customer/Customer.js";
 import PartnerDocument from "../models/verification/PartnerDocument.js";
 import PartnerTransaction from "../models/partner/partner.transaction.js";
 import CustomerTransaction from "../models/customer/customer.wallet.js";
+import { sendToUser } from "../services/notification.service.js";
 
 /** Generate a random 4-digit completion code string */
 const generateCompletionCode = () =>
   String(Math.floor(1000 + Math.random() * 9000));
+
+/**
+ * Fire-and-forget push notification. Never awaited on the request path and
+ * never allowed to affect the HTTP response. sendToUser already swallows its
+ * own errors; the extra .catch is a belt-and-suspenders guard.
+ */
+const notify = (payload) => {
+  Promise.resolve(sendToUser(payload)).catch((err) =>
+    console.error("[booking] notification dispatch failed:", err?.message || err)
+  );
+};
 
 // ─── CUSTOMER: Create Booking ─────────────────────────────────────────────────
 /**
@@ -189,6 +201,23 @@ export const createBooking = async (req, res) => {
       });
     }
 
+    // Notify the partner of the new booking request (non-blocking).
+    notify({
+      userType: "partner",
+      userId: partnerId,
+      notification: {
+        title: "New booking request",
+        body: "You have a new booking request.",
+      },
+      data: {
+        type: "booking",
+        action: "new_request",
+        bookingId: booking._id.toString(),
+        customerId: req.customerId.toString(),
+      },
+      type: "booking",
+    });
+
     return res.status(201).json({
       message: "Booking created successfully.",
       booking: {
@@ -236,6 +265,23 @@ export const acceptBooking = async (req, res) => {
     booking.completionCode = { code, hash };
     await booking.save();
 
+    // Notify the customer their booking was accepted (non-blocking).
+    notify({
+      userType: "customer",
+      userId: booking.customer.toString(),
+      notification: {
+        title: "Booking accepted",
+        body: "Your booking has been accepted.",
+      },
+      data: {
+        type: "booking",
+        action: "accepted",
+        bookingId: booking._id.toString(),
+        partnerId: booking.partner.toString(),
+      },
+      type: "booking",
+    });
+
     return res.status(200).json({
       message: "Booking accepted.",
       booking: { id: booking._id, status: booking.status },
@@ -271,6 +317,23 @@ export const startBooking = async (req, res) => {
     booking.status    = "in_progress";
     booking.startedAt = new Date();
     await booking.save();
+
+    // Notify the customer the service has started (non-blocking).
+    notify({
+      userType: "customer",
+      userId: booking.customer.toString(),
+      notification: {
+        title: "Service started",
+        body: "Your partner has started the service.",
+      },
+      data: {
+        type: "booking",
+        action: "started",
+        bookingId: booking._id.toString(),
+        partnerId: booking.partner.toString(),
+      },
+      type: "booking",
+    });
 
     return res.status(200).json({
       message: "Booking started.",
@@ -331,6 +394,23 @@ export const completeBooking = async (req, res) => {
     booking.completedAt    = new Date();
     booking.completionCode = undefined; // clear the code — it's single-use
     await booking.save();
+
+    // Notify the customer the booking is complete and prompt a rating (non-blocking).
+    notify({
+      userType: "customer",
+      userId: booking.customer.toString(),
+      notification: {
+        title: "Booking completed — rate your partner",
+        body: "Your booking is complete. Tap to rate your partner.",
+      },
+      data: {
+        type: "booking",
+        action: "rate",
+        bookingId: booking._id.toString(),
+        partnerId: booking.partner.toString(),
+      },
+      type: "booking",
+    });
 
     // Update partner stats atomically
     const updatedPartner = await Partner.findByIdAndUpdate(
@@ -449,6 +529,43 @@ export const cancelBooking = async (req, res) => {
       cancelledAt: new Date(),
     };
     await booking.save();
+
+    // Notify the OTHER party — whoever didn't cancel (non-blocking).
+    if (cancelledBy === "partner") {
+      notify({
+        userType: "customer",
+        userId: booking.customer.toString(),
+        notification: {
+          title: "Booking cancelled",
+          body: "Your booking was cancelled by the partner.",
+        },
+        data: {
+          type: "booking",
+          action: "cancelled",
+          bookingId: booking._id.toString(),
+          cancelledBy,
+          partnerId: booking.partner.toString(),
+        },
+        type: "booking",
+      });
+    } else {
+      notify({
+        userType: "partner",
+        userId: booking.partner.toString(),
+        notification: {
+          title: "Booking cancelled",
+          body: "A booking was cancelled by the customer.",
+        },
+        data: {
+          type: "booking",
+          action: "cancelled",
+          bookingId: booking._id.toString(),
+          cancelledBy,
+          customerId: booking.customer.toString(),
+        },
+        type: "booking",
+      });
+    }
 
     // Increment partner's cancelled job counter
     await Partner.findByIdAndUpdate(booking.partner, {

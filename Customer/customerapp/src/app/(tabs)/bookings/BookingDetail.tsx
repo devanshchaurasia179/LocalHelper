@@ -249,6 +249,8 @@ interface BookingDetailProps {
   onClose: () => void;
   onCancelled: (bookingId: string) => void;
   onReviewPress: (booking: Booking) => void;
+  /** Hide the "Your Address" section (with the Show on Map button). */
+  hideAddress?: boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -259,6 +261,7 @@ export default function BookingDetail({
   onClose,
   onCancelled,
   onReviewPress,
+  hideAddress = false,
 }: BookingDetailProps) {
   // Slide-up animation
   const slideAnim = useRef(new Animated.Value(40)).current;
@@ -367,7 +370,7 @@ export default function BookingDetail({
             ) : null}
 
             {/* ── Address ── */}
-            {serviceAddress && (
+            {!hideAddress && serviceAddress && (
               <View style={styles.section}>
                 <SectionHeader title="Your Address" />
                 <View style={styles.addressCard}>
