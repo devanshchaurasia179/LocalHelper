@@ -22,10 +22,13 @@ import Partner from "../models/partner/Partner.js";
 // own full-screen call UI instead of a passive notification.
 const CALL_TYPES = new Set(["incoming_call", "call_cancel"]);
 
-// FCM error codes that mean the token is dead and should be removed.
+// FCM error codes that mean the token is dead/unusable and should be removed.
+// invalid-argument covers malformed or junk tokens (e.g. leftover test values)
+// that FCM rejects outright — pruning them stops them failing on every send.
 const DEAD_TOKEN_CODES = new Set([
   "messaging/registration-token-not-registered",
   "messaging/invalid-registration-token",
+  "messaging/invalid-argument",
 ]);
 
 /** Resolve the Mongoose model for a given user type. */
@@ -62,6 +65,8 @@ const stringifyData = (data = {}) => {
  */
 export const sendToUser = async ({ userType, userId, notification, data = {}, type } = {}) => {
   try {
+    console.log(`[notification] sendToUser → userType=${userType} userId=${userId} type=${type}`);
+
     if (!isFirebaseInitialized()) {
       console.error("[notification] Firebase not initialized — skipping push.");
       return;
@@ -83,8 +88,11 @@ export const sendToUser = async ({ userType, userId, notification, data = {}, ty
       .map((t) => t.token)
       .filter((t) => typeof t === "string" && t.length > 0);
 
+    console.log(`[notification] ${userType} ${userId} has ${tokens.length} token(s).`);
+
     if (tokens.length === 0) {
       // Nothing to send to — not an error, just no devices registered.
+      console.warn(`[notification] No FCM tokens for ${userType} ${userId} — push skipped.`);
       return;
     }
 
@@ -106,10 +114,15 @@ export const sendToUser = async ({ userType, userId, notification, data = {}, ty
         title: notification?.title ?? "",
         body: notification?.body ?? "",
       };
+      // High priority ensures Android wakes the device immediately instead of
+      // batching the push during Doze / low-power mode. Required for booking
+      // alerts to arrive promptly even when the screen is off.
+      message.android = { priority: "high" };
     }
 
     const messaging = getMessaging();
     const response = await messaging.sendEachForMulticast(message);
+    console.log(`[notification] sendEachForMulticast → success=${response.successCount} fail=${response.failureCount}`);
 
     // Prune any tokens FCM reports as dead so we stop targeting them.
     if (response.failureCount > 0) {
