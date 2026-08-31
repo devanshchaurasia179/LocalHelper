@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { sendOtp, verifyOtp, completeProfile, updateProfileApi, addAddress as addAddressApi, updateAddressApi, logout } from "@/api/auth.api";
 import { api } from "@/constants/api";
+import { unregisterPushToken } from "@/services/push";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -218,6 +219,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Sign out ── clears httpOnly cookie on server, resets local state
   const signOut = useCallback(async () => {
+    // Remove this device's FCM token BEFORE the cookie is cleared so the
+    // authenticated DELETE succeeds. Never let it block logout.
+    await unregisterPushToken();
     await logout();
     setCustomer(null);
     setStatus("unauthenticated");

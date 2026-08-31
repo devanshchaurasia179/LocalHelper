@@ -31,6 +31,11 @@ import {
 import { AuthProvider } from "@/providers/AuthProvider";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { registerGlobals } from "@livekit/react-native";
+// Side-effect import: registers the FCM background/quit message handler and the
+// Notifee background tap handler at module scope, before React mounts.
+import "@/services/notificationsBackground";
+import { initNotifications } from "@/services/notifications";
+import { setupCallKeep } from "@/services/callkeep";
 
 registerGlobals();
 
@@ -38,6 +43,15 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const colorScheme = useColorScheme() ?? "light";
+
+  // Attach foreground notification handlers (onMessage display, tap routing)
+  // and ensure the Android channel exists. Also initialise CallKeep once so the
+  // native incoming-call UI + its answer/end listeners are ready. Safe to run
+  // once on mount (both are idempotent).
+  useEffect(() => {
+    initNotifications();
+    setupCallKeep().catch(() => {});
+  }, []);
 
   const [oswaldLoaded] = useOswald({
     Oswald_400Regular,

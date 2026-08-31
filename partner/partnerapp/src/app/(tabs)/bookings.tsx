@@ -16,9 +16,15 @@ import {
   SectionList,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts, spacing, radii } from "@/constants/theme";
 import BottomNav from "@/components/navigation/BottomNav";
+import {
+  consumePendingBooking,
+  subscribePendingBooking,
+  type PendingBooking,
+} from "@/services/bookingDeepLink";
 import {
   usePendingBookings,
   useActiveBookings,
@@ -307,6 +313,40 @@ export default function BookingsScreen() {
     ]);
     setRefreshing(false);
   }, [pendingQuery, activeQuery, completedQuery, cancelledQuery]);
+
+  // ── Deep-link from a tapped booking notification ────────────────────────────
+  // The notification handler stashes { bookingId, action } and navigates here.
+  // We switch to the view mode that contains the target booking (recent for
+  // new_request / active / last-24h, history otherwise) and refetch so the
+  // freshly-changed booking is surfaced.
+  const openBookingTarget = useCallback(
+    (pending: PendingBooking) => {
+      const inHistory = historySections.some((section) =>
+        section.data.some((b) => b._id === pending.bookingId)
+      );
+      setViewMode(inHistory ? "history" : "recent");
+      // Pull the latest data so the tapped booking reflects its new status.
+      onRefresh().catch(() => {});
+    },
+    [historySections, onRefresh]
+  );
+
+  // Consume any target queued before this screen mounted / focused.
+  useFocusEffect(
+    useCallback(() => {
+      const pending = consumePendingBooking();
+      if (pending) openBookingTarget(pending);
+    }, [openBookingTarget])
+  );
+
+  // React immediately if a notification is tapped while already on this screen.
+  useEffect(() => {
+    const unsubscribe = subscribePendingBooking((pending) => {
+      consumePendingBooking();
+      openBookingTarget(pending);
+    });
+    return unsubscribe;
+  }, [openBookingTarget]);
 
   // ── OTP flow ──────────────────────────────────────────────────────────────
 

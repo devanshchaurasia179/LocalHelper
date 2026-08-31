@@ -8,6 +8,7 @@ import React, {
 import axios from "axios";
 import { api } from "@/constants/api";
 import { sendOtp, verifyOtp, completeProfile, logout } from "@/api/auth.api";
+import { unregisterPushToken } from "@/services/push";
 import type { Partner, CompleteProfilePayload } from "@/types/auth";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -194,6 +195,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Sign out ── clears partner_token cookie on server, resets local state
   const signOut = useCallback(async () => {
+    // Remove this device's FCM token BEFORE the cookie is cleared so the
+    // authenticated DELETE succeeds. It swallows its own errors internally.
+    await unregisterPushToken();
     try {
       await logout();
     } catch {

@@ -14,3 +14,13 @@ vercel-proxy/
 
 # Exclude node_modules at root level (workspace installs per-project)
 node_modules/
+# Generated native build artifacts — MUST NOT be uploaded.
+# These contain machine-local absolute paths (e.g. autolinking.json) that
+# break Gradle on the Linux EAS worker. Let the worker regenerate them.
+**/android/build/
+**/android/app/build/
+**/android/.gradle/
+**/android/.cxx/
+**/android/local.properties
+**/ios/build/
+**/ios/Pods/

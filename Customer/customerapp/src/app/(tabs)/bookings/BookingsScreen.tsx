@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 
 import { colors, spacing, radii, fonts } from '../home/theme';
 import { useBookings } from '@/hooks/useBookings';
@@ -25,6 +25,8 @@ import BottomNav from '../home/BottomNav';
 import type { Booking, StatusFilter } from './bookings.types';
 import type { NavRoute } from '../home/types';
 import { ROUTES } from '@/constants/routes';
+import { fetchBookingById } from '@/constants/booking.api';
+import { consumePendingBooking, subscribePendingBooking, type PendingBooking } from '@/services/bookingDeepLink';
 
 // ─── Filter config ────────────────────────────────────────────────────────────
 
@@ -256,6 +258,49 @@ export default function BookingsScreen() {
     if (route === 'chat')    router.navigate(ROUTES.APP.CHAT    as any);
     if (route === 'profile') router.navigate(ROUTES.APP.PROFILE as any);
   }, []);
+
+  // ── Deep-link from a tapped booking notification ────────────────────────────
+  // The notification handler stashes { bookingId, action } in the deep-link
+  // store and navigates here. We resolve the booking (from the loaded list, or
+  // fetch it by id) and open the review modal for action 'rate', else detail.
+  const openBookingTarget = useCallback(async (pending: PendingBooking) => {
+    try {
+      let booking = bookings.find((b) => b._id === pending.bookingId) ?? null;
+      if (!booking) {
+        booking = await fetchBookingById(pending.bookingId);
+      }
+      if (!booking) return;
+
+      if (pending.action === 'rate') {
+        setReviewBooking(booking);
+        setReviewVisible(true);
+      } else {
+        setSelectedBooking(booking);
+        setDetailVisible(true);
+      }
+    } catch (e: any) {
+      // A failed deep-link should never disrupt the screen; the list still shows.
+      console.warn('[Bookings] deep-link open failed:', e?.message || e);
+    }
+  }, [bookings]);
+
+  // Consume any target queued before this screen mounted / focused.
+  useFocusEffect(
+    useCallback(() => {
+      const pending = consumePendingBooking();
+      if (pending) openBookingTarget(pending);
+    }, [openBookingTarget])
+  );
+
+  // React immediately if a notification is tapped while already on this screen.
+  useEffect(() => {
+    const unsubscribe = subscribePendingBooking((pending) => {
+      // Clear the store so the focus effect doesn't re-open it.
+      consumePendingBooking();
+      openBookingTarget(pending);
+    });
+    return unsubscribe;
+  }, [openBookingTarget]);
 
   const activeCfg   = FILTER_COLORS[activeFilter];
   const activeLabel = FILTER_TABS.find((t) => t.key === activeFilter)?.label ?? 'All Bookings';
