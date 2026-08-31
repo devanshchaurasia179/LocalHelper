@@ -1,5 +1,5 @@
 diff --git a/node_modules/react-native-callkeep/android/src/main/java/io/wazo/callkeep/RNCallKeepModule.java b/node_modules/react-native-callkeep/android/src/main/java/io/wazo/callkeep/RNCallKeepModule.java
-index 025480a..4034b8b 100644
+index 025480a..b197a4d 100644
 --- a/node_modules/react-native-callkeep/android/src/main/java/io/wazo/callkeep/RNCallKeepModule.java
 +++ b/node_modules/react-native-callkeep/android/src/main/java/io/wazo/callkeep/RNCallKeepModule.java
 @@ -434,7 +434,6 @@ public class RNCallKeepModule extends ReactContextBaseJavaModule implements Life
@@ -9,4 +9,17 @@ index 025480a..4034b8b 100644
 -    @ReactMethod
      public void displayIncomingCall(String uuid, String number, String callerName) {
          this.displayIncomingCall(uuid, number, callerName, false, null);
+     }
+@@ -483,7 +482,11 @@ public class RNCallKeepModule extends ReactContextBaseJavaModule implements Life
+         conn.onAnswer();
+     }
+ 
+-    @ReactMethod
++    // NOTE: @ReactMethod removed from this 3-arg overload. React Native's New
++    // Architecture (TurboModules) rejects two @ReactMethod-annotated methods
++    // that export the same JS name ("startCall"). The JS side (index.js) only
++    // ever calls the 4-arg overload on Android, so this shim stays as a plain
++    // Java helper without being exported to JS.
+     public void startCall(String uuid, String number, String callerName) {
+         this.startCall(uuid, number, callerName, false, null);
      }
