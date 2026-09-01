@@ -2,22 +2,15 @@
  * notificationsBackground — Partner App
  *
  * Registers the FCM background/quit message handler and the Notifee background
- * event handler. These MUST run at module scope (before React renders), so this
- * file is imported for its side-effects from the app's root layout.
+ * event handler at module scope (before React renders).
  *
- * Responsibilities:
- *   - setBackgroundMessageHandler: fired when a data/notification message
- *     arrives while the app is backgrounded or quit. For booking messages we
- *     display a Notifee notification so the tap can later deep-link.
- *   - notifee.onBackgroundEvent: fired when the user taps a Notifee
- *     notification while the app is backgrounded. We stash the booking target
- *     so the Bookings screen deep-links once the app is opened.
- *
- * Handles two message families in the background/quit state:
- *   - data.type === 'booking'       → Notifee notification for later deep-link.
- *   - data.type === 'incoming_call' → native CallKeep incoming-call UI (so a
- *                                     locked device shows the ringing screen).
- *   - data.type === 'call_cancel'   → dismiss the native CallKeep UI.
+ * Handles:
+ *   - incoming_call  → posts a high-priority call notification so the user
+ *                      sees an alert even when the app is backgrounded. Stores
+ *                      the call payload in callDeepLink so useCallManager can
+ *                      show the IncomingCallModal when the app foregrounds.
+ *   - call_cancel    → cancels any displayed call notification.
+ *   - booking        → posts a booking notification for later deep-link.
  */
 
 import notifee, {
@@ -35,11 +28,23 @@ import {
   ensureBookingChannel,
 } from "@/services/notifications";
 import { setPendingBooking } from "@/services/bookingDeepLink";
-import {
-  setupCallKeep,
-  displayIncomingCall,
-  endIncomingCall,
-} from "@/services/callkeep";
+import { setPendingCall } from "@/services/callDeepLink";
+
+// ─── Channels ─────────────────────────────────────────────────────────────────
+
+export const CALL_CHANNEL_ID = "incoming_calls";
+
+async function ensureCallChannel(): Promise<void> {
+  await notifee.createChannel({
+    id: CALL_CHANNEL_ID,
+    name: "Incoming calls",
+    importance: AndroidImportance.HIGH,
+    sound: "default",
+    vibration: true,
+  });
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const isBooking = (data: RemoteMessage["data"] | undefined): boolean =>
   !!data && data.type === "booking";
@@ -47,40 +52,65 @@ const isBooking = (data: RemoteMessage["data"] | undefined): boolean =>
 const asString = (v: unknown): string | undefined =>
   typeof v === "string" ? v : undefined;
 
-// FCM background/quit handler. Call messages take priority (time-sensitive),
-// then booking messages fall through to the Notifee path.
+const callNotificationId = (callId: string) => `call_${callId}`;
+
+// ─── Background message handler ───────────────────────────────────────────────
+
 setBackgroundMessageHandler(getMessaging(), async (message) => {
   const data = message.data;
   const type = asString(data?.type);
 
-  // ─── Native incoming call ──────────────────────────────────────────────
+  // ── Incoming call ──────────────────────────────────────────────────────────
   if (type === "incoming_call") {
     const callId = asString(data?.callId);
     if (!callId) return;
+
     const callerName = asString(data?.callerName) ?? "Local Helpers";
-    // setup() must run before displayIncomingCall in the headless context.
-    await setupCallKeep();
-    displayIncomingCall(callId, callerName);
+    const callerId = asString(data?.callerId) ?? "";
+    const roomName = asString(data?.roomName) ?? "";
+
+    // Store so useCallManager can show IncomingCallModal when app foregrounds.
+    setPendingCall({ callId, roomName, callerName, callerId });
+
+    await ensureCallChannel();
+    await notifee.displayNotification({
+      id: callNotificationId(callId),
+      title: "Incoming Call",
+      body: `${callerName} is calling you`,
+      data: { type: "incoming_call", callId, callerName, callerId, roomName },
+      android: {
+        channelId: CALL_CHANNEL_ID,
+        importance: AndroidImportance.HIGH,
+        pressAction: { id: "default" },
+        smallIcon: "ic_launcher",
+        ongoing: false,
+        sound: "default",
+        vibrationPattern: [300, 500, 300, 500],
+      },
+    });
     return;
   }
 
-  // ─── Cancel / dismiss native call UI ───────────────────────────────────
+  // ── Cancel / dismiss call notification ────────────────────────────────────
   if (type === "call_cancel") {
     const callId = asString(data?.callId);
-    if (callId) endIncomingCall(callId);
+    if (callId) {
+      await notifee.cancelNotification(callNotificationId(callId));
+    }
     return;
   }
 
+  // ── Booking ───────────────────────────────────────────────────────────────
   if (!isBooking(data)) return;
 
   await ensureBookingChannel();
 
   const title =
     message.notification?.title ??
-    (typeof message.data?.title === "string" ? message.data.title : "Booking update");
+    (typeof data?.title === "string" ? data.title : "Booking update");
   const body =
     message.notification?.body ??
-    (typeof message.data?.body === "string" ? message.data.body : "");
+    (typeof data?.body === "string" ? data.body : "");
 
   await notifee.displayNotification({
     title,
@@ -91,19 +121,24 @@ setBackgroundMessageHandler(getMessaging(), async (message) => {
       importance: AndroidImportance.HIGH,
       pressAction: { id: "default" },
       smallIcon: "ic_launcher",
+      sound: "default",
     },
   });
 });
 
-// Notifee background tap handler — stash the target; the Bookings screen picks
-// it up when the app is opened. Navigation itself happens from a mounted screen.
+// ─── Background tap handler ───────────────────────────────────────────────────
+
 notifee.onBackgroundEvent(async ({ type, detail }: Event) => {
   if (type !== EventType.PRESS) return;
 
   const data = detail.notification?.data as RemoteMessage["data"] | undefined;
-  if (!isBooking(data)) return;
+  const msgType = asString(data?.type);
 
-  const bookingId = typeof data?.bookingId === "string" ? data.bookingId : undefined;
-  const action = typeof data?.action === "string" ? data.action : undefined;
+  // Call notification tapped — payload already in callDeepLink store.
+  if (msgType === "incoming_call") return;
+
+  if (!isBooking(data)) return;
+  const bookingId = asString(data?.bookingId);
+  const action = asString(data?.action);
   if (bookingId) setPendingBooking({ bookingId, action });
 });

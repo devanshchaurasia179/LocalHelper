@@ -1,15 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { connectChatSocket, getChatSocket } from '@/services/chat.socket';
-import { acceptCallAsCustomer, rejectCallAsCustomer, endCall as endCallApi } from '@/api/call.api';
-import { callBridge } from '@/services/callBridge';
 import {
-  setupCallKeep,
-  displayIncomingCall,
-  endIncomingCall,
-  setCallConnected,
-  isCallKeepActive,
-} from '@/services/callkeep';
+  acceptCallAsCustomer,
+  rejectCallAsCustomer,
+  endCall as endCallApi,
+  initiateCallToPartner,
+} from '@/api/call.api';
 import { startCallAudio, stopCallAudio } from '@/services/callAudio';
+import { subscribePendingCall, consumePendingCall } from '@/services/callDeepLink';
 import Toast from 'react-native-toast-message';
 
 interface IncomingCall {
@@ -26,6 +24,8 @@ interface ActiveCall {
   partnerName: string;
   livekitUrl: string;
   livekitToken: string;
+  /** true when the customer initiated the call (outbound) */
+  isOutbound: boolean;
 }
 
 export default function useCallManager() {
@@ -34,31 +34,13 @@ export default function useCallManager() {
   const [processing, setProcessing] = useState(false);
   const mountedRef = useRef(true);
 
-  // Keep the latest incoming-call payload (from socket) keyed by callId so the
-  // CallKeep "answer" event — which only carries the callId — can resolve the
-  // room/partner details it needs to accept the call.
-  const incomingByIdRef = useRef<Map<string, IncomingCall>>(new Map());
-  // Guard against double-accepting the same call from both the JS modal and the
-  // native CallKeep "answer" event.
-  const acceptingRef = useRef<Set<string>>(new Set());
-
-  // ─── Accept: shared by the JS modal and the native CallKeep answer event ───
-  const acceptCallById = useCallback(async (callId: string) => {
-    if (!callId || acceptingRef.current.has(callId)) return;
-    const info = incomingByIdRef.current.get(callId);
-    // Socket details may not have arrived yet (FCM woke us first). Bail; the
-    // socket `incoming_call` will re-drive once connected, and CallKeep keeps
-    // ringing meanwhile.
-    if (!info) return;
-
-    acceptingRef.current.add(callId);
+  // ─── Accept incoming call ─────────────────────────────────────────────────
+  const acceptCallById = useCallback(async (callId: string, info: IncomingCall) => {
     try {
       setProcessing(true);
       const response = await acceptCallAsCustomer(callId);
 
       if (response.success && response.livekit) {
-        // Native call UI transitions to the in-call state; start audio routing.
-        setCallConnected(callId);
         startCallAudio();
         if (mountedRef.current) {
           setActiveCall({
@@ -67,6 +49,7 @@ export default function useCallManager() {
             partnerName: info.partnerName,
             livekitUrl: response.livekit.url,
             livekitToken: response.livekit.token,
+            isOutbound: false,
           });
           setIncomingCall(null);
         }
@@ -74,7 +57,6 @@ export default function useCallManager() {
         throw new Error(response.message || 'Failed to accept call');
       }
     } catch (error: any) {
-      endIncomingCall(callId);
       stopCallAudio();
       if (mountedRef.current) {
         Toast.show({
@@ -85,115 +67,124 @@ export default function useCallManager() {
         setIncomingCall(null);
       }
     } finally {
-      incomingByIdRef.current.delete(callId);
-      acceptingRef.current.delete(callId);
       if (mountedRef.current) setProcessing(false);
     }
   }, []);
 
-  // ─── Reject: shared by the JS modal and the native CallKeep end (ringing) ──
+  // ─── Reject incoming call ─────────────────────────────────────────────────
   const rejectCallById = useCallback(async (callId: string) => {
     if (!callId) return;
-    endIncomingCall(callId);
-    incomingByIdRef.current.delete(callId);
     if (mountedRef.current) {
-      setIncomingCall((current) => (current?.callId === callId ? null : current));
+      setIncomingCall((c) => (c?.callId === callId ? null : c));
     }
     try {
       await rejectCallAsCustomer(callId);
     } catch {
-      // Best-effort — the UI is already dismissed.
+      // best-effort
     }
   }, []);
 
-  // ─── End an active call by id ──────────────────────────────────────────────
+  // ─── End active call ──────────────────────────────────────────────────────
   const endCallById = useCallback(async (callId: string) => {
     if (!callId) return;
-    endIncomingCall(callId);
     stopCallAudio();
     if (mountedRef.current) {
-      setActiveCall((current) => (current?.callId === callId ? null : current));
+      setActiveCall((c) => (c?.callId === callId ? null : c));
     }
     try {
       await endCallApi(callId);
     } catch {
-      // Already cleared
+      // best-effort
     }
   }, []);
 
-  // ─── CallKeep native events (answer / end) via the bridge ──────────────────
-  useEffect(() => {
-    setupCallKeep().catch(() => {});
+  // ─── Customer initiates outbound call to partner ──────────────────────────
+  const initiateCall = useCallback(async (partnerId: string, partnerName: string) => {
+    if (activeCall || processing) return;
 
-    // Drain a native "answer" that happened before we mounted (cold start).
-    const pending = callBridge.consumePendingAnswer();
-    if (pending) {
-      // Ensure socket details are on their way, then accept.
-      connectChatSocket().catch(() => {});
-      acceptCallById(pending);
-    }
+    try {
+      setProcessing(true);
+      const response = await initiateCallToPartner(partnerId);
 
-    const offAnswer = callBridge.on('answer', ({ callId }) => {
-      acceptCallById(callId);
-    });
-
-    const offEnd = callBridge.on('end', ({ callId, wasRinging }) => {
-      // Ringing → reject; already-active → end. If we still have it queued as
-      // an incoming call it was never answered, so treat as reject.
-      const isIncoming = incomingByIdRef.current.has(callId);
-      if (wasRinging || isIncoming) {
-        rejectCallById(callId);
+      if (response.success && response.livekit && response.call) {
+        startCallAudio();
+        if (mountedRef.current) {
+          setActiveCall({
+            callId: response.call.id,
+            roomName: response.call.roomName,
+            partnerName,
+            livekitUrl: response.livekit.url,
+            livekitToken: response.livekit.token,
+            isOutbound: true,
+          });
+        }
       } else {
-        endCallById(callId);
+        throw new Error(response.message || 'Failed to initiate call');
       }
-    });
+    } catch (error: any) {
+      stopCallAudio();
+      if (mountedRef.current) {
+        Toast.show({
+          type: 'error',
+          text1: 'Call Failed',
+          text2: error?.response?.data?.message || 'Could not start call',
+        });
+      }
+    } finally {
+      if (mountedRef.current) setProcessing(false);
+    }
+  }, [activeCall, processing]);
 
-    return () => {
-      offAnswer();
-      offEnd();
-    };
-  }, [acceptCallById, rejectCallById, endCallById]);
-
-  // ─── Socket call events ────────────────────────────────────────────────────
+  // ─── Socket listeners ─────────────────────────────────────────────────────
   useEffect(() => {
     mountedRef.current = true;
 
+    // Drain any call that arrived via FCM while the app was backgrounded and
+    // the user tapped the notification to foreground the app.
+    const pending = consumePendingCall();
+    if (pending && mountedRef.current) {
+      setIncomingCall({
+        callId: pending.callId,
+        roomName: pending.roomName,
+        partnerId: pending.callerId,
+        partnerName: pending.callerName,
+        timestamp: new Date(),
+      });
+    }
+
+    // Also subscribe for calls that arrive while the app is running but the
+    // CallProvider/useCallManager hasn't received the socket event yet
+    // (e.g. brief background while socket was disconnected).
+    const unsubPending = subscribePendingCall((p) => {
+      if (!mountedRef.current) return;
+      setIncomingCall({
+        callId: p.callId,
+        roomName: p.roomName,
+        partnerId: p.callerId,
+        partnerName: p.callerName,
+        timestamp: new Date(),
+      });
+    });
+
     const handleIncomingCall = (data: IncomingCall) => {
-      console.log('[CallManager-Customer] incoming_call event received:', data?.callId);
+      console.log('[CallManager-Customer] incoming_call:', data?.callId);
       if (!mountedRef.current || !data?.callId) return;
+      // Don't show incoming modal if already in a call
+      if (activeCall) return;
+      setIncomingCall(data);
+    };
 
-      // Cache details so a native CallKeep answer can resolve the room later.
-      incomingByIdRef.current.set(data.callId, data);
-
-      // De-duplicate against the native CallKeep UI. If CallKeep is already
-      // showing this call (FCM push arrived), let it own the ringing UI and do
-      // NOT also show the JS modal.
-      if (isCallKeepActive(data.callId)) {
-        return;
-      }
-
-      // No native UI yet (e.g. FCM push not delivered while foregrounded) —
-      // drive CallKeep ourselves so behaviour is consistent, and keep the JS
-      // modal suppressed. If CallKeep can't show (unavailable / no
-      // ConnectionService), fall back to the in-app JS modal so the call is
-      // never silently dropped — preserving the original foreground path.
-      setupCallKeep()
-        .then(() => {
-          const shown = displayIncomingCall(data.callId, data.partnerName);
-          if (!shown && mountedRef.current) setIncomingCall(data);
-        })
-        .catch(() => {
-          if (mountedRef.current) setIncomingCall(data);
-        });
+    const handleCallAccepted = (data: any) => {
+      // For outbound calls: partner accepted — CallScreen is already visible
+      // and handles this event itself via its own socket listener.
+      console.log('[CallManager-Customer] call_accepted:', data?.callId);
     };
 
     const handleCallEnded = (data: { callId: string; duration: number; endedBy: string }) => {
-      console.log('[CallManager-Customer] call_ended event received:', data?.callId);
+      console.log('[CallManager-Customer] call_ended:', data?.callId);
       if (!mountedRef.current) return;
 
-      endIncomingCall(data.callId);
       stopCallAudio();
-      incomingByIdRef.current.delete(data.callId);
 
       setActiveCall((current) => {
         if (current?.callId === data.callId) {
@@ -207,63 +198,73 @@ export default function useCallManager() {
         return current;
       });
 
-      setIncomingCall((current) => (current?.callId === data.callId ? null : current));
+      setIncomingCall((c) => (c?.callId === data.callId ? null : c));
     };
 
     const handleCallRejected = (data: { callId: string }) => {
-      console.log('[CallManager-Customer] call_rejected event received:', data?.callId);
+      console.log('[CallManager-Customer] call_rejected:', data?.callId);
       if (!mountedRef.current) return;
-      endIncomingCall(data.callId);
-      incomingByIdRef.current.delete(data.callId);
-      setIncomingCall((current) => (current?.callId === data.callId ? null : current));
+      stopCallAudio();
+
+      setActiveCall((current) => {
+        if (current?.callId === data.callId) {
+          Toast.show({ type: 'info', text1: 'Call Declined', text2: 'Partner declined your call' });
+          return null;
+        }
+        return current;
+      });
+
+      setIncomingCall((c) => (c?.callId === data.callId ? null : c));
     };
 
     const attachListeners = (socket: any) => {
       socket.off('incoming_call', handleIncomingCall);
+      socket.off('call_accepted', handleCallAccepted);
       socket.off('call_ended', handleCallEnded);
       socket.off('call_rejected', handleCallRejected);
       socket.on('incoming_call', handleIncomingCall);
+      socket.on('call_accepted', handleCallAccepted);
       socket.on('call_ended', handleCallEnded);
       socket.on('call_rejected', handleCallRejected);
-      console.log('[CallManager-Customer] Listeners attached, socket connected:', socket.connected);
+      console.log('[CallManager-Customer] listeners attached, connected:', socket.connected);
     };
 
-    const setupListeners = async () => {
+    const setup = async () => {
       try {
         const socket = await connectChatSocket();
         if (!mountedRef.current) return;
         attachListeners(socket);
-
         socket.on('connect', () => {
-          console.log('[CallManager-Customer] Socket reconnected, id:', socket.id);
+          console.log('[CallManager-Customer] reconnected:', socket.id);
+          attachListeners(socket);
         });
       } catch (err) {
-        console.warn('[CallManager-Customer] Failed to setup socket listeners, retrying in 3s:', err);
+        console.warn('[CallManager-Customer] socket setup failed, retrying in 3s:', err);
         if (mountedRef.current) {
-          setTimeout(() => {
-            if (mountedRef.current) setupListeners();
-          }, 3000);
+          setTimeout(() => { if (mountedRef.current) setup(); }, 3000);
         }
       }
     };
 
-    setupListeners();
+    setup();
 
     return () => {
       mountedRef.current = false;
+      unsubPending();
       const socket = getChatSocket();
       if (socket) {
         socket.off('incoming_call', handleIncomingCall);
+        socket.off('call_accepted', handleCallAccepted);
         socket.off('call_ended', handleCallEnded);
         socket.off('call_rejected', handleCallRejected);
       }
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── JS modal handlers (fallback path when CallKeep is unavailable) ────────
+  // ─── JS modal handlers ────────────────────────────────────────────────────
   const handleAcceptCall = useCallback(async () => {
     if (!incomingCall || processing) return;
-    await acceptCallById(incomingCall.callId);
+    await acceptCallById(incomingCall.callId, incomingCall);
   }, [incomingCall, processing, acceptCallById]);
 
   const handleRejectCall = useCallback(async () => {
@@ -283,5 +284,6 @@ export default function useCallManager() {
     handleAcceptCall,
     handleRejectCall,
     handleEndCall,
+    initiateCall,
   };
 }

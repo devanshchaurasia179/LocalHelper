@@ -14,7 +14,6 @@ import { registerGlobals } from '@livekit/react-native';
 // Notifee background tap handler at module scope, before React mounts.
 import '@/services/notificationsBackground';
 import { initNotifications } from '@/services/notifications';
-import { setupCallKeep } from '@/services/callkeep';
 
 registerGlobals();
 
@@ -29,7 +28,6 @@ export default function RootLayout() {
   // once on mount (both are idempotent).
   useEffect(() => {
     initNotifications();
-    setupCallKeep().catch(() => {});
   }, []);
 
   const [oswaldLoaded]       = useOswald({ Oswald_400Regular, Oswald_600SemiBold, Oswald_700Bold });

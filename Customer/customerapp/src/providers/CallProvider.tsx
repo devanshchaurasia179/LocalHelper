@@ -2,15 +2,19 @@ import React, { createContext, useContext, useEffect } from 'react';
 import useCallManager from '@/hooks/useCallManager';
 import IncomingCallModal from '@/components/call/IncomingCallModal';
 import IncomingCallScreen from '@/components/call/IncomingCallScreen';
+import CallScreen from '@/components/call/CallScreen';
 import Toast from 'react-native-toast-message';
 import { connectChatSocket } from '@/services/chat.socket';
 
 interface CallContextValue {
-  /** True if currently processing accept/reject */
+  /** Initiate an outbound call from customer to a partner */
+  initiateCall: (partnerId: string, partnerName: string) => Promise<void>;
+  /** True while a call action (accept/reject/initiate) is in progress */
   processing: boolean;
 }
 
 const CallContext = createContext<CallContextValue>({
+  initiateCall: async () => {},
   processing: false,
 });
 
@@ -23,11 +27,15 @@ interface CallProviderProps {
 }
 
 /**
- * CallProvider wraps the app and handles incoming calls globally.
- * It shows incoming call modals and active call screens on top of any screen.
+ * CallProvider wraps the authenticated tabs and handles all call UI globally:
+ *  - IncomingCallModal: ringing UI when a partner calls the customer
+ *  - IncomingCallScreen: active-call UI for accepted incoming calls (partner → customer)
+ *  - CallScreen: dialling + active-call UI for outbound calls (customer → partner)
+ *
+ * Exposes `initiateCall` via context so any screen can start an outbound call.
  */
 export function CallProvider({ children }: CallProviderProps) {
-  // Ensure socket is connected as early as possible for receiving calls
+  // Connect socket early so call events arrive before any screen is opened.
   useEffect(() => {
     connectChatSocket().catch(() => {});
   }, []);
@@ -39,13 +47,14 @@ export function CallProvider({ children }: CallProviderProps) {
     handleAcceptCall,
     handleRejectCall,
     handleEndCall,
+    initiateCall,
   } = useCallManager();
 
   return (
-    <CallContext.Provider value={{ processing }}>
+    <CallContext.Provider value={{ initiateCall, processing }}>
       {children}
 
-      {/* Incoming Call Modal */}
+      {/* ── Incoming call ringing UI (partner → customer) ─────────────────── */}
       {incomingCall && !activeCall && (
         <IncomingCallModal
           visible={true}
@@ -55,8 +64,8 @@ export function CallProvider({ children }: CallProviderProps) {
         />
       )}
 
-      {/* Active Call Screen (for accepted incoming calls) */}
-      {activeCall && (
+      {/* ── Active call: accepted INCOMING call (partner called us) ──────── */}
+      {activeCall && !activeCall.isOutbound && (
         <IncomingCallScreen
           visible={true}
           callId={activeCall.callId}
@@ -67,7 +76,18 @@ export function CallProvider({ children }: CallProviderProps) {
         />
       )}
 
-      {/* Toast container */}
+      {/* ── Active call: OUTBOUND call (customer calling partner) ─────────── */}
+      {activeCall && activeCall.isOutbound && (
+        <CallScreen
+          visible={true}
+          callId={activeCall.callId}
+          partnerName={activeCall.partnerName}
+          livekitUrl={activeCall.livekitUrl}
+          livekitToken={activeCall.livekitToken}
+          onEndCall={handleEndCall}
+        />
+      )}
+
       <Toast />
     </CallContext.Provider>
   );

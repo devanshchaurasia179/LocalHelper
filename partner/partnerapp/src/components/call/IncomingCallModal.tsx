@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   Vibration,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAudioPlayer } from 'expo-audio';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 
 interface IncomingCallModalProps {
   visible: boolean;
@@ -26,95 +26,63 @@ export default function IncomingCallModal({
 }: IncomingCallModalProps) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
-  // Ringtone player using expo-audio
+  // Ringtone player — useAudioPlayer manages lifecycle automatically
   const player = useAudioPlayer(require('../../../assets/ringtone.mp3'));
+  const status = useAudioPlayerStatus(player);
 
-  // Play/stop ringtone based on visibility
+  // Play/stop ringtone. Only seek+play once the asset is loaded to avoid crash.
   useEffect(() => {
-    if (visible) {
+    if (!visible) {
+      player.pause();
+      return;
+    }
+
+    if (status.isLoaded) {
       player.loop = true;
       player.volume = 1.0;
       player.seekTo(0);
       player.play();
-    } else {
-      player.pause();
-      player.seekTo(0);
     }
-  }, [visible, player]);
+  }, [visible, status.isLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (visible) {
-      // Vibrate when call comes in
-      Vibration.vibrate([0, 400, 200, 400]);
+    if (!visible) return;
 
-      // Start pulse animation
-      const animation = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.1,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      animation.start();
+    Vibration.vibrate([0, 400, 200, 400]);
 
-      return () => {
-        animation.stop();
-        Vibration.cancel();
-      };
-    }
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.1, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
+    );
+    animation.start();
+
+    return () => {
+      animation.stop();
+      Vibration.cancel();
+    };
   }, [visible, pulseAnim]);
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      statusBarTranslucent
-    >
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
       <View style={styles.overlay}>
         <View style={styles.container}>
-          {/* Caller Icon */}
-          <Animated.View
-            style={[
-              styles.avatarCircle,
-              {
-                transform: [{ scale: pulseAnim }],
-              },
-            ]}
-          >
+          <Animated.View style={[styles.avatarCircle, { transform: [{ scale: pulseAnim }] }]}>
             <Ionicons name="person" size={60} color="#fff" />
           </Animated.View>
 
-          {/* Caller Info */}
           <Text style={styles.title}>Incoming Call</Text>
           <Text style={styles.callerName}>{callerName}</Text>
           <Text style={styles.subtitle}>wants to connect with you</Text>
 
-          {/* Action Buttons */}
           <View style={styles.actionsRow}>
-            {/* Reject */}
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.rejectBtn]}
-              onPress={onReject}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity style={[styles.actionBtn, styles.rejectBtn]} onPress={onReject} activeOpacity={0.8}>
               <Ionicons name="close" size={32} color="#fff" />
               <Text style={styles.actionLabel}>Decline</Text>
             </TouchableOpacity>
 
-            {/* Accept */}
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.acceptBtn]}
-              onPress={onAccept}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity style={[styles.actionBtn, styles.acceptBtn]} onPress={onAccept} activeOpacity={0.8}>
               <Ionicons name="call" size={32} color="#fff" />
               <Text style={styles.actionLabel}>Accept</Text>
             </TouchableOpacity>
@@ -191,12 +159,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  rejectBtn: {
-    backgroundColor: '#EF4444',
-  },
-  acceptBtn: {
-    backgroundColor: '#10B981',
-  },
+  rejectBtn: { backgroundColor: '#EF4444' },
+  acceptBtn: { backgroundColor: '#10B981' },
   actionLabel: {
     position: 'absolute',
     bottom: -24,

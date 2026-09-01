@@ -24,22 +24,28 @@ let firebaseApp = null;
 
 /** Parse the service account from whichever env var is set. Returns null if none/invalid. */
 const loadServiceAccount = () => {
-  const jsonPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim();
+  const jsonPath   = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim();
+  const jsonB64    = process.env.FIREBASE_SERVICE_ACCOUNT_B64?.trim();
   const jsonInline = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
 
-  // Preferred: a path to the service account JSON file.
-  // If the path is set but unreadable, warn and fall back to inline JSON below
-  // rather than failing outright.
+  // Option 1: path to a JSON file on disk.
   if (jsonPath) {
     if (fs.existsSync(jsonPath)) {
       return JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
     }
     console.warn(
-      `[firebase] FIREBASE_SERVICE_ACCOUNT_PATH is set but no file was found at "${jsonPath}". Falling back to FIREBASE_SERVICE_ACCOUNT_JSON.`
+      `[firebase] FIREBASE_SERVICE_ACCOUNT_PATH is set but no file found at "${jsonPath}". Trying other options.`
     );
   }
 
-  // Fallback: the service account JSON provided inline as a string.
+  // Option 2: base64-encoded JSON string (preferred for hosted envs — survives
+  // environment variable serialisation without mangling the private key \n chars).
+  if (jsonB64) {
+    const decoded = Buffer.from(jsonB64, "base64").toString("utf-8");
+    return JSON.parse(decoded);
+  }
+
+  // Option 3: raw inline JSON string (local dev / backwards-compat).
   if (jsonInline) {
     return JSON.parse(jsonInline);
   }

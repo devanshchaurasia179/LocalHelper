@@ -14,12 +14,12 @@ import { AudioSession } from '@livekit/react-native';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import { connectChatSocket, getChatSocket } from '@/services/chat.socket';
 import { endCall as endCallApi } from '@/api/call.api';
-import type { NearbyPartner } from '@/api/nearby.api';
 import { colors, spacing } from '@/app/(tabs)/home/theme';
 
 interface CallScreenProps {
   visible: boolean;
-  partner: NearbyPartner;
+  /** Display name for the partner — plain string */
+  partnerName: string;
   callId: string;
   livekitUrl: string;
   livekitToken: string;
@@ -194,7 +194,7 @@ function CallControls({
 
 export default function CallScreen({
   visible,
-  partner,
+  partnerName,
   callId,
   livekitUrl,
   livekitToken,
@@ -494,10 +494,6 @@ export default function CallScreen({
     onEndCallRef.current();
   }, [callId]);
 
-  const getPartnerName = () => {
-    return (partner as any).fullName || (partner as any).name || (partner as any).businessName || 'Partner';
-  };
-
   if (!visible) return null;
 
   return (
@@ -509,11 +505,11 @@ export default function CallScreen({
     >
       <View style={styles.container}>
         {(callState === 'dialling' || callState === 'connecting') && (
-          <DiallingView partnerName={getPartnerName()} onCancel={handleEndCall} />
+          <DiallingView partnerName={partnerName} onCancel={handleEndCall} />
         )}
 
         {callState === 'connected' && room && (
-          <CallControls room={room} onEndCall={handleEndCall} partnerName={getPartnerName()} />
+          <CallControls room={room} onEndCall={handleEndCall} partnerName={partnerName} />
         )}
 
         {callState === 'ended' && (
