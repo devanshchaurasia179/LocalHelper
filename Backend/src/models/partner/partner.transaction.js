@@ -4,9 +4,11 @@ import mongoose from "mongoose";
  * PartnerTransaction — one document per financial event for a partner.
  *
  * Types:
- *   earning   — money added to wallet when a booking is completed
- *   payout    — money withdrawn from wallet to bank/UPI
- *   adjustment — manual credit/debit by admin (refund, penalty, correction)
+ *   earning      — money added to wallet when a booking is completed
+ *   payout       — money withdrawn from wallet to bank/UPI
+ *   adjustment   — manual credit/debit by admin (refund, penalty, correction)
+ *   call_charge  — call charges deducted from wallet
+ *   chat_charge  — chat charges deducted from wallet
  *
  * Status (only relevant for payouts):
  *   pending    — payout initiated, not yet processed
@@ -27,7 +29,7 @@ const partnerTransactionSchema = new mongoose.Schema(
     // ── Type ─────────────────────────────────────────────────────────────────
     type: {
       type:     String,
-      enum:     ["earning", "payout", "adjustment"],
+      enum:     ["earning", "payout", "adjustment", "call_charge", "chat_charge"],
       required: true,
       index:    true,
     },
@@ -42,9 +44,9 @@ const partnerTransactionSchema = new mongoose.Schema(
       min:      0,
     },
 
-    // ── Direction (for adjustments) ──────────────────────────────────────────
+    // ── Direction (for adjustments and charges) ──────────────────────────────
     // "credit" adds to wallet, "debit" deducts.
-    // For earning → always credit. For payout → always debit.
+    // For earning → always credit. For payout/call_charge/chat_charge → always debit.
     direction: {
       type:    String,
       enum:    ["credit", "debit"],

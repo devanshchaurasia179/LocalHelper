@@ -11,16 +11,17 @@ const activeCallTimers = new Map();
 /**
  * startCallTimer(namespace, call)
  *
- * Starts a timer for a customer-initiated call that has allowedTime.
+ * Starts a timer for a call that has allowedTime.
  * Emits warnings at 2 min, 1 min, and 30 sec remaining.
+ * Monitors wallet balances every interval and ends call if either reaches 0.
  * When time runs out, emits "call_time_exhausted" to both parties.
  *
  * @param {Namespace} namespace - Socket.IO /chat namespace
  * @param {Object} call - Call document (must have _id, customer, partner, startedAt, allowedTime)
  */
 export const startCallTimer = (namespace, call) => {
-  // Only time customer-initiated calls with allowedTime
-  if (!call.allowedTime || call.initiatedBy !== "customer") return;
+  // Only time calls with allowedTime
+  if (!call.allowedTime) return;
 
   const callId = call._id.toString();
 
@@ -40,49 +41,37 @@ export const startCallTimer = (namespace, call) => {
     const customerRoom = `customer:${call.customer}`;
     const partnerRoom = `partner:${call.partner}`;
 
-    // Warning at 2 minutes remaining
-    if (remainingSec <= 120 && remainingSec > 60 && !warnings.has("2min")) {
-      warnings.add("2min");
-      namespace.to(customerRoom).emit("call_time_warning", {
-        callId,
-        remainingSeconds: remainingSec,
-        message: "2 minutes remaining. Please recharge to continue.",
-      });
-    }
+    // ── Check if either party has run out of balance ──────────────────────────
+    // Fetch current wallet balances
+    const [customerDoc, partnerDoc] = await Promise.all([
+      Customer.findById(call.customer).select("walletBalance").lean(),
+      Partner.findById(call.partner).select("walletBalance").lean(),
+    ]);
 
-    // Warning at 1 minute remaining
-    if (remainingSec <= 60 && remainingSec > 30 && !warnings.has("1min")) {
-      warnings.add("1min");
-      namespace.to(customerRoom).emit("call_time_warning", {
-        callId,
-        remainingSeconds: remainingSec,
-        message: "1 minute remaining. Recharge now to avoid disconnection.",
-      });
-    }
+    const customerBalance = customerDoc?.walletBalance || 0;
+    const partnerBalance = partnerDoc?.walletBalance || 0;
 
-    // Warning at 30 seconds remaining
-    if (remainingSec <= 30 && remainingSec > 0 && !warnings.has("30sec")) {
-      warnings.add("30sec");
-      namespace.to(customerRoom).emit("call_time_warning", {
-        callId,
-        remainingSeconds: remainingSec,
-        message: "30 seconds remaining!",
-      });
-    }
-
-    // Time exhausted — notify both parties
-    if (remainingSec <= 0) {
+    // If either balance is 0 or below, end the call immediately
+    if (customerBalance <= 0 || partnerBalance <= 0) {
       clearInterval(intervalId);
       activeCallTimers.delete(callId);
 
-      namespace.to(customerRoom).emit("call_time_exhausted", {
+      const insufficientParty = customerBalance <= 0 ? "customer" : "partner";
+
+      namespace.to(customerRoom).emit("call_balance_exhausted", {
         callId,
-        message: "Your call time has ended. Please recharge to make more calls.",
+        message: customerBalance <= 0 
+          ? "Your wallet balance is insufficient. Call will end now."
+          : "Partner's wallet balance is insufficient. Call will end now.",
+        party: insufficientParty,
       });
 
-      namespace.to(partnerRoom).emit("call_time_exhausted", {
+      namespace.to(partnerRoom).emit("call_balance_exhausted", {
         callId,
-        message: "Customer's call time has ended.",
+        message: partnerBalance <= 0
+          ? "Your wallet balance is insufficient. Call will end now."
+          : "Customer's wallet balance is insufficient. Call will end now.",
+        party: insufficientParty,
       });
 
       // Auto-end the call in the database
@@ -99,21 +88,191 @@ export const startCallTimer = (namespace, call) => {
           callDoc.duration = duration;
           await callDoc.save();
 
-          // Deduct callBalance only for recharge-based model (no partner callCharges)
+          // Deduct wallet charges: ₹30 per minute for both customer and partner
           if (duration > 0) {
-            const partnerDoc = await Partner.findById(callDoc.partner).select("callCharges");
-            const isPrePaid = (partnerDoc?.callCharges?.amount ?? 0) > 0;
+            const durationMinutes = Math.ceil(duration / 60);
+            const chargePerMinute = 30;
+            const totalCharge = durationMinutes * chargePerMinute;
 
-            if (!isPrePaid) {
-              const deductSeconds = Math.min(duration, callDoc.allowedTime || duration);
-              const customerDoc = await Customer.findById(callDoc.customer).select("callBalance");
-              const currentBalance = customerDoc?.callBalance || 0;
-              const actualDeduct = Math.min(deductSeconds, currentBalance);
-              if (actualDeduct > 0) {
+            const { createCommunicationTransaction } = await import("../controllers/customer.wallet.controller.js");
+            const { createPartnerTransaction } = await import("../controllers/partner.transaction.controller.js");
+
+            // Deduct from customer wallet (clamped to available balance)
+            const customerCharge = Math.min(totalCharge, Math.max(0, customerBalance));
+            if (customerCharge > 0) {
+              try {
+                await createCommunicationTransaction(
+                  callDoc.customer,
+                  callDoc.partner,
+                  "call",
+                  customerCharge,
+                  `Call charges - ${durationMinutes} min @ ₹${chargePerMinute}/min (balance exhausted)`
+                );
+              } catch (walletError) {
+                console.error("[CallTimer] Customer wallet deduction error:", walletError.message);
                 await Customer.findByIdAndUpdate(callDoc.customer, {
-                  $inc: { callBalance: -actualDeduct },
+                  $inc: { walletBalance: -customerCharge },
                 });
               }
+            }
+
+            // Deduct from partner wallet (clamped to available balance)
+            const partnerCharge = Math.min(totalCharge, Math.max(0, partnerBalance));
+            if (partnerCharge > 0) {
+              try {
+                await createPartnerTransaction(
+                  callDoc.partner,
+                  "call_charge",
+                  -partnerCharge,
+                  `Call charges - ${durationMinutes} min @ ₹${chargePerMinute}/min (balance exhausted)`
+                );
+              } catch (walletError) {
+                console.error("[CallTimer] Partner wallet deduction error:", walletError.message);
+                await Partner.findByIdAndUpdate(callDoc.partner, {
+                  $inc: { walletBalance: -partnerCharge },
+                });
+              }
+            }
+          }
+
+          // Emit call_ended to both parties
+          namespace.to(customerRoom).emit("call_ended", {
+            callId,
+            duration,
+            endedBy: "system",
+            reason: "balance_exhausted",
+            timestamp: endTime,
+          });
+          namespace.to(partnerRoom).emit("call_ended", {
+            callId,
+            duration,
+            endedBy: "system",
+            reason: "balance_exhausted",
+            timestamp: endTime,
+          });
+        }
+      } catch (err) {
+        console.error("[CallTimer] Balance check auto-end error:", err.message);
+      }
+      return; // Exit interval early
+    }
+
+    // ── Regular time warnings ──────────────────────────────────────────────────
+    // Warning at 2 minutes remaining
+    if (remainingSec <= 120 && remainingSec > 60 && !warnings.has("2min")) {
+      warnings.add("2min");
+      namespace.to(customerRoom).emit("call_time_warning", {
+        callId,
+        remainingSeconds: remainingSec,
+        message: "2 minutes remaining. Your wallet will be charged ₹30/minute.",
+      });
+      namespace.to(partnerRoom).emit("call_time_warning", {
+        callId,
+        remainingSeconds: remainingSec,
+        message: "2 minutes remaining on this call.",
+      });
+    }
+
+    // Warning at 1 minute remaining
+    if (remainingSec <= 60 && remainingSec > 30 && !warnings.has("1min")) {
+      warnings.add("1min");
+      namespace.to(customerRoom).emit("call_time_warning", {
+        callId,
+        remainingSeconds: remainingSec,
+        message: "1 minute remaining. Charges are ₹30 per minute.",
+      });
+      namespace.to(partnerRoom).emit("call_time_warning", {
+        callId,
+        remainingSeconds: remainingSec,
+        message: "1 minute remaining on this call.",
+      });
+    }
+
+    // Warning at 30 seconds remaining
+    if (remainingSec <= 30 && remainingSec > 0 && !warnings.has("30sec")) {
+      warnings.add("30sec");
+      namespace.to(customerRoom).emit("call_time_warning", {
+        callId,
+        remainingSeconds: remainingSec,
+        message: "30 seconds remaining!",
+      });
+      namespace.to(partnerRoom).emit("call_time_warning", {
+        callId,
+        remainingSeconds: remainingSec,
+        message: "30 seconds remaining!",
+      });
+    }
+
+    // Time exhausted — notify both parties
+    if (remainingSec <= 0) {
+      clearInterval(intervalId);
+      activeCallTimers.delete(callId);
+
+      namespace.to(customerRoom).emit("call_time_exhausted", {
+        callId,
+        message: "Your call time has ended. Charges: ₹30 per minute.",
+      });
+
+      namespace.to(partnerRoom).emit("call_time_exhausted", {
+        callId,
+        message: "Call time has ended.",
+      });
+
+      // Auto-end the call in the database
+      try {
+        const callDoc = await Call.findById(callId);
+        if (callDoc && ["accepted", "ongoing"].includes(callDoc.status)) {
+          const endTime = new Date();
+          const duration = callDoc.startedAt
+            ? Math.floor((endTime - callDoc.startedAt) / 1000)
+            : 0;
+
+          callDoc.status = "completed";
+          callDoc.endedAt = endTime;
+          callDoc.duration = duration;
+          await callDoc.save();
+
+          // Deduct wallet charges: ₹30 per minute for both customer and partner
+          if (duration > 0) {
+            const durationMinutes = Math.ceil(duration / 60); // Round up to next minute
+            const chargePerMinute = 30; // ₹30 per minute
+            const totalCharge = durationMinutes * chargePerMinute;
+
+            // Import transaction helpers (dynamic import for CommonJS compatibility)
+            const { createCommunicationTransaction } = await import("../controllers/customer.wallet.controller.js");
+            const { createPartnerTransaction } = await import("../controllers/partner.transaction.controller.js");
+
+            // Deduct from customer wallet
+            try {
+              await createCommunicationTransaction(
+                callDoc.customer,
+                callDoc.partner,
+                "call",
+                totalCharge,
+                `Call charges - ${durationMinutes} min @ ₹${chargePerMinute}/min (auto-ended)`
+              );
+            } catch (walletError) {
+              console.error("[CallTimer] Customer wallet deduction error:", walletError.message);
+              // Continue even if customer wallet fails (allow negative balance)
+              await Customer.findByIdAndUpdate(callDoc.customer, {
+                $inc: { walletBalance: -totalCharge },
+              });
+            }
+
+            // Deduct from partner wallet
+            try {
+              await createPartnerTransaction(
+                callDoc.partner,
+                "call_charge",
+                -totalCharge, // Negative for deduction
+                `Call charges - ${durationMinutes} min @ ₹${chargePerMinute}/min (auto-ended)`
+              );
+            } catch (walletError) {
+              console.error("[CallTimer] Partner wallet deduction error:", walletError.message);
+              // Continue even if partner wallet fails (allow negative balance)
+              await Partner.findByIdAndUpdate(callDoc.partner, {
+                $inc: { walletBalance: -totalCharge },
+              });
             }
           }
 

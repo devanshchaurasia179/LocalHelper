@@ -268,6 +268,42 @@ export const requestPayout = async (req, res) => {
   }
 };
 
+// ─── INTERNAL: Create Partner Transaction ─────────────────────────────────────
+/**
+ * Called internally to create a transaction for a partner.
+ * Deducts or credits amount from/to partner wallet.
+ *
+ * @param {ObjectId} partnerId
+ * @param {String} type - Transaction type (e.g., "call_charge", "earning", "adjustment")
+ * @param {Number} amount - Positive for credit, negative for debit
+ * @param {String} description
+ * @returns {Promise<Transaction>}
+ */
+export const createPartnerTransaction = async (partnerId, type, amount, description) => {
+  const partner = await Partner.findById(partnerId);
+  if (!partner) throw new Error("Partner not found");
+
+  const direction = amount >= 0 ? "credit" : "debit";
+  const absAmount = Math.abs(amount);
+  const newBalance = partner.walletBalance + amount; // amount can be negative
+
+  const transaction = await PartnerTransaction.create({
+    partner: partnerId,
+    type,
+    amount: absAmount,
+    direction,
+    balanceAfter: newBalance,
+    status: "completed",
+    description: description || `${type} transaction`,
+  });
+
+  await Partner.findByIdAndUpdate(partnerId, {
+    $inc: { walletBalance: amount },
+  });
+
+  return transaction;
+};
+
 // ─── ADMIN: Payout Queue (all partners) ──────────────────────────────────────
 /**
  * GET /api/admin/transactions/payout-queue

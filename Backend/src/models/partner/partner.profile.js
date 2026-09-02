@@ -39,9 +39,10 @@ const profileFields = {
 
   // ── Wallet & Earnings ─────────────────────────────────────────────────────
   // Moved from rating.js since these are financial account data, not ratings.
+  // Can be negative
   walletBalance: {
     type: Number,
-    default: 0,
+    default: 500,
   },
   totalEarnings: {
     type: Number,

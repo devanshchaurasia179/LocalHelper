@@ -17,11 +17,10 @@ const profileFields = {
     lowercase: true,
   },
 
-  // Wallet Balance
+  // Wallet Balance (can be negative)
   walletBalance: {
     type: Number,
-    default: 0,
-    min: 0,
+    default: 500,
   },
 
   // Call balance in seconds — tracks how much talk time is available.
