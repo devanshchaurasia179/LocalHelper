@@ -26,6 +26,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { colors, fonts, spacing, radii } from "@/constants/theme";
 import { useChatRoom } from "@/hooks/useChatRoom";
+import { getConnectedSocket } from "@/services/chat.socket";
 import { useCall } from "@/providers/CallProvider";
 import {
   checkChatAccess,
@@ -265,6 +266,12 @@ export default function ChatRoomScreen() {
         
         // Refresh chat access
         await fetchChatAccess();
+        
+        // Emit a socket event to notify the customer that time was purchased
+        const socket = getConnectedSocket();
+        if (socket?.connected) {
+          socket.emit("chat_time_purchased", { conversationId, userType: "partner" });
+        }
         
         Alert.alert(
           "Success",

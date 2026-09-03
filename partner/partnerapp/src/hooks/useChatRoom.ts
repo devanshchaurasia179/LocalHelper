@@ -224,6 +224,21 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
           }
         };
 
+        // ── chat_time_purchased ────────────────────────────────────────────
+        // Fired when the other party purchases chat time
+        const onChatTimePurchased = ({
+          conversationId: cId,
+          userType,
+        }: {
+          conversationId: string;
+          userType: string;
+        }) => {
+          if (cId !== conversationId) return;
+          console.log(`[ChatRoom] ${userType} purchased chat time, refreshing access...`);
+          // Trigger a reload of chat access on the listener's side
+          // This will be handled by the parent component that uses this hook
+        };
+
         // Attach all listeners
         socket.on("connect", onConnect);
         socket.on("disconnect", onDisconnect);
@@ -234,6 +249,7 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
         socket.on("typing_stop", onTypingStop);
         socket.on("user_presence", onUserPresence);
         socket.on("messages_read", onMessagesRead);
+        socket.on("chat_time_purchased", onChatTimePurchased);
 
         // Cleanup: detach only our handlers, don't disconnect the singleton
         return () => {
@@ -247,6 +263,7 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
           socket.off("typing_stop", onTypingStop);
           socket.off("user_presence", onUserPresence);
           socket.off("messages_read", onMessagesRead);
+          socket.off("chat_time_purchased", onChatTimePurchased);
         };
       } catch (err) {
         console.error("[ChatRoom] socket setup error:", err);

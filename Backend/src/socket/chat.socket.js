@@ -322,6 +322,17 @@ export const registerChatHandlers = (namespace) => {
       });
     });
 
+    // ── chat_time_purchased ─────────────────────────────────────────────────
+    // When one party purchases chat time, notify the other party
+    socket.on("chat_time_purchased", ({ conversationId, userType } = {}) => {
+      if (!conversationId || !userType) return;
+      socket.to(conversationRoom(conversationId)).emit("chat_time_purchased", {
+        conversationId,
+        userType,
+      });
+      console.log(`[Socket] ${userType} purchased chat time in conv:${conversationId}, notified other party`);
+    });
+
     // ── mark_read ───────────────────────────────────────────────────────────
     socket.on("mark_read", async ({ conversationId } = {}) => {
       try {
