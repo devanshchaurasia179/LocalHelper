@@ -237,6 +237,7 @@ export default function OnboardingScreen() {
   const [pincode, setPincode] = useState("");
   const [showStateList, setShowStateList] = useState(false);
   const [addressFilled, setAddressFilled] = useState(false);
+  const [addressAutoDetecting, setAddressAutoDetecting] = useState(false);
 
   // Step 2
   const [locationCoords, setLocationCoords] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -269,6 +270,41 @@ export default function OnboardingScreen() {
       clearError();
     } catch {
       Alert.alert("Error", "Could not fetch address details. Please fill in manually.");
+    }
+  }, [clearError]);
+
+  // Auto-detect address from GPS
+  const handleAutoDetectAddress = useCallback(async () => {
+    setAddressAutoDetecting(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission Required", "Location permission is needed to auto-detect your address.");
+        return;
+      }
+      
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+      
+      // Reverse geocode to get address
+      const [addr] = await Location.reverseGeocodeAsync(coords);
+      if (addr) {
+        setStreet([addr.streetNumber, addr.street].filter(Boolean).join(" "));
+        setLocality(addr.subregion || addr.district || "");
+        setCity(addr.city || "");
+        const stateName = addr.region || "";
+        setState(INDIAN_STATES.find((s) => s.toLowerCase() === stateName.toLowerCase()) ?? stateName);
+        setPincode(addr.postalCode || "");
+        setAddressFilled(true);
+        clearError();
+        Alert.alert("Success", "Your address has been auto-filled from your current location.");
+      } else {
+        Alert.alert("Error", "Could not detect address. Please fill in manually.");
+      }
+    } catch (err) {
+      Alert.alert("Location Error", "Could not fetch your location. Please try again or fill in manually.");
+    } finally {
+      setAddressAutoDetecting(false);
     }
   }, [clearError]);
 
@@ -423,6 +459,34 @@ export default function OnboardingScreen() {
                   iconName="search-outline"
                   onSelect={handleAddressSelect}
                 />
+
+                {/* Auto-detect address button */}
+                <View style={styles.orDivider}>
+                  <View style={styles.orLine} />
+                  <Text style={styles.orText}>OR</Text>
+                  <View style={styles.orLine} />
+                </View>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.autoDetectAddressBtn,
+                    pressed && { opacity: 0.7 },
+                    addressAutoDetecting && styles.primaryBtnDisabled
+                  ]}
+                  onPress={handleAutoDetectAddress}
+                  disabled={addressAutoDetecting}
+                  accessibilityRole="button"
+                  accessibilityLabel="Auto-detect my address from GPS"
+                >
+                  {addressAutoDetecting ? (
+                    <ActivityIndicator color={colors.primary} size="small" />
+                  ) : (
+                    <>
+                      <Ionicons name="locate" size={18} color={colors.primary} />
+                      <Text style={styles.autoDetectAddressText}>Auto-detect my address</Text>
+                    </>
+                  )}
+                </Pressable>
 
                 {addressFilled && (
                   <View style={styles.autoFilledBadge}>
@@ -723,6 +787,41 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "#86EFAC",
   },
   autoFilledText: { fontFamily: fonts.jostMedium, fontSize: 12, color: "#15803D", flex: 1 },
+
+  orDivider: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: spacing.sm,
+  },
+  orLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.navInactive + "44",
+  },
+  orText: {
+    fontFamily: fonts.jostMedium,
+    fontSize: 12,
+    color: colors.textSecondary,
+    paddingHorizontal: spacing.md,
+  },
+
+  autoDetectAddressBtn: {
+    backgroundColor: colors.primary + "14",
+    borderRadius: radii.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    borderWidth: 1.5,
+    borderColor: colors.primary + "33",
+  },
+  autoDetectAddressText: {
+    fontFamily: fonts.jostSemiBold,
+    fontSize: 14,
+    color: colors.primary,
+  },
 
   stateList: { backgroundColor: colors.surface, borderRadius: radii.sm, borderWidth: 1.5, borderColor: colors.navInactive + "44", overflow: "hidden", marginTop: -spacing.sm },
   stateItem: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 2 },

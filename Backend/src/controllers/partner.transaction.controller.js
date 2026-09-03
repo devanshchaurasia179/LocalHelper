@@ -155,6 +155,65 @@ export const getTransactionById = async (req, res) => {
   }
 };
 
+// ─── PARTNER: Add Money (Topup) ───────────────────────────────────────────────
+/**
+ * POST /api/partner/transactions/topup
+ * 🔒 partner_token
+ *
+ * Body: { amount }  — must be > 0
+ *
+ * Directly adds funds to wallet. Creates a "topup" transaction with status "completed".
+ * In production, integrate with a payment gateway here.
+ */
+export const initiateTopup = async (req, res) => {
+  try {
+    const { amount } = req.body;
+
+    if (!amount || isNaN(amount) || Number(amount) <= 0) {
+      return res.status(400).json({ message: "amount must be a positive number." });
+    }
+
+    const partner = await Partner.findById(req.partnerId);
+    if (!partner) {
+      return res.status(404).json({ message: "Partner not found." });
+    }
+
+    const topupAmount = Number(amount);
+    const newBalance  = partner.walletBalance + topupAmount;
+
+    // Credit wallet and record transaction atomically
+    const [transaction] = await Promise.all([
+      PartnerTransaction.create({
+        partner:     partner._id,
+        type:         "topup",
+        amount:       topupAmount,
+        direction:    "credit",
+        balanceAfter: newBalance,
+        status:       "completed",
+        description:  `Wallet topup of ₹${topupAmount}`,
+      }),
+      Partner.findByIdAndUpdate(partner._id, {
+        $inc: { walletBalance: topupAmount },
+      }),
+    ]);
+
+    return res.status(201).json({
+      message: `₹${topupAmount} added to wallet.`,
+      transaction: {
+        id:           transaction._id,
+        amount:       transaction.amount,
+        balanceAfter: newBalance,
+        status:       transaction.status,
+        createdAt:    transaction.createdAt,
+      },
+      walletBalance: newBalance,
+    });
+  } catch (error) {
+    console.error("initiateTopup error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
 // ─── PARTNER: Request Payout ──────────────────────────────────────────────────
 /**
  * POST /api/partner/transactions/payout-request

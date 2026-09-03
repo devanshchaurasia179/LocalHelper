@@ -10,6 +10,7 @@ import {
   fetchWalletSummary,
   fetchTransactions,
   fetchTransactionById,
+  initiateTopup,
   requestPayout,
   fetchTransactionAccount,
   saveBankAccount,
@@ -63,6 +64,23 @@ export function useTransaction(id: string, enabled = true) {
     queryKey: [...TRANSACTIONS_KEY, id],
     queryFn:  () => fetchTransactionById(id),
     enabled:  enabled && !!id,
+  });
+}
+
+// ─── Add Money (Topup) ────────────────────────────────────────────────────────
+
+/**
+ * Mutation to add money to wallet. Invalidates summary and transactions on success.
+ */
+export function useInitiateTopup() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (amount: number) => initiateTopup({ amount }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: WALLET_SUMMARY_KEY });
+      queryClient.invalidateQueries({ queryKey: TRANSACTIONS_KEY });
+    },
   });
 }
 

@@ -12,6 +12,8 @@ import {
   RefreshControl,
   FlatList,
   Animated,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -138,77 +140,82 @@ function TopupModal({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
-      <View style={topupStyles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
-        <View style={topupStyles.sheet}>
-          <View style={topupStyles.handle} />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1 }}
+      >
+        <View style={topupStyles.overlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
+          <View style={topupStyles.sheet}>
+            <View style={topupStyles.handle} />
 
-          {/* Header */}
-          <View style={topupStyles.header}>
-            <View style={topupStyles.iconWrap}>
-              <Ionicons name="wallet" size={22} color={PRIMARY} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={topupStyles.title}>Add Money</Text>
-              <Text style={topupStyles.subtitle}>
-                Current balance: <Text style={topupStyles.balance}>₹{currentBalance.toFixed(2)}</Text>
-              </Text>
-            </View>
-          </View>
-
-          {/* Quick amounts */}
-          <Text style={topupStyles.quickLabel}>Quick Add</Text>
-          <View style={topupStyles.quickRow}>
-            {QUICK_AMOUNTS.map((q) => (
-              <Pressable
-                key={q}
-                style={[topupStyles.quickChip, amount === String(q) && topupStyles.quickChipActive]}
-                onPress={() => setAmount(String(q))}
-              >
-                <Text style={[topupStyles.quickChipText, amount === String(q) && topupStyles.quickChipTextActive]}>
-                  ₹{q}
+            {/* Header */}
+            <View style={topupStyles.header}>
+              <View style={topupStyles.iconWrap}>
+                <Ionicons name="wallet" size={22} color={PRIMARY} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={topupStyles.title}>Add Money</Text>
+                <Text style={topupStyles.subtitle}>
+                  Current balance: <Text style={topupStyles.balance}>₹{currentBalance.toFixed(2)}</Text>
                 </Text>
-              </Pressable>
-            ))}
+              </View>
+            </View>
+
+            {/* Quick amounts */}
+            <Text style={topupStyles.quickLabel}>Quick Add</Text>
+            <View style={topupStyles.quickRow}>
+              {QUICK_AMOUNTS.map((q) => (
+                <Pressable
+                  key={q}
+                  style={[topupStyles.quickChip, amount === String(q) && topupStyles.quickChipActive]}
+                  onPress={() => setAmount(String(q))}
+                >
+                  <Text style={[topupStyles.quickChipText, amount === String(q) && topupStyles.quickChipTextActive]}>
+                    ₹{q}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* Custom input */}
+            <Text style={topupStyles.inputLabel}>Or enter amount</Text>
+            <Animated.View
+              style={[topupStyles.inputRow, { transform: [{ translateX: shakeAnim }] }]}
+            >
+              <Text style={topupStyles.rupee}>₹</Text>
+              <TextInput
+                style={topupStyles.input}
+                value={amount}
+                onChangeText={setAmount}
+                placeholder="0"
+                placeholderTextColor="#BDC5CC"
+                keyboardType="numeric"
+              />
+            </Animated.View>
+
+            {/* Action */}
+            <Pressable
+              style={[topupStyles.btn, (!amount || isPending) && topupStyles.btnDisabled]}
+              onPress={handleConfirm}
+              disabled={!amount || isPending}
+            >
+              {isPending ? (
+                <ActivityIndicator size="small" color={colors.white} />
+              ) : (
+                <>
+                  <Ionicons name="add-circle-outline" size={18} color={colors.white} />
+                  <Text style={topupStyles.btnText}>Add ₹{amount || "0"} to Wallet</Text>
+                </>
+              )}
+            </Pressable>
+
+            <Pressable style={topupStyles.cancelBtn} onPress={handleClose} disabled={isPending}>
+              <Text style={topupStyles.cancelText}>Cancel</Text>
+            </Pressable>
           </View>
-
-          {/* Custom input */}
-          <Text style={topupStyles.inputLabel}>Or enter amount</Text>
-          <Animated.View
-            style={[topupStyles.inputRow, { transform: [{ translateX: shakeAnim }] }]}
-          >
-            <Text style={topupStyles.rupee}>₹</Text>
-            <TextInput
-              style={topupStyles.input}
-              value={amount}
-              onChangeText={setAmount}
-              placeholder="0"
-              placeholderTextColor="#BDC5CC"
-              keyboardType="numeric"
-            />
-          </Animated.View>
-
-          {/* Action */}
-          <Pressable
-            style={[topupStyles.btn, (!amount || isPending) && topupStyles.btnDisabled]}
-            onPress={handleConfirm}
-            disabled={!amount || isPending}
-          >
-            {isPending ? (
-              <ActivityIndicator size="small" color={colors.white} />
-            ) : (
-              <>
-                <Ionicons name="add-circle-outline" size={18} color={colors.white} />
-                <Text style={topupStyles.btnText}>Add ₹{amount || "0"} to Wallet</Text>
-              </>
-            )}
-          </Pressable>
-
-          <Pressable style={topupStyles.cancelBtn} onPress={handleClose} disabled={isPending}>
-            <Text style={topupStyles.cancelText}>Cancel</Text>
-          </Pressable>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

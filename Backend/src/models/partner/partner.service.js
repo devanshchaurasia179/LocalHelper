@@ -63,17 +63,17 @@ const serviceFields = {
     default: 0,
   },
   // callCharges: amount charged per durationMinutes of a call
-  // e.g. { amount: 20, durationMinutes: 10 } = ₹20 per 10 minutes
+  // e.g. { amount: 30, durationMinutes: 1 } = ₹30 per 1 minute
   callCharges: {
     amount: {
       type: Number,
       min: 0,
-      default: 10,
+      default: 30,
     },
     durationMinutes: {
       type: Number,
       min: 1,
-      default: 10, // minutes covered by the charge
+      default: 1, // minutes covered by the charge
     },
   },
   // Availability

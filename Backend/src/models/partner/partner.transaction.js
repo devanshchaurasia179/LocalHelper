@@ -4,6 +4,7 @@ import mongoose from "mongoose";
  * PartnerTransaction — one document per financial event for a partner.
  *
  * Types:
+ *   topup        — money added to wallet (payment gateway, direct deposit)
  *   earning      — money added to wallet when a booking is completed
  *   payout       — money withdrawn from wallet to bank/UPI
  *   adjustment   — manual credit/debit by admin (refund, penalty, correction)
@@ -29,24 +30,24 @@ const partnerTransactionSchema = new mongoose.Schema(
     // ── Type ─────────────────────────────────────────────────────────────────
     type: {
       type:     String,
-      enum:     ["earning", "payout", "adjustment", "call_charge", "chat_charge"],
+      enum:     ["topup", "earning", "payout", "adjustment", "call_charge", "chat_charge"],
       required: true,
       index:    true,
     },
 
     // ── Amount ───────────────────────────────────────────────────────────────
     // Always positive. Direction is inferred from type:
-    //   earning / adjustment(credit) → adds to wallet
-    //   payout  / adjustment(debit)  → deducts from wallet
+    //   topup / earning / adjustment(credit) → adds to wallet
+    //   payout  / adjustment(debit) / call_charge / chat_charge → deducts from wallet
     amount: {
       type:     Number,
       required: true,
       min:      0,
     },
 
-    // ── Direction (for adjustments and charges) ──────────────────────────────
+    // ── Direction ────────────────────────────────────────────────────────────
     // "credit" adds to wallet, "debit" deducts.
-    // For earning → always credit. For payout/call_charge/chat_charge → always debit.
+    // For topup/earning → always credit. For payout/call_charge/chat_charge → always debit.
     direction: {
       type:    String,
       enum:    ["credit", "debit"],
@@ -61,7 +62,7 @@ const partnerTransactionSchema = new mongoose.Schema(
     },
 
     // ── Status ───────────────────────────────────────────────────────────────
-    // Only meaningful for payout; set to "completed" immediately for earning/adjustment.
+    // Only meaningful for payout; set to "completed" immediately for topup/earning/adjustment.
     status: {
       type:    String,
       enum:    ["pending", "processing", "completed", "failed"],

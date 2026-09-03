@@ -3,6 +3,7 @@ import {
   getTransactionHistory,
   getWalletSummary,
   getTransactionById,
+  initiateTopup,
   requestPayout,
 } from "../controllers/partner.transaction.controller.js";
 import protectPartner from "../middleware/partner.auth.middleware.js";
@@ -15,6 +16,7 @@ router.use(protectPartner);
 router.get("/",                  getTransactionHistory); // GET   /api/partner/transactions
 router.get("/summary",           getWalletSummary);      // GET   /api/partner/transactions/summary
 router.get("/:id",               getTransactionById);    // GET   /api/partner/transactions/:id
+router.post("/topup",            initiateTopup);         // POST  /api/partner/transactions/topup
 router.post("/payout-request",   requestPayout);         // POST  /api/partner/transactions/payout-request
 
 export default router;

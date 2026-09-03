@@ -10,6 +10,8 @@ import {
   TextInput,
   Alert,
   RefreshControl,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,6 +21,7 @@ import {
   useWalletSummary,
   useTransactions,
   useTransaction,
+  useInitiateTopup,
   useRequestPayout,
   useTransactionAccount,
   useSaveBankAccount,
@@ -32,9 +35,10 @@ import type { Transaction, SaveBankAccountPayload } from "@/api/wallet.api";
 // ─── Transaction Type Icons & Colors ──────────────────────────────────────────
 
 const TX_META: Record<
-  "earning" | "payout" | "adjustment",
+  "topup" | "earning" | "payout" | "adjustment",
   { icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }
 > = {
+  topup:      { icon: "add-circle",     color: colors.success, bg: colors.successLight },
   earning:    { icon: "trending-up",    color: colors.success, bg: colors.successLight },
   payout:     { icon: "arrow-down",     color: "#6366F1",      bg: "#EEF2FF" },
   adjustment: { icon: "swap-horizontal", color: "#F59E0B",      bg: "#FFFBEB" },
@@ -82,57 +86,163 @@ function PayoutModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={payoutStyles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={payoutStyles.sheet}>
-          <View style={payoutStyles.handle} />
-          <View style={payoutStyles.iconWrap}>
-            <Ionicons name="cash-outline" size={28} color={colors.primary} />
-          </View>
-          <Text style={payoutStyles.title}>Request Payout</Text>
-          <Text style={payoutStyles.subtitle}>
-            Available balance: ₹{availableBalance.toFixed(2)}
-          </Text>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1 }}
+      >
+        <View style={payoutStyles.overlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+          <View style={payoutStyles.sheet}>
+            <View style={payoutStyles.handle} />
+            <View style={payoutStyles.iconWrap}>
+              <Ionicons name="cash-outline" size={28} color={colors.primary} />
+            </View>
+            <Text style={payoutStyles.title}>Request Payout</Text>
+            <Text style={payoutStyles.subtitle}>
+              Available balance: ₹{availableBalance.toFixed(2)}
+            </Text>
 
-          <View style={payoutStyles.inputWrap}>
-            <Text style={payoutStyles.inputLabel}>Amount</Text>
-            <View style={payoutStyles.inputRow}>
-              <Text style={payoutStyles.currencySymbol}>₹</Text>
-              <TextInput
-                style={payoutStyles.input}
-                value={amount}
-                onChangeText={setAmount}
-                placeholder="0"
-                placeholderTextColor={colors.textSecondary}
-                keyboardType="numeric"
-                autoFocus
-              />
+            <View style={payoutStyles.inputWrap}>
+              <Text style={payoutStyles.inputLabel}>Amount</Text>
+              <View style={payoutStyles.inputRow}>
+                <Text style={payoutStyles.currencySymbol}>₹</Text>
+                <TextInput
+                  style={payoutStyles.input}
+                  value={amount}
+                  onChangeText={setAmount}
+                  placeholder="0"
+                  placeholderTextColor={colors.textSecondary}
+                  keyboardType="numeric"
+                  autoFocus
+                />
+              </View>
+            </View>
+
+            <View style={payoutStyles.actions}>
+              <Pressable
+                style={[payoutStyles.confirmBtn, !amount && payoutStyles.confirmBtnDisabled]}
+                onPress={handleConfirm}
+                disabled={!amount || isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <Text style={payoutStyles.confirmBtnText}>Request Payout</Text>
+                )}
+              </Pressable>
+              <Pressable style={payoutStyles.cancelBtn} onPress={onClose} disabled={isLoading}>
+                <Text style={payoutStyles.cancelBtnText}>Cancel</Text>
+              </Pressable>
             </View>
           </View>
-
-          <View style={payoutStyles.actions}>
-            <Pressable
-              style={[payoutStyles.confirmBtn, !amount && payoutStyles.confirmBtnDisabled]}
-              onPress={handleConfirm}
-              disabled={!amount || isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator size="small" color={colors.white} />
-              ) : (
-                <Text style={payoutStyles.confirmBtnText}>Request Payout</Text>
-              )}
-            </Pressable>
-            <Pressable style={payoutStyles.cancelBtn} onPress={onClose} disabled={isLoading}>
-              <Text style={payoutStyles.cancelBtnText}>Cancel</Text>
-            </Pressable>
-          </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const payoutStyles = StyleSheet.create({
+  overlay:      { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  sheet:        { backgroundColor: colors.background, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: spacing.lg, paddingBottom: 40, paddingTop: spacing.sm, alignItems: "center" },
+  handle:       { width: 40, height: 4, backgroundColor: "#E5E7EB", borderRadius: 2, marginBottom: spacing.lg },
+  iconWrap:     { width: 64, height: 64, borderRadius: 32, backgroundColor: colors.successLight, alignItems: "center", justifyContent: "center", marginBottom: spacing.md },
+  title:        { fontFamily: fonts.oswaldBold, fontSize: 22, color: colors.textPrimary, marginBottom: spacing.xs },
+  subtitle:     { fontFamily: fonts.jostRegular, fontSize: 13, color: colors.textSecondary, textAlign: "center", marginBottom: spacing.lg },
+  inputWrap:    { alignSelf: "stretch", marginBottom: spacing.lg },
+  inputLabel:   { fontFamily: fonts.jakartaSemiBold, fontSize: 13, color: colors.textPrimary, marginBottom: spacing.xs },
+  inputRow:     { flexDirection: "row", alignItems: "center", borderWidth: 2, borderColor: colors.primary, borderRadius: radii.md, paddingHorizontal: spacing.md, backgroundColor: colors.surface },
+  currencySymbol: { fontFamily: fonts.oswaldBold, fontSize: 24, color: colors.textPrimary, marginRight: spacing.xs },
+  input:        { flex: 1, fontFamily: fonts.oswaldBold, fontSize: 24, color: colors.textPrimary, paddingVertical: spacing.md },
+  actions:      { width: "100%", gap: spacing.sm },
+  confirmBtn:   { backgroundColor: colors.primary, borderRadius: radii.pill, paddingVertical: 14, alignItems: "center" },
+  confirmBtnDisabled: { backgroundColor: "#9CA3AF" },
+  confirmBtnText: { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.white },
+  cancelBtn:    { alignItems: "center", paddingVertical: 12 },
+  cancelBtnText: { fontFamily: fonts.jakartaMedium, fontSize: 14, color: colors.textSecondary },
+});
+
+// ─── Add Money Modal ──────────────────────────────────────────────────────────
+
+function AddMoneyModal({
+  visible,
+  onClose,
+  onConfirm,
+  isLoading,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onConfirm: (amount: number) => void;
+  isLoading: boolean;
+}) {
+  const [amount, setAmount] = useState("");
+
+  const handleConfirm = () => {
+    const num = Number(amount);
+    if (!num || num <= 0) {
+      Alert.alert("Invalid Amount", "Enter a valid amount greater than 0.");
+      return;
+    }
+    onConfirm(num);
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1 }}
+      >
+        <View style={addMoneyStyles.overlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+          <View style={addMoneyStyles.sheet}>
+            <View style={addMoneyStyles.handle} />
+            <View style={addMoneyStyles.iconWrap}>
+              <Ionicons name="wallet-outline" size={28} color={colors.primary} />
+            </View>
+            <Text style={addMoneyStyles.title}>Add Money to Wallet</Text>
+            <Text style={addMoneyStyles.subtitle}>
+              Add funds to your wallet balance
+            </Text>
+
+            <View style={addMoneyStyles.inputWrap}>
+              <Text style={addMoneyStyles.inputLabel}>Amount</Text>
+              <View style={addMoneyStyles.inputRow}>
+                <Text style={addMoneyStyles.currencySymbol}>₹</Text>
+                <TextInput
+                  style={addMoneyStyles.input}
+                  value={amount}
+                  onChangeText={setAmount}
+                  placeholder="0"
+                  placeholderTextColor={colors.textSecondary}
+                  keyboardType="numeric"
+                  autoFocus
+                />
+              </View>
+            </View>
+
+            <View style={addMoneyStyles.actions}>
+              <Pressable
+                style={[addMoneyStyles.confirmBtn, !amount && addMoneyStyles.confirmBtnDisabled]}
+                onPress={handleConfirm}
+                disabled={!amount || isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <Text style={addMoneyStyles.confirmBtnText}>Add Money</Text>
+                )}
+              </Pressable>
+              <Pressable style={addMoneyStyles.cancelBtn} onPress={onClose} disabled={isLoading}>
+                <Text style={addMoneyStyles.cancelBtnText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+const addMoneyStyles = StyleSheet.create({
   overlay:      { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   sheet:        { backgroundColor: colors.background, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: spacing.lg, paddingBottom: 40, paddingTop: spacing.sm, alignItems: "center" },
   handle:       { width: 40, height: 4, backgroundColor: "#E5E7EB", borderRadius: 2, marginBottom: spacing.lg },
@@ -488,6 +598,7 @@ const detailStyles = StyleSheet.create({
 
 export default function WalletScreen() {
   const [payoutModalVisible, setPayoutModalVisible] = useState(false);
+  const [addMoneyModalVisible, setAddMoneyModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editMode, setEditMode] = useState<EditMode>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -497,6 +608,7 @@ export default function WalletScreen() {
   const { data: txData, isLoading: txLoading, refetch: refetchTx } = useTransactions({ page: 1, limit: 10 });
   const { data: account, isLoading: accountLoading, refetch: refetchAccount } = useTransactionAccount();
 
+  const addMoneyMutation = useInitiateTopup();
   const payoutMutation = useRequestPayout();
   const saveBankMutation = useSaveBankAccount();
   const saveUpiMutation = useSaveUpiId();
@@ -509,6 +621,18 @@ export default function WalletScreen() {
     await Promise.all([refetchSummary(), refetchTx(), refetchAccount()]);
     setRefreshing(false);
   }, [refetchSummary, refetchTx, refetchAccount]);
+
+  const handleAddMoney = useCallback((amount: number) => {
+    addMoneyMutation.mutate(amount, {
+      onSuccess: () => {
+        Alert.alert("Success", `₹${amount} added to wallet.`);
+        setAddMoneyModalVisible(false);
+      },
+      onError: (err: any) => {
+        Alert.alert("Error", err?.response?.data?.message ?? "Could not add money to wallet.");
+      },
+    });
+  }, [addMoneyMutation]);
 
   const handlePayoutRequest = useCallback((amount: number) => {
     payoutMutation.mutate(amount, {
@@ -604,14 +728,23 @@ export default function WalletScreen() {
                 <Text style={styles.balanceItemValue}>₹{totalEarnings}</Text>
               </View>
             </View>
-            <Pressable
-              style={[styles.payoutBtn, walletBalance <= 0 && styles.payoutBtnDisabled]}
-              onPress={() => setPayoutModalVisible(true)}
-              disabled={walletBalance <= 0}
-            >
-              <Ionicons name="arrow-down-circle" size={18} color={colors.white} />
-              <Text style={styles.payoutBtnText}>Request Payout</Text>
-            </Pressable>
+            <View style={styles.buttonRow}>
+              <Pressable
+                style={styles.addMoneyBtn}
+                onPress={() => setAddMoneyModalVisible(true)}
+              >
+                <Ionicons name="add-circle" size={18} color={colors.white} />
+                <Text style={styles.addMoneyBtnText}>Add Money</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.payoutBtn, walletBalance <= 0 && styles.payoutBtnDisabled]}
+                onPress={() => setPayoutModalVisible(true)}
+                disabled={walletBalance <= 0}
+              >
+                <Ionicons name="arrow-down-circle" size={18} color={colors.white} />
+                <Text style={styles.payoutBtnText}>Request Payout</Text>
+              </Pressable>
+            </View>
           </View>
         )}
 
@@ -699,6 +832,13 @@ export default function WalletScreen() {
       </ScrollView>
 
       <BottomNav />
+
+      <AddMoneyModal
+        visible={addMoneyModalVisible}
+        onClose={() => setAddMoneyModalVisible(false)}
+        onConfirm={handleAddMoney}
+        isLoading={addMoneyMutation.isPending}
+      />
 
       <PayoutModal
         visible={payoutModalVisible}
@@ -813,7 +953,10 @@ const styles = StyleSheet.create({
   balanceItemLabel: { fontFamily: fonts.jostRegular, fontSize: 12, color: "rgba(255,255,255,0.7)", marginBottom: 2 },
   balanceItemValue: { fontFamily: fonts.jakartaSemiBold, fontSize: 16, color: colors.white },
   balanceDivider:   { width: 1, height: 32, backgroundColor: "rgba(255,255,255,0.2)", marginHorizontal: spacing.sm },
-  payoutBtn:        { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, backgroundColor: "rgba(255,255,255,0.2)", borderRadius: radii.pill, paddingVertical: 12 },
+  buttonRow:        { flexDirection: "row", gap: spacing.sm },
+  addMoneyBtn:      { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, backgroundColor: "rgba(255,255,255,0.2)", borderRadius: radii.pill, paddingVertical: 12 },
+  addMoneyBtnText:  { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.white },
+  payoutBtn:        { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, backgroundColor: "rgba(255,255,255,0.2)", borderRadius: radii.pill, paddingVertical: 12 },
   payoutBtnDisabled: { opacity: 0.5 },
   payoutBtnText:    { fontFamily: fonts.jakartaSemiBold, fontSize: 15, color: colors.white },
   sectionTitle:     { fontFamily: fonts.oswaldBold, fontSize: 18, color: colors.textPrimary, marginBottom: spacing.sm, marginTop: spacing.sm },

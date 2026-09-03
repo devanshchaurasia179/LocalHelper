@@ -26,7 +26,7 @@ export async function fetchWalletSummary(): Promise<WalletSummary> {
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
 
-export type TransactionType = "earning" | "payout" | "adjustment";
+export type TransactionType = "topup" | "earning" | "payout" | "adjustment";
 export type TransactionStatus = "pending" | "processing" | "completed" | "failed";
 export type TransactionDirection = "credit" | "debit";
 
@@ -112,6 +112,34 @@ export async function fetchTransactions(
 export async function fetchTransactionById(id: string): Promise<Transaction> {
   const res = await api.get<{ transaction: Transaction }>(`/partner/transactions/${id}`);
   return res.data.transaction;
+}
+
+// ─── Add Money (Topup) ────────────────────────────────────────────────────────
+
+export interface TopupRequestPayload {
+  amount: number;
+}
+
+export interface TopupRequestResponse {
+  message: string;
+  transaction: {
+    id: string;
+    amount: number;
+    balanceAfter: number;
+    status: TransactionStatus;
+    createdAt: string;
+  };
+  walletBalance: number;
+}
+
+export async function initiateTopup(
+  payload: TopupRequestPayload
+): Promise<TopupRequestResponse> {
+  const res = await api.post<TopupRequestResponse>(
+    "/partner/transactions/topup",
+    payload
+  );
+  return res.data;
 }
 
 // ─── Payout Request ───────────────────────────────────────────────────────────
