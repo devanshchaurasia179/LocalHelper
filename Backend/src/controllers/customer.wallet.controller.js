@@ -17,6 +17,30 @@ function buildServiceLabel(booking) {
   return sub?.name ? `${catName} - ${sub.name}` : catName;
 }
 
+// ─── CUSTOMER: Get Wallet Balance ────────────────────────────────────────────
+/**
+ * GET /api/customer/wallet/balance
+ * 🔒 customer_token
+ *
+ * Simple endpoint to fetch just the wallet balance
+ */
+export const getWalletBalance = async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.customerId).select("walletBalance");
+
+    if (!customer) {
+      return res.status(404).json({ message: "Customer not found." });
+    }
+
+    return res.status(200).json({
+      walletBalance: customer.walletBalance,
+    });
+  } catch (error) {
+    console.error("getWalletBalance error:", error);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
 // ─── CUSTOMER: Get Transaction History ───────────────────────────────────────
 /**
  * GET /api/customer/transactions

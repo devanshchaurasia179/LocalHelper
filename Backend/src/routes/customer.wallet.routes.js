@@ -4,6 +4,7 @@ import {
   getWalletSummary,
   getTransactionById,
   initiateTopup,
+  getWalletBalance,
 } from "../controllers/customer.wallet.controller.js";
 import protectCustomer from "../middleware/customer.auth.middleware.js";
 

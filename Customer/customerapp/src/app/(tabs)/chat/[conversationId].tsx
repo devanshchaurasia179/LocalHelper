@@ -360,8 +360,8 @@ export default function ChatRoomScreen() {
   const fetchWalletBalance = useCallback(async () => {
     try {
       const { api } = await import("@/constants/api");
-      const response = await api.get<{ walletBalance: number }>("/customer/wallet/balance");
-      setWalletBalance(response.data.walletBalance);
+      const response = await api.get<{ summary: { walletBalance: number } }>("/customer/transactions/summary");
+      setWalletBalance(response.data.summary.walletBalance);
     } catch (err) {
       console.error("Failed to fetch wallet balance:", err);
     }
