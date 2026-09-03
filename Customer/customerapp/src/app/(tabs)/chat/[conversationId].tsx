@@ -17,6 +17,8 @@ import {
   Image,
   Alert,
   Modal,
+  AppState,
+  type AppStateStatus,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,7 +27,15 @@ import { Fonts, Spacing } from "@/constants/theme";
 import { colors, fonts, spacing } from "../home/theme";
 import { useChatRoom } from "@/hooks/useChatRoom";
 import { initiateCallToPartner, blockPartner, unblockPartner, getBlockedPartners } from "@/api/call.api";
+import {
+  checkChatAccess,
+  purchaseChatTime,
+  startChatSession,
+  endChatSession,
+  type ChatAccessResponse,
+} from "@/api/chat.api";
 import CallScreen from "@/components/call/CallScreen";
+import PurchaseChatTimeModal from "@/components/chat/PurchaseChatTimeModal";
 import type { NearbyPartner } from "@/api/nearby.api";
 import type { ChatMessage } from "@/api/chat.api";
 
@@ -238,6 +248,15 @@ export default function ChatRoomScreen() {
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Chat access & payment state ───────────────────────────────────────────
+  const [chatAccess, setChatAccess] = useState<ChatAccessResponse | null>(null);
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const [chatAccessLoading, setChatAccessLoading] = useState(false);
+  const [purchaseModalVisible, setPurchaseModalVisible] = useState(false);
+  const [walletBalance, setWalletBalance] = useState(0);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const appStateRef = useRef(AppState.currentState);
+
   // ── Three-dot menu state ──────────────────────────────────────────────────
   const [menuVisible, setMenuVisible] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
@@ -252,6 +271,161 @@ export default function ChatRoomScreen() {
   const callPartner: NearbyPartner | null = partnerId
     ? ({ _id: partnerId, fullName: partnerName, profilePhoto: partnerPhoto } as unknown as NearbyPartner)
     : null;
+
+  // ── Chat Access & Timer Functions ─────────────────────────────────────────
+
+  const fetchChatAccess = useCallback(async () => {
+    if (!conversationId) return;
+    setChatAccessLoading(true);
+    try {
+      const response = await checkChatAccess(conversationId);
+      setChatAccess(response.data);
+      setRemainingSeconds(response.data.remainingSeconds);
+    } catch (err) {
+      console.error("Failed to fetch chat access:", err);
+    } finally {
+      setChatAccessLoading(false);
+    }
+  }, [conversationId]);
+
+  const handlePurchaseTime = useCallback(
+    async (minutes: number) => {
+      try {
+        const response = await purchaseChatTime(conversationId, minutes);
+        setWalletBalance(response.data.walletBalance);
+        setRemainingSeconds(response.data.remainingSeconds);
+        
+        // Refresh chat access
+        await fetchChatAccess();
+        
+        Alert.alert(
+          "Success",
+          `${minutes} minute${minutes > 1 ? "s" : ""} of chat time added!`
+        );
+      } catch (err: any) {
+        throw err; // Let modal handle the error
+      }
+    },
+    [conversationId, fetchChatAccess]
+  );
+
+  const startCountdownTimer = useCallback(() => {
+    // Clear any existing timer
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+    }
+
+    // Start new countdown
+    timerIntervalRef.current = setInterval(() => {
+      setRemainingSeconds((prev) => {
+        if (prev <= 1) {
+          // Time expired
+          if (timerIntervalRef.current) {
+            clearInterval(timerIntervalRef.current);
+          }
+          fetchChatAccess(); // Refresh to get latest status
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [fetchChatAccess]);
+
+  const stopCountdownTimer = useCallback(() => {
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+  }, []);
+
+  const handleSessionStart = useCallback(async () => {
+    try {
+      await startChatSession(conversationId);
+      console.log("Chat session started");
+    } catch (err) {
+      console.error("Failed to start session:", err);
+    }
+  }, [conversationId]);
+
+  const handleSessionEnd = useCallback(async () => {
+    try {
+      await endChatSession(conversationId);
+      console.log("Chat session ended");
+    } catch (err) {
+      console.error("Failed to end session:", err);
+    }
+  }, [conversationId]);
+
+  // ── Load wallet balance ───────────────────────────────────────────────────
+  const fetchWalletBalance = useCallback(async () => {
+    try {
+      const { api } = await import("@/constants/api");
+      const response = await api.get<{ walletBalance: number }>("/customer/wallet/balance");
+      setWalletBalance(response.data.walletBalance);
+    } catch (err) {
+      console.error("Failed to fetch wallet balance:", err);
+    }
+  }, []);
+
+  // ── Initialize chat access and session tracking ───────────────────────────
+  useEffect(() => {
+    fetchChatAccess();
+    fetchWalletBalance();
+    handleSessionStart();
+
+    // Start timer if there's remaining time
+    if (remainingSeconds > 0) {
+      startCountdownTimer();
+    }
+
+    return () => {
+      stopCountdownTimer();
+      handleSessionEnd();
+    };
+  }, [conversationId]); // Only run on mount/unmount
+
+  // ── Handle app state changes (background/foreground) ──────────────────────
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextAppState: AppStateStatus) => {
+      if (
+        appStateRef.current.match(/inactive|background/) &&
+        nextAppState === "active"
+      ) {
+        // App came to foreground - refresh chat access
+        fetchChatAccess();
+      } else if (
+        appStateRef.current === "active" &&
+        nextAppState.match(/inactive|background/)
+      ) {
+        // App went to background - end session
+        handleSessionEnd();
+      }
+      appStateRef.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [fetchChatAccess, handleSessionEnd]);
+
+  // ── Update timer when remaining seconds change ────────────────────────────
+  useEffect(() => {
+    if (remainingSeconds > 0 && !timerIntervalRef.current) {
+      startCountdownTimer();
+    } else if (remainingSeconds <= 0) {
+      stopCountdownTimer();
+    }
+  }, [remainingSeconds, startCountdownTimer, stopCountdownTimer]);
+
+  const hasActiveChatTime = chatAccess?.hasAccess && remainingSeconds > 0;
+  const canSendMessages = hasActiveChatTime;
+
+  const formatRemainingTime = (seconds: number) => {
+    if (seconds <= 0) return "0:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
 
   const handleCall = useCallback(async () => {
     if (!partnerId) return;
@@ -377,6 +551,12 @@ export default function ChatRoomScreen() {
     const trimmed = inputText.trim();
     if (!trimmed) return;
 
+    // Check if user has active chat time
+    if (!canSendMessages) {
+      setPurchaseModalVisible(true);
+      return;
+    }
+
     // Check for phone numbers
     if (containsPhoneNumber(trimmed)) {
       setPhoneWarningVisible(true);
@@ -387,7 +567,7 @@ export default function ChatRoomScreen() {
     setInputText("");
     onTypingStop();
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-  }, [inputText, sendMessage, onTypingStop]);
+  }, [inputText, sendMessage, onTypingStop, canSendMessages]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -441,6 +621,32 @@ export default function ChatRoomScreen() {
             )}
           </View>
         </View>
+
+        {/* Chat Timer (for customers only) */}
+        {chatAccess?.isCustomer && (
+          <Pressable
+            style={[
+              styles.timerWrap,
+              !hasActiveChatTime && styles.timerWrapExpired,
+            ]}
+            onPress={() => setPurchaseModalVisible(true)}
+          >
+            <Ionicons
+              name={hasActiveChatTime ? "time-outline" : "lock-closed"}
+              size={14}
+              color={hasActiveChatTime ? "#10B981" : "#EF4444"}
+            />
+            <Text
+              style={[
+                styles.timerText,
+                !hasActiveChatTime && styles.timerTextExpired,
+              ]}
+            >
+              {hasActiveChatTime ? formatRemainingTime(remainingSeconds) : "Expired"}
+            </Text>
+          </Pressable>
+        )}
+
         <View style={styles.headerActions}>
           <Pressable
             onPress={handleCall}
@@ -545,33 +751,48 @@ export default function ChatRoomScreen() {
             },
           ]}
         >
-          <TextInput
-            style={[
-              styles.input,
-              {
-                backgroundColor: "#F0F0F3",
-                color: colors.textPrimary,
-              },
-            ]}
-            value={inputText}
-            onChangeText={handleTextChange}
-            placeholder="Type a message…"
-            placeholderTextColor={colors.textSecondary}
-            multiline
-            maxLength={2000}
-            returnKeyType="send"
-            blurOnSubmit={false}
-            onSubmitEditing={handleSend}
-          />
+          {!canSendMessages && chatAccess?.isCustomer ? (
+            <View style={styles.expiredWrap}>
+              <Ionicons name="lock-closed" size={20} color="#EF4444" />
+              <Text style={styles.expiredText}>Chat time expired</Text>
+              <Pressable
+                style={styles.expiredBtn}
+                onPress={() => setPurchaseModalVisible(true)}
+              >
+                <Text style={styles.expiredBtnText}>Purchase Time</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: "#F0F0F3",
+                    color: colors.textPrimary,
+                  },
+                ]}
+                value={inputText}
+                onChangeText={handleTextChange}
+                placeholder="Type a message…"
+                placeholderTextColor={colors.textSecondary}
+                multiline
+                maxLength={2000}
+                returnKeyType="send"
+                blurOnSubmit={false}
+                onSubmitEditing={handleSend}
+              />
 
-          <Pressable
-            style={[styles.sendBtn, !inputText.trim() && styles.sendBtnDisabled]}
-            onPress={handleSend}
-            disabled={!inputText.trim()}
-            accessibilityLabel="Send"
-          >
-            <Ionicons name="send" size={18} color="#fff" />
-          </Pressable>
+              <Pressable
+                style={[styles.sendBtn, !inputText.trim() && styles.sendBtnDisabled]}
+                onPress={handleSend}
+                disabled={!inputText.trim()}
+                accessibilityLabel="Send"
+              >
+                <Ionicons name="send" size={18} color="#fff" />
+              </Pressable>
+            </>
+          )}
         </View>
       </KeyboardAvoidingView>
 
@@ -592,6 +813,15 @@ export default function ChatRoomScreen() {
           onEndCall={handleEndCall}
         />
       )}
+
+      {/* Purchase Chat Time Modal */}
+      <PurchaseChatTimeModal
+        visible={purchaseModalVisible}
+        onClose={() => setPurchaseModalVisible(false)}
+        onPurchase={handlePurchaseTime}
+        walletBalance={walletBalance}
+        currentRemainingSeconds={remainingSeconds}
+      />
     </SafeAreaView>
   );
 }
@@ -640,6 +870,30 @@ const styles = StyleSheet.create({
   headerStatusRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   headerDot: { width: 6, height: 6, borderRadius: 3 },
   headerStatus: { fontFamily: Fonts.sans, fontSize: 11 },
+
+  // Timer styles
+  timerWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ECFDF5",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    gap: 4,
+    marginHorizontal: Spacing.two,
+  },
+  timerWrapExpired: {
+    backgroundColor: "#FEE2E2",
+  },
+  timerText: {
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#10B981",
+  },
+  timerTextExpired: {
+    color: "#EF4444",
+  },
 
   center: {
     flex: 1,
@@ -731,6 +985,34 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   sendBtnDisabled: { backgroundColor: "#9CA3AF" },
+
+  // Expired chat time UI
+  expiredWrap: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.two,
+    paddingVertical: Spacing.two,
+  },
+  expiredText: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#EF4444",
+  },
+  expiredBtn: {
+    backgroundColor: BRAND,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one + 2,
+    borderRadius: 14,
+  },
+  expiredBtnText: {
+    fontFamily: Fonts.sans,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#fff",
+  },
 
   // ── Three-dot menu styles ─────────────────────────────────────────────────
   headerActions: {

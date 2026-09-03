@@ -110,3 +110,57 @@ export const sendMessageRest = (
 
 export const deleteMessage = (messageId: string) =>
   api.delete(`/chat/messages/${messageId}`);
+
+// ─── Chat Payment & Session ───────────────────────────────────────────────────
+
+export interface ChatAccessResponse {
+  hasAccess: boolean;
+  remainingSeconds: number;
+  activeUntil: string | null;
+  totalPaidMinutes: number;
+  isCustomer: boolean;
+  pricing: {
+    ratePerMinute: number;
+    currency: string;
+  };
+}
+
+export interface PurchaseChatTimeResponse {
+  success: boolean;
+  message: string;
+  activeUntil: string;
+  remainingSeconds: number;
+  totalPaidMinutes: number;
+  walletBalance: number;
+  amountCharged: number;
+}
+
+/**
+ * Check current chat access status and remaining time
+ */
+export const checkChatAccess = (conversationId: string) =>
+  api.get<ChatAccessResponse>(`/chat/conversations/${conversationId}/access`);
+
+/**
+ * Purchase chat time (customer only)
+ * @param conversationId - The conversation to purchase time for
+ * @param minutes - Number of minutes to purchase (₹10 per minute)
+ */
+export const purchaseChatTime = (conversationId: string, minutes: number) =>
+  api.post<PurchaseChatTimeResponse>(
+    `/chat/conversations/${conversationId}/purchase-time`,
+    { minutes }
+  );
+
+/**
+ * Start chat session tracking (when customer opens conversation)
+ */
+export const startChatSession = (conversationId: string) =>
+  api.post(`/chat/conversations/${conversationId}/start-session`);
+
+/**
+ * End chat session tracking (when customer closes conversation)
+ */
+export const endChatSession = (conversationId: string) =>
+  api.post(`/chat/conversations/${conversationId}/end-session`);
+

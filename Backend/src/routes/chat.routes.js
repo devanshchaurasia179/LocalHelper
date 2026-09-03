@@ -9,6 +9,10 @@ import {
   deleteMessage,
   deleteConversation,
   markConversationRead,
+  purchaseChatTime,
+  checkChatAccess,
+  startChatSession,
+  endChatSession,
 } from "../controllers/chat.controller.js";
 
 // ── Auth middleware imports ────────────────────────────────────────────────────
@@ -72,6 +76,20 @@ router.delete("/conversations/:conversationId",         flexAuth, deleteConversa
 
 // Mark all messages in a conversation as read (reset unread counter)
 router.patch( "/conversations/:conversationId/read",    flexAuth, markConversationRead);
+
+// ── Chat payment & session routes ─────────────────────────────────────────────
+
+// Check chat access status and remaining time
+router.get(  "/conversations/:conversationId/access",        flexAuth, checkChatAccess);
+
+// Purchase chat time (customer only)
+router.post( "/conversations/:conversationId/purchase-time", protectCustomer, purchaseChatTime);
+
+// Start session tracking (when customer opens conversation)
+router.post( "/conversations/:conversationId/start-session", protectCustomer, startChatSession);
+
+// End session tracking (when customer closes conversation)
+router.post( "/conversations/:conversationId/end-session",   protectCustomer, endChatSession);
 
 // ── Message routes ────────────────────────────────────────────────────────────
 
