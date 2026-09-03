@@ -50,11 +50,14 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
 
   const loadHistory = useCallback(async () => {
     try {
+      console.log('[ChatRoom] Loading messages for conversation:', conversationId);
       const res = await fetchMessages(conversationId, 1, 30);
+      console.log('[ChatRoom] Loaded messages:', res.data.messages.length, 'messages');
       setMessages(res.data.messages);
       paginationRef.current = res.data.pagination;
       setError(null);
     } catch (err: any) {
+      console.error('[ChatRoom] Failed to load messages:', err);
       setError(err?.response?.data?.message ?? "Failed to load messages.");
     }
   }, [conversationId]);
@@ -112,7 +115,7 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
 
         // ── new_message ────────────────────────────────────────────────────
         const onNewMessage = ({ message }: { message: ChatMessage }) => {
-          if (message.conversation !== conversationId) return;
+          if (message.conversation !== conversationId || !mountedRef.current) return;
           setMessages((prev) => {
             if (prev.some((m) => m._id === message._id)) return prev;
             return [...prev, message];
@@ -128,7 +131,7 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
           message: ChatMessage;
           tempId?: string;
         }) => {
-          if (message.conversation !== conversationId) return;
+          if (message.conversation !== conversationId || !mountedRef.current) return;
           setMessages((prev) => {
             const withoutTemp = prev.filter(
               (m) => !(m.tempId && m.tempId === tempId)
@@ -146,6 +149,7 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
           tempId?: string;
           error: string;
         }) => {
+          if (!mountedRef.current) return;
           console.warn("[ChatRoom] message_error:", errMsg);
           if (tempId) {
             setMessages((prev) =>
@@ -164,7 +168,7 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
         }: {
           conversationId: string;
         }) => {
-          if (cId !== conversationId) return;
+          if (cId !== conversationId || !mountedRef.current) return;
           setIsTyping(true);
           if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
           typingTimerRef.current = setTimeout(
@@ -178,7 +182,7 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
         }: {
           conversationId: string;
         }) => {
-          if (cId !== conversationId) return;
+          if (cId !== conversationId || !mountedRef.current) return;
           if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
           setIsTyping(false);
         };
@@ -195,7 +199,7 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
           callerType: string;
           isOnline: boolean;
         }) => {
-          if (cId !== conversationId) return;
+          if (cId !== conversationId || !mountedRef.current) return;
           // Only update presence for the other party (customer), not ourselves
           if (presenceType === "customer") {
             setIsOtherOnline(isOnline);
@@ -211,7 +215,7 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
           conversationId: string;
           readBy: string;
         }) => {
-          if (cId !== conversationId) return;
+          if (cId !== conversationId || !mountedRef.current) return;
           // Mark all our (partner) sent messages as read
           if (readBy === "customer") {
             setMessages((prev) =>
@@ -233,10 +237,9 @@ export function useChatRoom(conversationId: string): UseChatRoomResult {
           conversationId: string;
           userType: string;
         }) => {
-          if (cId !== conversationId) return;
-          console.log(`[ChatRoom] ${userType} purchased chat time, refreshing access...`);
-          // Trigger a reload of chat access on the listener's side
-          // This will be handled by the parent component that uses this hook
+          if (cId !== conversationId || !mountedRef.current) return;
+          console.log(`[ChatRoom] ${userType} purchased chat time`);
+          // Parent component should refetch chat access when needed
         };
 
         // Attach all listeners

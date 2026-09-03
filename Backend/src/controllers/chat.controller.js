@@ -161,9 +161,12 @@ export const getMessages = async (req, res) => {
     const page  = Math.max(1, Number(req.query.page)  || 1);
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
 
+    console.log(`[Chat] ${callerType}:${callerId} fetching messages for conv:${conversationId}, page ${page}`);
+
     // Load conversation and verify the caller is a participant
     const conversation = await Conversation.findById(conversationId);
     if (!conversation) {
+      console.log(`[Chat] Conversation ${conversationId} not found`);
       return res.status(404).json({ message: "Conversation not found." });
     }
 
@@ -172,6 +175,7 @@ export const getMessages = async (req, res) => {
       (callerType === "partner"  && conversation.partner.toString()  === callerId);
 
     if (!isParticipant) {
+      console.log(`[Chat] ${callerType}:${callerId} not a participant in conv:${conversationId}`);
       return res.status(403).json({ message: "Not authorised to view this conversation." });
     }
 
@@ -183,6 +187,8 @@ export const getMessages = async (req, res) => {
         .lean(),
       Message.countDocuments({ conversation: conversationId, isDeleted: false }),
     ]);
+
+    console.log(`[Chat] Found ${messages.length} messages (total: ${total}) for conv:${conversationId}`);
 
     // ── Mark unread messages as read ──────────────────────────────────────
     // Only mark messages sent by the OTHER party as read

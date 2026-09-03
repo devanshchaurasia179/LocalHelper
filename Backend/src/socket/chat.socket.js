@@ -155,6 +155,11 @@ export const registerChatHandlers = (namespace) => {
         await socket.join(room);
         console.log(`[Socket] ${callerType}:${callerId} joined room conv:${conversationId}`);
 
+        // Check who else is in the room after join
+        const socketsAfterJoin = await namespace.in(room).fetchSockets();
+        console.log(`[Socket] Room ${room} now has ${socketsAfterJoin.length} sockets:`, 
+          socketsAfterJoin.map(s => `${s.data.callerType}:${s.data.callerId} (${s.id})`));
+
         // Tell the joiner who is already present in the room
         socket.emit("user_presence", {
           conversationId,
@@ -293,9 +298,12 @@ export const registerChatHandlers = (namespace) => {
         socket.emit("message_sent", { message: messageObj, tempId });
 
         // Broadcast to everyone else in the room (the recipient)
-        socket.to(conversationRoom(conversationId)).emit("new_message", {
+        const room = conversationRoom(conversationId);
+        socket.to(room).emit("new_message", {
           message: messageObj,
         });
+        
+        console.log(`[Socket] Message sent in conv:${conversationId}, broadcast to room ${room} by ${callerType}:${callerId}`);
       } catch (err) {
         console.error("[Socket] send_message error:", err.message);
         socket.emit("message_error", { tempId, error: "Failed to send message." });
