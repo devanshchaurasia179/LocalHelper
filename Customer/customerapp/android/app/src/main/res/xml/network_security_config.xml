@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Allow cleartext traffic for AWS Elastic Beanstalk backend -->
+    <!-- Allow cleartext for production backend (HTTP) -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">localhelperbackend-env.eba-xsu7rune.ap-south-1.elasticbeanstalk.com</domain>
-        <!-- Allow local network IP for development -->
-        <domain includeSubdomains="true">10.10.213.145</domain>
-        <domain includeSubdomains="true">10.64.148.193</domain>
-        <domain includeSubdomains="true">10.10.92.128</domain>
-        <domain includeSubdomains="true">10.39.70.193</domain>
     </domain-config>
+    <!-- Allow cleartext for all local/dev traffic (IPs don't work in domain-config) -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>
