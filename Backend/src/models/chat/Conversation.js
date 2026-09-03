@@ -79,7 +79,7 @@ const conversationSchema = new mongoose.Schema(
     totalPaidMinutes: {
       type:    Number,
       default: 0,
-      // Cumulative minutes purchased for this conversation
+      // Cumulative minutes purchased for this conversation (by customer)
     },
 
     // Track when conversation screen is opened/closed to measure actual usage
@@ -91,6 +91,32 @@ const conversationSchema = new mongoose.Schema(
 
     // Current active session (for quick lookup)
     currentSessionStart: {
+      type:    Date,
+      default: null,
+    },
+
+    // ── Partner Chat Payment & Time Tracking ───────────────────────────────────
+    // Partner also pays ₹10 per minute to send messages
+    partnerActiveUntil: {
+      type:    Date,
+      default: null,
+      // When null or past, partner cannot send messages until they purchase more time
+    },
+
+    partnerTotalPaidMinutes: {
+      type:    Number,
+      default: 0,
+      // Cumulative minutes purchased by partner
+    },
+
+    // Track when partner opens/closes conversation screen
+    partnerSessionHistory: [{
+      openedAt:  { type: Date, required: true },
+      closedAt:  { type: Date, default: null },
+    }],
+
+    // Current active partner session
+    partnerCurrentSessionStart: {
       type:    Date,
       default: null,
     },
@@ -109,7 +135,7 @@ conversationSchema.methods.hasActiveChatTime = function() {
 };
 
 /**
- * Get remaining chat time in seconds (0 if expired)
+ * Get remaining chat time in seconds for customer (0 if expired)
  */
 conversationSchema.methods.getRemainingSeconds = function() {
   if (!this.activeUntil) return 0;
@@ -118,7 +144,7 @@ conversationSchema.methods.getRemainingSeconds = function() {
 };
 
 /**
- * Add paid minutes to the conversation
+ * Add paid minutes to the conversation (customer)
  * @param {number} minutes - Number of minutes to add
  * @returns {Date} - New activeUntil timestamp
  */
@@ -163,6 +189,70 @@ conversationSchema.methods.endSession = function() {
   }
   
   this.currentSessionStart = null;
+};
+
+// ─── Partner-specific methods ─────────────────────────────────────────────────
+
+/**
+ * Check if partner has active paid chat time remaining
+ */
+conversationSchema.methods.partnerHasActiveChatTime = function() {
+  if (!this.partnerActiveUntil) return false;
+  return new Date() < new Date(this.partnerActiveUntil);
+};
+
+/**
+ * Get remaining chat time in seconds for partner (0 if expired)
+ */
+conversationSchema.methods.partnerGetRemainingSeconds = function() {
+  if (!this.partnerActiveUntil) return 0;
+  const remaining = Math.floor((new Date(this.partnerActiveUntil) - new Date()) / 1000);
+  return Math.max(0, remaining);
+};
+
+/**
+ * Add paid minutes to the conversation (partner)
+ * @param {number} minutes - Number of minutes to add
+ * @returns {Date} - New partnerActiveUntil timestamp
+ */
+conversationSchema.methods.partnerAddChatTime = function(minutes) {
+  const now = new Date();
+  const currentActiveUntil = this.partnerActiveUntil ? new Date(this.partnerActiveUntil) : now;
+  
+  const startFrom = currentActiveUntil > now ? currentActiveUntil : now;
+  
+  this.partnerActiveUntil = new Date(startFrom.getTime() + minutes * 60 * 1000);
+  this.partnerTotalPaidMinutes = (this.partnerTotalPaidMinutes || 0) + minutes;
+  
+  return this.partnerActiveUntil;
+};
+
+/**
+ * Start a new session (when partner opens conversation screen)
+ */
+conversationSchema.methods.partnerStartSession = function() {
+  const now = new Date();
+  
+  if (!this.partnerCurrentSessionStart) {
+    this.partnerCurrentSessionStart = now;
+    this.partnerSessionHistory.push({ openedAt: now, closedAt: null });
+  }
+};
+
+/**
+ * End current session (when partner closes/leaves conversation screen)
+ */
+conversationSchema.methods.partnerEndSession = function() {
+  if (!this.partnerCurrentSessionStart) return;
+  
+  const now = new Date();
+  
+  const lastSession = this.partnerSessionHistory[this.partnerSessionHistory.length - 1];
+  if (lastSession && !lastSession.closedAt) {
+    lastSession.closedAt = now;
+  }
+  
+  this.partnerCurrentSessionStart = null;
 };
 
 // ─── Indexes ──────────────────────────────────────────────────────────────────

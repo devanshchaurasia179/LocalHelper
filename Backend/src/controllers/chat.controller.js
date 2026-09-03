@@ -3,6 +3,7 @@ import Message from "../models/chat/Message.js";
 import Customer from "../models/customer/Customer.js";
 import Partner from "../models/partner/Partner.js";
 import CustomerTransaction from "../models/customer/customer.wallet.js";
+import mongoose from "mongoose";
 import { uploadToCloudinary } from "../middleware/upload.middleware.js";
 import { getIO } from "../socket/index.js";
 import { emitNewMessage } from "../socket/chat.socket.js";
@@ -281,9 +282,22 @@ export const sendMessage = async (req, res) => {
       });
     }
 
-    // ── Chat time validation: only customers need paid time to send messages ──
+    // ── Chat time validation: both customers and partners need paid time ──
     if (callerType === "customer" && !conversation.hasActiveChatTime()) {
       const remainingSeconds = conversation.getRemainingSeconds();
+      return res.status(403).json({
+        message: "Your chat time has expired. Please purchase more time to continue messaging.",
+        chatTimeExpired: true,
+        remainingSeconds,
+        pricing: {
+          ratePerMinute: 10,
+          currency: "INR",
+        },
+      });
+    }
+
+    if (callerType === "partner" && !conversation.partnerHasActiveChatTime()) {
+      const remainingSeconds = conversation.partnerGetRemainingSeconds();
       return res.status(403).json({
         message: "Your chat time has expired. Please purchase more time to continue messaging.",
         chatTimeExpired: true,
@@ -514,14 +528,6 @@ export const purchaseChatTime = async (req, res) => {
     }
 
     const { callerType, callerId } = caller;
-
-    // Only customers can purchase chat time
-    if (callerType !== "customer") {
-      return res.status(403).json({ 
-        message: "Only customers can purchase chat time." 
-      });
-    }
-
     const { conversationId } = req.params;
     const { minutes } = req.body;
 
@@ -538,8 +544,11 @@ export const purchaseChatTime = async (req, res) => {
       return res.status(404).json({ message: "Conversation not found." });
     }
 
-    // Verify customer is participant
-    if (conversation.customer.toString() !== callerId) {
+    // Verify caller is participant
+    const isCustomer = callerType === "customer" && conversation.customer.toString() === callerId;
+    const isPartner = callerType === "partner" && conversation.partner.toString() === callerId;
+
+    if (!isCustomer && !isPartner) {
       return res.status(403).json({ 
         message: "Not authorised to purchase time for this conversation." 
       });
@@ -549,48 +558,101 @@ export const purchaseChatTime = async (req, res) => {
     const RATE_PER_MINUTE = 10;
     const totalCost = minutes * RATE_PER_MINUTE;
 
-    // Load customer wallet
-    const customer = await Customer.findById(callerId).select("walletBalance");
-    if (!customer) {
-      return res.status(404).json({ message: "Customer not found." });
-    }
+    // Load wallet based on caller type
+    let walletBalance;
+    let newActiveUntil;
 
-    // Check sufficient balance
-    if (customer.walletBalance < totalCost) {
-      return res.status(400).json({ 
-        message: `Insufficient wallet balance. Required: ₹${totalCost}, Available: ₹${customer.walletBalance}`,
-        required: totalCost,
-        available: customer.walletBalance,
-        shortfall: totalCost - customer.walletBalance,
+    if (callerType === "customer") {
+      const customer = await Customer.findById(callerId).select("walletBalance");
+      if (!customer) {
+        return res.status(404).json({ message: "Customer not found." });
+      }
+
+      // Check sufficient balance
+      if (customer.walletBalance < totalCost) {
+        return res.status(400).json({ 
+          message: `Insufficient wallet balance. Required: ₹${totalCost}, Available: ₹${customer.walletBalance}`,
+          required: totalCost,
+          available: customer.walletBalance,
+          shortfall: totalCost - customer.walletBalance,
+        });
+      }
+
+      // Deduct from wallet
+      customer.walletBalance -= totalCost;
+      await customer.save();
+      walletBalance = customer.walletBalance;
+
+      // Add chat time to conversation
+      newActiveUntil = conversation.addChatTime(minutes);
+      await conversation.save();
+
+      // Create transaction record
+      await CustomerTransaction.create({
+        customer: callerId,
+        type: "chat",
+        amount: totalCost,
+        direction: "debit",
+        balanceAfter: customer.walletBalance,
+        status: "completed",
+        description: `Chat time purchase: ${minutes} minute${minutes > 1 ? 's' : ''} with ${conversation.partner}`,
+      });
+    } else {
+      // Partner purchase
+      const Partner = mongoose.model("Partner");
+      const PartnerTransaction = mongoose.model("PartnerTransaction");
+      
+      const partner = await Partner.findById(callerId).select("walletBalance");
+      if (!partner) {
+        return res.status(404).json({ message: "Partner not found." });
+      }
+
+      // Check sufficient balance
+      if (partner.walletBalance < totalCost) {
+        return res.status(400).json({ 
+          message: `Insufficient wallet balance. Required: ₹${totalCost}, Available: ₹${partner.walletBalance}`,
+          required: totalCost,
+          available: partner.walletBalance,
+          shortfall: totalCost - partner.walletBalance,
+        });
+      }
+
+      // Deduct from wallet
+      partner.walletBalance -= totalCost;
+      await partner.save();
+      walletBalance = partner.walletBalance;
+
+      // Add chat time to conversation
+      newActiveUntil = conversation.partnerAddChatTime(minutes);
+      await conversation.save();
+
+      // Create transaction record
+      await PartnerTransaction.create({
+        partner: callerId,
+        type: "chat",
+        amount: totalCost,
+        direction: "debit",
+        balanceAfter: partner.walletBalance,
+        status: "completed",
+        description: `Chat time purchase: ${minutes} minute${minutes > 1 ? 's' : ''} with ${conversation.customer}`,
       });
     }
 
-    // Deduct from wallet
-    customer.walletBalance -= totalCost;
-    await customer.save();
+    const remainingSeconds = callerType === "customer" 
+      ? conversation.getRemainingSeconds()
+      : conversation.partnerGetRemainingSeconds();
 
-    // Add chat time to conversation
-    const newActiveUntil = conversation.addChatTime(minutes);
-    await conversation.save();
-
-    // Create transaction record
-    await CustomerTransaction.create({
-      customer: callerId,
-      type: "chat",
-      amount: totalCost,
-      direction: "debit",
-      balanceAfter: customer.walletBalance,
-      status: "completed",
-      description: `Chat time purchase: ${minutes} minute${minutes > 1 ? 's' : ''} with ${conversation.partner}`,
-    });
+    const totalPaidMinutes = callerType === "customer"
+      ? conversation.totalPaidMinutes
+      : conversation.partnerTotalPaidMinutes;
 
     return res.status(200).json({
       success: true,
       message: `${minutes} minute${minutes > 1 ? 's' : ''} of chat time added.`,
       activeUntil: newActiveUntil,
-      remainingSeconds: conversation.getRemainingSeconds(),
-      totalPaidMinutes: conversation.totalPaidMinutes,
-      walletBalance: customer.walletBalance,
+      remainingSeconds,
+      totalPaidMinutes,
+      walletBalance,
       amountCharged: totalCost,
     });
   } catch (error) {
@@ -632,14 +694,27 @@ export const checkChatAccess = async (req, res) => {
       });
     }
 
-    const hasAccess = conversation.hasActiveChatTime();
-    const remainingSeconds = conversation.getRemainingSeconds();
+    const hasAccess = callerType === "customer"
+      ? conversation.hasActiveChatTime()
+      : conversation.partnerHasActiveChatTime();
+
+    const remainingSeconds = callerType === "customer"
+      ? conversation.getRemainingSeconds()
+      : conversation.partnerGetRemainingSeconds();
+
+    const activeUntil = callerType === "customer"
+      ? conversation.activeUntil
+      : conversation.partnerActiveUntil;
+
+    const totalPaidMinutes = callerType === "customer"
+      ? conversation.totalPaidMinutes || 0
+      : conversation.partnerTotalPaidMinutes || 0;
 
     return res.status(200).json({
       hasAccess,
       remainingSeconds,
-      activeUntil: conversation.activeUntil,
-      totalPaidMinutes: conversation.totalPaidMinutes || 0,
+      activeUntil,
+      totalPaidMinutes,
       isCustomer: callerType === "customer",
       pricing: {
         ratePerMinute: 10,
@@ -668,14 +743,6 @@ export const startChatSession = async (req, res) => {
     }
 
     const { callerType, callerId } = caller;
-
-    // Only customers need to track sessions (they're the ones paying)
-    if (callerType !== "customer") {
-      return res.status(200).json({ 
-        message: "Session tracking not required for partners." 
-      });
-    }
-
     const { conversationId } = req.params;
 
     const conversation = await Conversation.findById(conversationId);
@@ -683,21 +750,41 @@ export const startChatSession = async (req, res) => {
       return res.status(404).json({ message: "Conversation not found." });
     }
 
-    // Verify customer is participant
-    if (conversation.customer.toString() !== callerId) {
+    // Verify caller is participant
+    const isCustomer = callerType === "customer" && conversation.customer.toString() === callerId;
+    const isPartner = callerType === "partner" && conversation.partner.toString() === callerId;
+
+    if (!isCustomer && !isPartner) {
       return res.status(403).json({ 
         message: "Not authorised to start session for this conversation." 
       });
     }
 
-    conversation.startSession();
+    if (callerType === "customer") {
+      conversation.startSession();
+    } else {
+      conversation.partnerStartSession();
+    }
+    
     await conversation.save();
+
+    const hasAccess = callerType === "customer"
+      ? conversation.hasActiveChatTime()
+      : conversation.partnerHasActiveChatTime();
+
+    const remainingSeconds = callerType === "customer"
+      ? conversation.getRemainingSeconds()
+      : conversation.partnerGetRemainingSeconds();
+
+    const sessionStarted = callerType === "customer"
+      ? conversation.currentSessionStart
+      : conversation.partnerCurrentSessionStart;
 
     return res.status(200).json({
       message: "Session started.",
-      sessionStarted: conversation.currentSessionStart,
-      hasAccess: conversation.hasActiveChatTime(),
-      remainingSeconds: conversation.getRemainingSeconds(),
+      sessionStarted,
+      hasAccess,
+      remainingSeconds,
     });
   } catch (error) {
     console.error("startChatSession error:", error);
@@ -721,14 +808,6 @@ export const endChatSession = async (req, res) => {
     }
 
     const { callerType, callerId } = caller;
-
-    // Only customers need to track sessions
-    if (callerType !== "customer") {
-      return res.status(200).json({ 
-        message: "Session tracking not required for partners." 
-      });
-    }
-
     const { conversationId } = req.params;
 
     const conversation = await Conversation.findById(conversationId);
@@ -736,20 +815,36 @@ export const endChatSession = async (req, res) => {
       return res.status(404).json({ message: "Conversation not found." });
     }
 
-    // Verify customer is participant
-    if (conversation.customer.toString() !== callerId) {
+    // Verify caller is participant
+    const isCustomer = callerType === "customer" && conversation.customer.toString() === callerId;
+    const isPartner = callerType === "partner" && conversation.partner.toString() === callerId;
+
+    if (!isCustomer && !isPartner) {
       return res.status(403).json({ 
         message: "Not authorised to end session for this conversation." 
       });
     }
 
-    conversation.endSession();
+    if (callerType === "customer") {
+      conversation.endSession();
+    } else {
+      conversation.partnerEndSession();
+    }
+    
     await conversation.save();
+
+    const totalPaidMinutes = callerType === "customer"
+      ? conversation.totalPaidMinutes
+      : conversation.partnerTotalPaidMinutes;
+
+    const totalSessions = callerType === "customer"
+      ? conversation.sessionHistory.length
+      : conversation.partnerSessionHistory.length;
 
     return res.status(200).json({
       message: "Session ended.",
-      totalPaidMinutes: conversation.totalPaidMinutes,
-      totalSessions: conversation.sessionHistory.length,
+      totalPaidMinutes,
+      totalSessions,
     });
   } catch (error) {
     console.error("endChatSession error:", error);

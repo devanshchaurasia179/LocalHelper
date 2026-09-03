@@ -813,6 +813,18 @@ export default function PartnerDetailSheet({
                     }`}
                   />
                 )}
+                {partner.chatCharges != null && partner.chatCharges > 0 && (
+                  <InfoChip
+                    icon="chatbubble-outline"
+                    label={`₹10/min chat`}
+                  />
+                )}
+                {partner.callCharges?.amount != null && partner.callCharges.amount > 0 && (
+                  <InfoChip
+                    icon="call-outline"
+                    label={`₹${partner.callCharges.amount}/${partner.callCharges.durationMinutes}min call`}
+                  />
+                )}
                 {partner.experience != null && partner.experience > 0 && (
                   <InfoChip icon="time-outline" label={`${partner.experience} yr exp`} />
                 )}

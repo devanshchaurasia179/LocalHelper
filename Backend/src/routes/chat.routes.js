@@ -82,14 +82,14 @@ router.patch( "/conversations/:conversationId/read",    flexAuth, markConversati
 // Check chat access status and remaining time
 router.get(  "/conversations/:conversationId/access",        flexAuth, checkChatAccess);
 
-// Purchase chat time (customer only)
-router.post( "/conversations/:conversationId/purchase-time", protectCustomer, purchaseChatTime);
+// Purchase chat time (customer or partner)
+router.post( "/conversations/:conversationId/purchase-time", flexAuth, purchaseChatTime);
 
-// Start session tracking (when customer opens conversation)
-router.post( "/conversations/:conversationId/start-session", protectCustomer, startChatSession);
+// Start session tracking (when user opens conversation)
+router.post( "/conversations/:conversationId/start-session", flexAuth, startChatSession);
 
-// End session tracking (when customer closes conversation)
-router.post( "/conversations/:conversationId/end-session",   protectCustomer, endChatSession);
+// End session tracking (when user closes conversation)
+router.post( "/conversations/:conversationId/end-session",   flexAuth, endChatSession);
 
 // ── Message routes ────────────────────────────────────────────────────────────
 

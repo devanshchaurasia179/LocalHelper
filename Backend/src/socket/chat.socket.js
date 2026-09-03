@@ -238,9 +238,19 @@ export const registerChatHandlers = (namespace) => {
           });
         }
 
-        // ── Chat time validation: only customers need paid time to send messages ──
+        // ── Chat time validation: both customers and partners need paid time ──
         if (callerType === "customer" && !conv.hasActiveChatTime()) {
           const remainingSeconds = conv.getRemainingSeconds();
+          return socket.emit("message_error", {
+            tempId,
+            error: "Your chat time has expired. Please purchase more time to continue messaging.",
+            chatTimeExpired: true,
+            remainingSeconds,
+          });
+        }
+
+        if (callerType === "partner" && !conv.partnerHasActiveChatTime()) {
+          const remainingSeconds = conv.partnerGetRemainingSeconds();
           return socket.emit("message_error", {
             tempId,
             error: "Your chat time has expired. Please purchase more time to continue messaging.",
