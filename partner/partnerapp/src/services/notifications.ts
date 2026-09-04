@@ -1,11 +1,11 @@
 /**
  * NotificationsService — Partner App
  *
- * Handles booking push notifications end-to-end:
- *   - Creates the Android notification channel (Notifee).
+ * Handles booking and chat push notifications end-to-end:
+ *   - Creates the Android notification channels (Notifee).
  *   - Foreground: messaging().onMessage → renders the notification via Notifee.
  *   - Background / quit: setBackgroundMessageHandler, getInitialNotification,
- *     and onNotificationOpenedApp → deep-link to the Bookings screen on tap.
+ *     and onNotificationOpenedApp → deep-link to the target screen on tap.
  *
  * Call messages (incoming_call / call_cancel) are handled by the socket-based
  * useCallManager. In the foreground we also cancel any stale call notification
@@ -20,21 +20,26 @@ import notifee, {
 } from "@notifee/react-native";
 import { getMessaging, type FirebaseMessagingTypes } from "@react-native-firebase/messaging";
 import { setPendingBooking } from "@/services/bookingDeepLink";
+import { setPendingChat } from "@/services/chatDeepLink";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const BOOKING_CHANNEL_ID = "bookings";
 const BOOKING_CHANNEL_NAME = "Booking updates";
 
+export const CHAT_CHANNEL_ID = "chat_messages";
+const CHAT_CHANNEL_NAME = "Chat messages";
+
 let _unsubscribeOnMessage: (() => void) | null = null;
 let _unsubscribeOnOpened: (() => void) | null = null;
 let _unsubscribeForegroundEvent: (() => void) | null = null;
-let _channelCreated = false;
+let _bookingChannelCreated = false;
+let _chatChannelCreated = false;
 
-// ─── Channel ─────────────────────────────────────────────────────────────────
+// ─── Channels ─────────────────────────────────────────────────────────────────
 
 export async function ensureBookingChannel(): Promise<void> {
-  if (_channelCreated) return;
+  if (_bookingChannelCreated) return;
   try {
     await notifee.createChannel({
       id: BOOKING_CHANNEL_ID,
@@ -43,9 +48,25 @@ export async function ensureBookingChannel(): Promise<void> {
       sound: "default",
       vibration: true,
     });
-    _channelCreated = true;
+    _bookingChannelCreated = true;
   } catch (err: any) {
-    console.warn("[Notifications] createChannel failed:", err?.message || err);
+    console.warn("[Notifications] createBookingChannel failed:", err?.message || err);
+  }
+}
+
+export async function ensureChatChannel(): Promise<void> {
+  if (_chatChannelCreated) return;
+  try {
+    await notifee.createChannel({
+      id: CHAT_CHANNEL_ID,
+      name: CHAT_CHANNEL_NAME,
+      importance: AndroidImportance.HIGH,
+      sound: "default",
+      vibration: true,
+    });
+    _chatChannelCreated = true;
+  } catch (err: any) {
+    console.warn("[Notifications] createChatChannel failed:", err?.message || err);
   }
 }
 
@@ -57,8 +78,14 @@ function isBookingMessage(data: RemoteMessage["data"] | undefined): boolean {
   return !!data && data.type === "booking";
 }
 
+function isChatMessage(data: RemoteMessage["data"] | undefined): boolean {
+  return !!data && data.type === "chat";
+}
+
 const asString = (v: unknown): string | undefined =>
   typeof v === "string" ? v : undefined;
+
+// ─── Booking routing ──────────────────────────────────────────────────────────
 
 function routeBookingTap(data: RemoteMessage["data"] | undefined): void {
   if (!isBookingMessage(data)) return;
@@ -103,10 +130,59 @@ async function displayBookingNotification(message: RemoteMessage): Promise<void>
   });
 }
 
+// ─── Chat routing ─────────────────────────────────────────────────────────────
+
+function routeChatTap(data: RemoteMessage["data"] | undefined): void {
+  if (!isChatMessage(data)) return;
+
+  const conversationId = asString(data?.conversationId);
+  const senderName = asString(data?.senderName);
+
+  if (conversationId) {
+    setPendingChat({ conversationId, senderName });
+  }
+
+  try {
+    if (conversationId) {
+      router.navigate(`/(tabs)/chat/${conversationId}` as any);
+    } else {
+      router.navigate("/(tabs)/chat" as any);
+    }
+  } catch (err: any) {
+    console.warn("[Notifications] navigate to chat failed:", err?.message || err);
+  }
+}
+
+async function displayChatNotification(message: RemoteMessage): Promise<void> {
+  if (!isChatMessage(message.data)) return;
+
+  await ensureChatChannel();
+
+  const senderName = asString(message.data?.senderName) ?? "New message";
+  const messageText = asString(message.data?.messageText) ?? "";
+  const conversationId = asString(message.data?.conversationId);
+
+  await notifee.displayNotification({
+    // Group by conversation so rapid messages collapse into one entry.
+    id: conversationId ? `chat_${conversationId}` : undefined,
+    title: senderName,
+    body: messageText,
+    data: message.data,
+    android: {
+      channelId: CHAT_CHANNEL_ID,
+      importance: AndroidImportance.HIGH,
+      pressAction: { id: "default" },
+      smallIcon: "ic_launcher",
+      sound: "default",
+    },
+  });
+}
+
 // ─── Public init ─────────────────────────────────────────────────────────────
 
 export function initNotifications(): void {
   ensureBookingChannel();
+  ensureChatChannel();
 
   if (!_unsubscribeOnMessage) {
     _unsubscribeOnMessage = getMessaging().onMessage((message) => {
@@ -126,6 +202,15 @@ export function initNotifications(): void {
         return;
       }
 
+      // Foreground chat: display the notification so the user can tap into it
+      // even while the app is open (they may be on a different screen).
+      if (type === "chat") {
+        displayChatNotification(message).catch((err) =>
+          console.warn("[Notifications] chat display failed:", err?.message || err)
+        );
+        return;
+      }
+
       displayBookingNotification(message).catch((err) =>
         console.warn("[Notifications] display failed:", err?.message || err)
       );
@@ -135,21 +220,37 @@ export function initNotifications(): void {
   if (!_unsubscribeForegroundEvent) {
     _unsubscribeForegroundEvent = notifee.onForegroundEvent(({ type, detail }: Event) => {
       if (type === EventType.PRESS) {
-        routeBookingTap(detail.notification?.data as RemoteMessage["data"]);
+        const data = detail.notification?.data as RemoteMessage["data"];
+        if (data?.type === "chat") {
+          routeChatTap(data);
+        } else {
+          routeBookingTap(data);
+        }
       }
     });
   }
 
   if (!_unsubscribeOnOpened) {
     _unsubscribeOnOpened = getMessaging().onNotificationOpenedApp((message) => {
-      routeBookingTap(message?.data);
+      const data = message?.data;
+      if (data?.type === "chat") {
+        routeChatTap(data);
+      } else {
+        routeBookingTap(data);
+      }
     });
   }
 
   getMessaging()
     .getInitialNotification()
     .then((message) => {
-      if (message) routeBookingTap(message.data);
+      if (!message) return;
+      const data = message.data;
+      if (data?.type === "chat") {
+        routeChatTap(data);
+      } else {
+        routeBookingTap(data);
+      }
     })
     .catch((err) =>
       console.warn("[Notifications] getInitialNotification failed:", err?.message || err)

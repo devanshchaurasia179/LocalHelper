@@ -7,6 +7,7 @@ import CustomerTransaction from "../models/customer/customer.wallet.js";
 import { uploadToCloudinary } from "../middleware/upload.middleware.js";
 import { getIO } from "../socket/index.js";
 import { emitNewMessage } from "../socket/chat.socket.js";
+import { sendToUser } from "../services/notification.service.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -364,6 +365,59 @@ export const sendMessage = async (req, res) => {
       emitNewMessage(getIO(), conversationId, message.toObject());
     } catch {
       // Socket.IO not yet initialised (e.g. test environment) — non-fatal
+    }
+
+    // ── Push notification ─────────────────────────────────────────────────
+    // Notify the recipient if they don't have the conversation room open.
+    // We use the Socket.IO room membership to decide — same logic as the
+    // socket send_message path.
+    try {
+      const recipientType = callerType === "customer" ? "partner" : "customer";
+      const recipientId   = callerType === "customer"
+        ? conversation.partner.toString()
+        : conversation.customer.toString();
+
+      const io = getIO();
+      const room = `conv:${conversationId}`;
+      const socketsInRoom = await io.of("/chat").in(room).fetchSockets();
+      const recipientOnline = socketsInRoom.some(
+        (s) => s.data.callerType === recipientType
+      );
+
+      if (!recipientOnline) {
+        // Resolve sender display name
+        let senderName;
+        if (callerType === "customer") {
+          const sender = await Customer.findById(callerId).select("name").lean();
+          senderName = sender?.name ?? "Customer";
+        } else {
+          const sender = await Partner.findById(partnerId).select("fullName").lean();
+          senderName = sender?.fullName ?? "Partner";
+        }
+
+        const messagePreview = text || (mediaType === "image" ? "📷 Image" : "New message");
+
+        await sendToUser({
+          userType: recipientType,
+          userId:   recipientId,
+          notification: {
+            title: senderName,
+            body:  messagePreview,
+          },
+          data: {
+            type:           "chat",
+            conversationId: conversationId.toString(),
+            senderId:       callerId.toString(),
+            senderType:     callerType,
+            senderName,
+            messageText:    messagePreview,
+          },
+          type: "chat",
+        });
+      }
+    } catch (pushErr) {
+      // Push failure must never abort the message response — log and move on.
+      console.error("[Chat] chat push notification failed:", pushErr?.message || pushErr);
     }
 
     return res.status(201).json({ message });

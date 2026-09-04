@@ -23,6 +23,7 @@ import { useConversations } from "@/hooks/useConversations";
 import { useCallHistory } from "@/hooks/useCallHistory";
 import { initiateCallToPartner, type CallRecord } from "@/api/call.api";
 import { connectChatSocket, getChatSocket } from "@/services/chat.socket";
+import { consumePendingChat, subscribePendingChat } from "@/services/chatDeepLink";
 import type { Conversation } from "@/api/chat.api";
 import type { NearbyPartner } from "@/api/nearby.api";
 import CallScreen from "@/components/call/CallScreen";
@@ -257,6 +258,35 @@ export default function ChatScreen() {
       if (socket) socket.off("new_message");
     };
   }, [refreshChats]);
+
+  // Deep-link: navigate to the conversation when a chat notification is tapped.
+  // Handles three cases:
+  //   1. App was killed  — getInitialNotification fires before this screen mounts;
+  //      routeChatTap calls setPendingChat, which we drain here on mount.
+  //   2. App backgrounded — onNotificationOpenedApp fires and stores via setPendingChat;
+  //      drained here on mount / re-focus.
+  //   3. App foregrounded — onForegroundEvent fires while this screen is already
+  //      mounted; the subscribePendingChat listener routes immediately.
+  useEffect(() => {
+    // Drain any tap that arrived before this screen mounted
+    const pending = consumePendingChat();
+    if (pending) {
+      router.push({
+        pathname: "/(tabs)/chat/[conversationId]" as any,
+        params: { conversationId: pending.conversationId },
+      });
+    }
+
+    // React to taps that arrive while this screen is already mounted
+    const unsub = subscribePendingChat((p) => {
+      router.push({
+        pathname: "/(tabs)/chat/[conversationId]" as any,
+        params: { conversationId: p.conversationId },
+      });
+    });
+
+    return unsub;
+  }, [router]);
 
   const handleConvPress = useCallback(
     (conv: Conversation) => {

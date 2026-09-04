@@ -11,6 +11,8 @@
  *                      show the IncomingCallModal when the app foregrounds.
  *   - call_cancel    → cancels any displayed call notification.
  *   - booking        → posts a booking notification for later deep-link.
+ *   - chat           → posts a chat notification; on tap navigates to the
+ *                      conversation screen via chatDeepLink.
  */
 
 import notifee, {
@@ -25,10 +27,13 @@ import {
 } from "@react-native-firebase/messaging";
 import {
   BOOKING_CHANNEL_ID,
+  CHAT_CHANNEL_ID,
   ensureBookingChannel,
+  ensureChatChannel,
 } from "@/services/notifications";
 import { setPendingBooking } from "@/services/bookingDeepLink";
 import { setPendingCall } from "@/services/callDeepLink";
+import { setPendingChat } from "@/services/chatDeepLink";
 
 // ─── Channels ─────────────────────────────────────────────────────────────────
 
@@ -48,6 +53,9 @@ async function ensureCallChannel(): Promise<void> {
 
 const isBooking = (data: RemoteMessage["data"] | undefined): boolean =>
   !!data && data.type === "booking";
+
+const isChat = (data: RemoteMessage["data"] | undefined): boolean =>
+  !!data && data.type === "chat";
 
 const asString = (v: unknown): string | undefined =>
   typeof v === "string" ? v : undefined;
@@ -87,8 +95,6 @@ setBackgroundMessageHandler(getMessaging(), async (message) => {
         ongoing: false,
         sound: "default",
         vibrationPattern: [300, 500, 300, 500],
-        // Full-screen intent would need extra permissions — plain heads-up is
-        // reliable without any additional manifest changes.
       },
     });
     return;
@@ -100,6 +106,30 @@ setBackgroundMessageHandler(getMessaging(), async (message) => {
     if (callId) {
       await notifee.cancelNotification(callNotificationId(callId));
     }
+    return;
+  }
+
+  // ── Chat ──────────────────────────────────────────────────────────────────
+  if (isChat(data)) {
+    const conversationId = asString(data?.conversationId);
+    const senderName = asString(data?.senderName) ?? "New message";
+    const messageText = asString(data?.messageText) ?? "";
+
+    await ensureChatChannel();
+    await notifee.displayNotification({
+      // Group by conversation so back-to-back messages don't stack.
+      id: conversationId ? `chat_${conversationId}` : undefined,
+      title: senderName,
+      body: messageText,
+      data,
+      android: {
+        channelId: CHAT_CHANNEL_ID,
+        importance: AndroidImportance.HIGH,
+        pressAction: { id: "default" },
+        smallIcon: "ic_launcher",
+        sound: "default",
+      },
+    });
     return;
   }
 
@@ -141,6 +171,15 @@ notifee.onBackgroundEvent(async ({ type, detail }: Event) => {
   // it was stored in setBackgroundMessageHandler. Nothing extra needed here;
   // useCallManager drains it via subscribePendingCall / consumePendingCall.
   if (msgType === "incoming_call") return;
+
+  // Chat notification tapped — store the conversationId for the chat screen
+  // to consume on mount/focus.
+  if (msgType === "chat") {
+    const conversationId = asString(data?.conversationId);
+    const senderName = asString(data?.senderName);
+    if (conversationId) setPendingChat({ conversationId, senderName });
+    return;
+  }
 
   // Booking notification tapped.
   if (!isBooking(data)) return;

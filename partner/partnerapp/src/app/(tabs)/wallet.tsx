@@ -35,13 +35,15 @@ import type { Transaction, SaveBankAccountPayload } from "@/api/wallet.api";
 // ─── Transaction Type Icons & Colors ──────────────────────────────────────────
 
 const TX_META: Record<
-  "topup" | "earning" | "payout" | "adjustment",
+  "topup" | "earning" | "payout" | "adjustment" | "call_charge" | "chat_charge",
   { icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }
 > = {
-  topup:      { icon: "add-circle",     color: colors.success, bg: colors.successLight },
-  earning:    { icon: "trending-up",    color: colors.success, bg: colors.successLight },
-  payout:     { icon: "arrow-down",     color: "#6366F1",      bg: "#EEF2FF" },
-  adjustment: { icon: "swap-horizontal", color: "#F59E0B",      bg: "#FFFBEB" },
+  topup:       { icon: "add-circle",      color: colors.success, bg: colors.successLight },
+  earning:     { icon: "trending-up",     color: colors.success, bg: colors.successLight },
+  payout:      { icon: "arrow-down",      color: "#6366F1",      bg: "#EEF2FF" },
+  adjustment:  { icon: "swap-horizontal", color: "#F59E0B",      bg: "#FFFBEB" },
+  call_charge: { icon: "call",            color: "#EF4444",      bg: "#FEF2F2" },
+  chat_charge: { icon: "chatbubble",      color: "#8B5CF6",      bg: "#F5F3FF" },
 };
 
 const STATUS_META: Record<

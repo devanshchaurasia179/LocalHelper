@@ -26,7 +26,7 @@ export async function fetchWalletSummary(): Promise<WalletSummary> {
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
 
-export type TransactionType = "topup" | "earning" | "payout" | "adjustment";
+export type TransactionType = "topup" | "earning" | "payout" | "adjustment" | "call_charge" | "chat_charge";
 export type TransactionStatus = "pending" | "processing" | "completed" | "failed";
 export type TransactionDirection = "credit" | "debit";
 

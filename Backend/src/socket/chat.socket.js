@@ -3,6 +3,7 @@ import Conversation from "../models/chat/Conversation.js";
 import Message from "../models/chat/Message.js";
 import Customer from "../models/customer/Customer.js";
 import Partner from "../models/partner/Partner.js";
+import { sendToUser } from "../services/notification.service.js";
 
 // ─── Auth middleware for Socket.IO ────────────────────────────────────────────
 /**
@@ -304,6 +305,65 @@ export const registerChatHandlers = (namespace) => {
         });
         
         console.log(`[Socket] Message sent in conv:${conversationId}, broadcast to room ${room} by ${callerType}:${callerId}`);
+
+        // ── Push notification ───────────────────────────────────────────────
+        // Only send a push if the recipient isn't already in the conversation
+        // room (i.e. they don't have the chat screen open — they'd see the
+        // message in real time via the socket and don't need a popup).
+        try {
+          const recipientType = callerType === "customer" ? "partner" : "customer";
+          const recipientId   = callerType === "customer"
+            ? conv.partner.toString()
+            : conv.customer.toString();
+
+          console.log(`[Push] chat push: sender=${callerType}:${callerId} recipient=${recipientType}:${recipientId}`);
+
+          const socketsInRoom = await namespace.in(room).fetchSockets();
+          const recipientOnline = socketsInRoom.some(
+            (s) => s.data.callerType === recipientType
+          );
+
+          console.log(`[Push] room=${room} sockets=${socketsInRoom.length} recipientOnline=${recipientOnline}`);
+
+          if (!recipientOnline) {
+            // Resolve sender display name — fetch only the name field.
+            let senderName;
+            if (callerType === "customer") {
+              const sender = await Customer.findById(callerId).select("name").lean();
+              senderName = sender?.name ?? "Customer";
+            } else {
+              const sender = await Partner.findById(callerId).select("fullName").lean();
+              senderName = sender?.fullName ?? "Partner";
+            }
+
+            console.log(`[Push] sending chat push to ${recipientType}:${recipientId} senderName="${senderName}"`);
+
+            await sendToUser({
+              userType: recipientType,
+              userId:   recipientId,
+              notification: {
+                title: senderName,
+                body:  trimmedText,
+              },
+              data: {
+                type:           "chat",
+                conversationId: conversationId.toString(),
+                senderId:       callerId.toString(),
+                senderType:     callerType,
+                senderName,
+                messageText:    trimmedText,
+              },
+              type: "chat",
+            });
+
+            console.log(`[Push] sendToUser call completed for ${recipientType}:${recipientId}`);
+          } else {
+            console.log(`[Push] skipping push — recipient already in room`);
+          }
+        } catch (pushErr) {
+          // Push failure must never abort the message flow — log and move on.
+          console.error("[Socket] chat push notification failed:", pushErr?.message || pushErr);
+        }
       } catch (err) {
         console.error("[Socket] send_message error:", err.message);
         socket.emit("message_error", { tempId, error: "Failed to send message." });
