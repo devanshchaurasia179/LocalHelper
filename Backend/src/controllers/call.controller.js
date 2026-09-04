@@ -855,6 +855,56 @@ export const endCall = async (req, res) => {
       return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
+    // ── Caller cancels while still ringing → mark as missed ──────────────────
+    // This happens when the initiating party hangs up before the other answers.
+    if (call.status === "ringing") {
+      call.status  = "missed";
+      call.endedAt = new Date();
+      await call.save();
+
+      // Cancel the ring timeout so it doesn't fire again
+      stopRingTimer(call._id.toString());
+
+      const io = getIO();
+      const chatNS = io.of("/chat");
+
+      // Notify both parties via socket
+      chatNS.to(`customer:${call.customer}`).emit("call_missed", {
+        callId: call._id.toString(),
+        initiatedBy: call.initiatedBy,
+        cancelledBy: userType,
+        timestamp: call.endedAt,
+      });
+      chatNS.to(`partner:${call.partner}`).emit("call_missed", {
+        callId: call._id.toString(),
+        initiatedBy: call.initiatedBy,
+        cancelledBy: userType,
+        timestamp: call.endedAt,
+      });
+
+      // FCM: tell the callee their incoming call was cancelled
+      const calleeType = call.initiatedBy === "customer" ? "partner" : "customer";
+      const calleeId   = calleeType === "partner"
+        ? call.partner.toString()
+        : call.customer.toString();
+
+      // Dismiss the incoming-call notification on the callee's device
+      sendToUser({
+        userType: calleeType,
+        userId:   calleeId,
+        type:     "call_cancel",
+        data:     { callId: call._id.toString() },
+      }).catch((err) =>
+        console.error("[Call] FCM call_cancel (ringing cancel) push error:", err?.message || err)
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Call cancelled",
+        call: { id: call._id, status: call.status },
+      });
+    }
+
     if (!["accepted", "ongoing"].includes(call.status)) {
       return res.status(400).json({
         success: false,
