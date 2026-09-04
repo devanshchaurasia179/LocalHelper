@@ -128,8 +128,9 @@ export const sendToUser = async ({ userType, userId, notification, data = {}, ty
     // call_cancel: data-only + high priority — only needs to dismiss the
     //   call notification, no need to wake from deep sleep.
     //
-    // Everything else: notification message + data payload + high priority
-    //   (booking updates, etc.).
+    // Everything else: notification message + data payload + high priority +
+    //   notification.priority "max" so Android shows a heads-up banner for
+    //   bookings, chat, missed calls etc. even when the screen is off.
     const message = { tokens, data: payloadData };
 
     if (isIncomingCall) {
@@ -149,8 +150,6 @@ export const sendToUser = async ({ userType, userId, notification, data = {}, ty
         },
       };
     } else if (isMissedCall) {
-      // Use a dedicated high-importance channel so Android actually shows the
-      // notification even when the app is backgrounded or killed.
       message.notification = {
         title: notification?.title ?? "Missed Call",
         body:  notification?.body  ?? "You missed a call",
@@ -159,7 +158,7 @@ export const sendToUser = async ({ userType, userId, notification, data = {}, ty
         priority: "high",
         notification: {
           channelId: "missed_calls",
-          priority:  "high",
+          priority:  "max",
           vibrateTimingsMillis: [200, 300],
         },
       };
@@ -170,10 +169,12 @@ export const sendToUser = async ({ userType, userId, notification, data = {}, ty
         title: notification?.title ?? "",
         body: notification?.body ?? "",
       };
-      // High priority ensures Android wakes the device immediately instead of
-      // batching the push during Doze / low-power mode. Required for booking
-      // alerts to arrive promptly even when the screen is off.
-      message.android = { priority: "high" };
+      message.android = {
+        priority: "high",
+        notification: {
+          priority: "max",
+        },
+      };
     }
 
     const messaging = getMessaging();
