@@ -112,14 +112,14 @@ setBackgroundMessageHandler(getMessaging(), async (message) => {
   // ── Chat ──────────────────────────────────────────────────────────────────
   if (isChat(data)) {
     const conversationId = asString(data?.conversationId);
-    const senderName = asString(data?.senderName) ?? "New message";
+    const senderName = asString(data?.senderName) ?? "Someone";
     const messageText = asString(data?.messageText) ?? "";
 
     await ensureChatChannel();
     await notifee.displayNotification({
       // Group by conversation so back-to-back messages don't stack.
       id: conversationId ? `chat_${conversationId}` : undefined,
-      title: senderName,
+      title: `${senderName} sent you a message`,
       body: messageText,
       data,
       android: {

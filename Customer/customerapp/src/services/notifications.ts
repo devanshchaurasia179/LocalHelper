@@ -161,14 +161,14 @@ async function displayChatNotification(message: RemoteMessage): Promise<void> {
 
   await ensureChatChannel();
 
-  const senderName = asString(message.data?.senderName) ?? "New message";
+  const senderName = asString(message.data?.senderName) ?? "Someone";
   const messageText = asString(message.data?.messageText) ?? "";
   const conversationId = asString(message.data?.conversationId);
 
   await notifee.displayNotification({
     // Group by conversation so rapid messages collapse into one entry.
     id: conversationId ? `chat_${conversationId}` : undefined,
-    title: senderName,
+    title: `${senderName} sent you a message`,
     body: messageText,
     data: message.data,
     android: {
