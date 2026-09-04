@@ -138,6 +138,8 @@ export const stopRingTimer = (callId) => {
 };
 
 
+/**
+ * In-memory store for active call timers.
  * Key: callId, Value: { intervalId, callId, customerId, partnerId, startedAt, allowedTime }
  */
 const activeCallTimers = new Map();
