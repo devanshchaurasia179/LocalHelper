@@ -31,11 +31,15 @@ const BOOKING_CHANNEL_NAME = "Booking updates";
 export const CHAT_CHANNEL_ID = "chat_messages";
 const CHAT_CHANNEL_NAME = "Chat messages";
 
+export const MISSED_CALL_CHANNEL_ID = "missed_calls";
+const MISSED_CALL_CHANNEL_NAME = "Missed calls";
+
 let _unsubscribeOnMessage: (() => void) | null = null;
 let _unsubscribeOnOpened: (() => void) | null = null;
 let _unsubscribeForegroundEvent: (() => void) | null = null;
 let _bookingChannelCreated = false;
 let _chatChannelCreated = false;
+let _missedCallChannelCreated = false;
 
 // ─── Channels ─────────────────────────────────────────────────────────────────
 
@@ -71,6 +75,21 @@ export async function ensureChatChannel(): Promise<void> {
   }
 }
 
+export async function ensureMissedCallChannel(): Promise<void> {
+  if (_missedCallChannelCreated) return;
+  try {
+    await notifee.createChannel({
+      id: MISSED_CALL_CHANNEL_ID,
+      name: MISSED_CALL_CHANNEL_NAME,
+      importance: AndroidImportance.HIGH,
+      vibration: true,
+    });
+    _missedCallChannelCreated = true;
+  } catch (err: any) {
+    console.warn("[Notifications] createMissedCallChannel failed:", err?.message || err);
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 type RemoteMessage = FirebaseMessagingTypes.RemoteMessage;
@@ -85,6 +104,32 @@ function isChatMessage(data: RemoteMessage["data"] | undefined): boolean {
 
 const asString = (v: unknown): string | undefined =>
   typeof v === "string" ? v : undefined;
+
+// ─── Missed call display ──────────────────────────────────────────────────────
+
+async function displayMissedCallNotification(message: RemoteMessage): Promise<void> {
+  if (message.data?.type !== "missed_call") return;
+  await ensureMissedCallChannel();
+
+  const title = message.notification?.title ??
+    (typeof message.data?.title === "string" ? message.data.title : "Missed Call");
+  const body  = message.notification?.body  ??
+    (typeof message.data?.body  === "string" ? message.data.body  : "You missed a call");
+
+  await notifee.displayNotification({
+    id: `missed_call_${asString(message.data?.callId) ?? Date.now()}`,
+    title,
+    body,
+    data: message.data,
+    android: {
+      channelId:   MISSED_CALL_CHANNEL_ID,
+      importance:  AndroidImportance.HIGH,
+      pressAction: { id: "default" },
+      smallIcon:   "ic_launcher",
+      vibrationPattern: [200, 300],
+    },
+  });
+}
 
 // ─── Booking routing ──────────────────────────────────────────────────────────
 
@@ -186,6 +231,7 @@ async function displayChatNotification(message: RemoteMessage): Promise<void> {
 export function initNotifications(): void {
   ensureBookingChannel();
   ensureChatChannel();
+  ensureMissedCallChannel();
 
   if (!_unsubscribeOnMessage) {
     _unsubscribeOnMessage = getMessaging().onMessage((message) => {
@@ -202,6 +248,14 @@ export function initNotifications(): void {
       if (type === "call_cancel") {
         const callId = asString(message.data?.callId);
         if (callId) notifee.cancelNotification(`call_${callId}`).catch(() => {});
+        return;
+      }
+
+      // Missed call — show a persistent notification even in foreground
+      if (type === "missed_call") {
+        displayMissedCallNotification(message).catch((err) =>
+          console.warn("[Notifications] missed_call display failed:", err?.message || err)
+        );
         return;
       }
 

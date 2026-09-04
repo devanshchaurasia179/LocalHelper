@@ -28,8 +28,10 @@ import {
 import {
   BOOKING_CHANNEL_ID,
   CHAT_CHANNEL_ID,
+  MISSED_CALL_CHANNEL_ID,
   ensureBookingChannel,
   ensureChatChannel,
+  ensureMissedCallChannel,
 } from "@/services/notifications";
 import { setPendingBooking } from "@/services/bookingDeepLink";
 import { setPendingCall } from "@/services/callDeepLink";
@@ -128,6 +130,29 @@ setBackgroundMessageHandler(getMessaging(), async (message) => {
         pressAction: { id: "default" },
         smallIcon: "ic_launcher",
         sound: "default",
+      },
+    });
+    return;
+  }
+
+  // ── Missed call ───────────────────────────────────────────────────────────
+  if (type === "missed_call") {
+    const callId  = asString(data?.callId) ?? String(Date.now());
+    const title   = message.notification?.title ?? asString(data?.title) ?? "Missed Call";
+    const body    = message.notification?.body  ?? asString(data?.body)  ?? "You missed a call";
+
+    await ensureMissedCallChannel();
+    await notifee.displayNotification({
+      id: `missed_call_${callId}`,
+      title,
+      body,
+      data,
+      android: {
+        channelId:        MISSED_CALL_CHANNEL_ID,
+        importance:       AndroidImportance.HIGH,
+        pressAction:      { id: "default" },
+        smallIcon:        "ic_launcher",
+        vibrationPattern: [200, 300],
       },
     });
     return;
