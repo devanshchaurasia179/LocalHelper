@@ -882,13 +882,24 @@ export const endCall = async (req, res) => {
         timestamp: call.endedAt,
       });
 
-      // FCM: tell the callee their incoming call was cancelled
-      const calleeType = call.initiatedBy === "customer" ? "partner" : "customer";
-      const calleeId   = calleeType === "partner"
-        ? call.partner.toString()
-        : call.customer.toString();
+      // ── FCM notifications ────────────────────────────────────────────────────
+      // Fetch names so notification bodies are meaningful.
+      const [callerCustomer, callerPartner] = await Promise.all([
+        Customer.findById(call.customer).select("name"),
+        Partner.findById(call.partner).select("fullName"),
+      ]);
+      const customerName = callerCustomer?.name   ?? "Customer";
+      const partnerName  = callerPartner?.fullName ?? "Partner";
 
-      // Dismiss the incoming-call notification on the callee's device
+      // Who initiated, who was the callee (the one whose device needs to dismiss)
+      const calleeType = call.initiatedBy === "customer" ? "partner"  : "customer";
+      const callerType = call.initiatedBy === "customer" ? "customer" : "partner";
+      const calleeId   = calleeType === "partner"  ? call.partner.toString()  : call.customer.toString();
+      const callerId   = callerType === "customer" ? call.customer.toString() : call.partner.toString();
+      const calleeName = calleeType === "partner"  ? partnerName  : customerName;
+      const callerName = callerType === "customer" ? customerName : partnerName;
+
+      // 1. Dismiss the incoming-call UI on the callee's device (data-only)
       sendToUser({
         userType: calleeType,
         userId:   calleeId,
@@ -896,6 +907,44 @@ export const endCall = async (req, res) => {
         data:     { callId: call._id.toString() },
       }).catch((err) =>
         console.error("[Call] FCM call_cancel (ringing cancel) push error:", err?.message || err)
+      );
+
+      // 2. "Missed Call" notification → callee (they didn't get to answer)
+      sendToUser({
+        userType: calleeType,
+        userId:   calleeId,
+        notification: {
+          title: "Missed Call",
+          body:  `You missed a call from ${callerName}`,
+        },
+        data: {
+          callId:      call._id.toString(),
+          callerName,
+          initiatedBy: call.initiatedBy,
+          cancelledBy: userType,
+        },
+        type: "missed_call",
+      }).catch((err) =>
+        console.error("[Call] FCM missed_call (callee) push error:", err?.message || err)
+      );
+
+      // 3. "No Answer" notification → caller (they cancelled, confirmation)
+      sendToUser({
+        userType: callerType,
+        userId:   callerId,
+        notification: {
+          title: "Call Ended",
+          body:  `${calleeName} didn't answer`,
+        },
+        data: {
+          callId:      call._id.toString(),
+          calleeName,
+          initiatedBy: call.initiatedBy,
+          cancelledBy: userType,
+        },
+        type: "missed_call",
+      }).catch((err) =>
+        console.error("[Call] FCM missed_call (caller) push error:", err?.message || err)
       );
 
       return res.status(200).json({

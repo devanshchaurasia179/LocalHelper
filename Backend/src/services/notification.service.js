@@ -115,6 +115,7 @@ export const sendToUser = async ({ userType, userId, notification, data = {}, ty
     const payloadData = stringifyData({ ...data, ...(type ? { type } : {}) });
 
     const isIncomingCall = type === "incoming_call";
+    const isMissedCall   = type === "missed_call";
     const isDataOnlyCall = type && DATA_ONLY_CALL_TYPES.has(type);
 
     // Build the FCM message.
@@ -145,6 +146,21 @@ export const sendToUser = async ({ userType, userId, notification, data = {}, ty
           sound: "ringtone",
           vibrateTimingsMillis: [300, 500, 300, 500],
           priority: "max",
+        },
+      };
+    } else if (isMissedCall) {
+      // Use a dedicated high-importance channel so Android actually shows the
+      // notification even when the app is backgrounded or killed.
+      message.notification = {
+        title: notification?.title ?? "Missed Call",
+        body:  notification?.body  ?? "You missed a call",
+      };
+      message.android = {
+        priority: "high",
+        notification: {
+          channelId: "missed_calls",
+          priority:  "high",
+          vibrateTimingsMillis: [200, 300],
         },
       };
     } else if (isDataOnlyCall) {
