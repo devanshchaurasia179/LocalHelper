@@ -2,8 +2,8 @@ import Conversation from "../models/chat/Conversation.js";
 import Message from "../models/chat/Message.js";
 import Customer from "../models/customer/Customer.js";
 import Partner from "../models/partner/Partner.js";
+import PartnerTransaction from "../models/partner/partner.transaction.js";
 import CustomerTransaction from "../models/customer/customer.wallet.js";
-import mongoose from "mongoose";
 import { uploadToCloudinary } from "../middleware/upload.middleware.js";
 import { getIO } from "../socket/index.js";
 import { emitNewMessage } from "../socket/chat.socket.js";
@@ -605,9 +605,6 @@ export const purchaseChatTime = async (req, res) => {
       });
     } else {
       // Partner purchase
-      const Partner = mongoose.model("Partner");
-      const PartnerTransaction = mongoose.model("PartnerTransaction");
-      
       const partner = await Partner.findById(callerId).select("walletBalance");
       if (!partner) {
         return res.status(404).json({ message: "Partner not found." });
@@ -635,7 +632,7 @@ export const purchaseChatTime = async (req, res) => {
       // Create transaction record
       await PartnerTransaction.create({
         partner: callerId,
-        type: "chat",
+        type: "chat_charge",
         amount: totalCost,
         direction: "debit",
         balanceAfter: partner.walletBalance,

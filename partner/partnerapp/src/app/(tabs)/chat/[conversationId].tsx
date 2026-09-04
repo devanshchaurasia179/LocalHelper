@@ -322,13 +322,11 @@ export default function ChatRoomScreen() {
     }
   }, [conversationId]);
 
-  const handleSessionEnd = useCallback(async () => {
-    try {
-      await endChatSession(conversationId);
-      console.log("Chat session ended");
-    } catch (err) {
-      console.error("Failed to end session:", err);
-    }
+  const handleSessionEnd = useCallback(() => {
+    // Fire-and-forget — this runs during unmount / background transitions,
+    // so we deliberately don't await and silently swallow network errors
+    // that are expected when the app is backgrounding or the screen tears down.
+    endChatSession(conversationId).catch(() => {});
   }, [conversationId]);
 
   // ── Load wallet balance ───────────────────────────────────────────────────
@@ -634,8 +632,8 @@ export default function ChatRoomScreen() {
       <PurchaseChatTimeModal
         visible={purchaseModalVisible}
         onClose={() => setPurchaseModalVisible(false)}
-        conversationId={conversationId}
-        onPurchaseSuccess={handlePurchaseTime}
+        onPurchase={handlePurchaseTime}
+        walletBalance={walletBalance}
         currentRemainingSeconds={remainingSeconds}
       />
     </SafeAreaView>
