@@ -97,8 +97,15 @@ export const sendOtp = async (req, res) => {
 
     return res.status(200).json({ message: "OTP sent successfully." });
   } catch (error) {
-    console.error("sendOtp error:", error);
-    return res.status(500).json({ message: "Internal server error." });
+    console.error("sendOtp error:", error?.message || error);
+    // Expose SMS delivery errors explicitly so they don't appear as generic 500s
+    if (error?.message?.includes("ApiTxt")) {
+      return res.status(502).json({ message: `SMS delivery failed: ${error.message}` });
+    }
+    if (error?.message?.includes("APITXT_AUTH_KEY")) {
+      return res.status(500).json({ message: "SMS service is not configured on this server." });
+    }
+    return res.status(500).json({ message: "Internal server error.", detail: error?.message });
   }
 };
 

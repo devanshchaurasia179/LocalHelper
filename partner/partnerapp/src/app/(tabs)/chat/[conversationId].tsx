@@ -635,7 +635,7 @@ export default function ChatRoomScreen() {
         visible={purchaseModalVisible}
         onClose={() => setPurchaseModalVisible(false)}
         conversationId={conversationId}
-        onPurchaseSuccess={handlePurchaseSuccess}
+        onPurchaseSuccess={handlePurchaseTime}
         currentRemainingSeconds={remainingSeconds}
       />
     </SafeAreaView>

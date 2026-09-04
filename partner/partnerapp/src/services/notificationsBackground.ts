@@ -32,15 +32,20 @@ import { setPendingCall } from "@/services/callDeepLink";
 
 // ─── Channels ─────────────────────────────────────────────────────────────────
 
-export const CALL_CHANNEL_ID = "incoming_calls";
+// v2 channel uses the custom ringtone.mp3 bundled at res/raw/ringtone.mp3.
+// Android notification channels are immutable once created — a new ID is
+// required to change the sound from the old "default" channel.
+export const CALL_CHANNEL_ID = "incoming_calls_v2";
 
 async function ensureCallChannel(): Promise<void> {
   await notifee.createChannel({
     id: CALL_CHANNEL_ID,
     name: "Incoming calls",
     importance: AndroidImportance.HIGH,
-    sound: "default",
+    // "ringtone" refers to android/app/src/main/res/raw/ringtone.mp3
+    sound: "ringtone",
     vibration: true,
+    vibrationPattern: [300, 500, 300, 500],
   });
 }
 
@@ -72,6 +77,11 @@ setBackgroundMessageHandler(getMessaging(), async (message) => {
     // Store so useCallManager can show IncomingCallModal when app foregrounds.
     setPendingCall({ callId, roomName, callerName, callerId });
 
+    // When the app is KILLED, FCM delivers the notification block from the
+    // backend directly and may display a system notification before the JS
+    // engine even starts. We still call notifee.displayNotification() so the
+    // notification uses our channel (with the custom ringtone) and our exact
+    // press action — this replaces the FCM-rendered one via the same `id`.
     await ensureCallChannel();
     await notifee.displayNotification({
       id: callNotificationId(callId),
@@ -84,7 +94,8 @@ setBackgroundMessageHandler(getMessaging(), async (message) => {
         pressAction: { id: "default" },
         smallIcon: "ic_launcher",
         ongoing: false,
-        sound: "default",
+        // "ringtone" maps to android/app/src/main/res/raw/ringtone.mp3
+        sound: "ringtone",
         vibrationPattern: [300, 500, 300, 500],
       },
     });

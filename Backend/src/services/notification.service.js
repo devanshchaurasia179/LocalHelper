@@ -7,20 +7,34 @@ import Partner from "../models/partner/Partner.js";
  *
  * Thin wrapper around Firebase Cloud Messaging (FCM) that:
  *   - Loads the target user's registered device tokens
- *   - Builds either a DATA-ONLY high-priority message (for calls) or a
- *     standard notification message
+ *   - Builds the appropriate FCM message for the event type
  *   - Multicasts to every token the user has
  *   - Prunes tokens FCM reports as unregistered / invalid
  *
  * Everything is wrapped so a delivery failure only logs — it never throws
  * back into the caller (booking flow, call flow, etc. must not break because
  * a push failed).
+ *
+ * CALL DELIVERY STRATEGY
+ * ──────────────────────
+ * incoming_call uses a NOTIFICATION message (not data-only) so that FCM's
+ * high-priority delivery path bypasses Android Doze / App Standby and wakes
+ * the device even when the app is completely killed. A data-only message with
+ * priority:"high" is still subject to deferral on many OEM ROMs once the
+ * app has been force-stopped or Doze deep-sleep has been entered.
+ *
+ * The notification title/body are set to visually meaningful strings so the
+ * system tray shows a useful alert while the app is cold-starting.  The full
+ * call payload is still delivered in the `data` map so the JS background
+ * handler can read callId / roomName / callerName and display the custom
+ * Notifee UI once the engine wakes.
+ *
+ * call_cancel is data-only (priority:"high") because it only needs to dismiss
+ * a notification — it doesn't need to wake the device from deep sleep.
  */
 
-// FCM message types that represent a VoIP-style call event. These are sent as
-// data-only, high-priority messages so the client can wake up and render its
-// own full-screen call UI instead of a passive notification.
-const CALL_TYPES = new Set(["incoming_call", "call_cancel"]);
+// call_cancel is the only call-adjacent type that stays data-only.
+const DATA_ONLY_CALL_TYPES = new Set(["call_cancel"]);
 
 // FCM error codes that mean the token is dead/unusable and should be removed.
 // invalid-argument covers malformed or junk tokens (e.g. leftover test values)
@@ -100,14 +114,40 @@ export const sendToUser = async ({ userType, userId, notification, data = {}, ty
     // can branch on it regardless of message shape.
     const payloadData = stringifyData({ ...data, ...(type ? { type } : {}) });
 
-    const isCall = type && CALL_TYPES.has(type);
+    const isIncomingCall = type === "incoming_call";
+    const isDataOnlyCall = type && DATA_ONLY_CALL_TYPES.has(type);
 
-    // Build the message. Call events are DATA-ONLY + high priority so the app
-    // can wake and render its own full-screen call UI. Everything else carries
-    // a visible notification block alongside the data.
+    // Build the FCM message.
+    //
+    // incoming_call: notification message + data payload + high priority.
+    //   The `notification` block guarantees FCM delivers the message even when
+    //   the app is killed and the device is in Doze. The `data` block carries
+    //   the full call payload for the JS background handler.
+    //
+    // call_cancel: data-only + high priority — only needs to dismiss the
+    //   call notification, no need to wake from deep sleep.
+    //
+    // Everything else: notification message + data payload + high priority
+    //   (booking updates, etc.).
     const message = { tokens, data: payloadData };
 
-    if (isCall) {
+    if (isIncomingCall) {
+      const callerName = data?.callerName ?? "Customer";
+      message.notification = {
+        title: "Incoming Call",
+        body: `${callerName} is calling you`,
+      };
+      message.android = {
+        priority: "high",
+        notification: {
+          // Map to the same channel the partner app creates for call alerts.
+          channelId: "incoming_calls_v2",
+          sound: "ringtone",
+          vibrateTimingsMillis: [300, 500, 300, 500],
+          priority: "max",
+        },
+      };
+    } else if (isDataOnlyCall) {
       message.android = { priority: "high" };
     } else {
       message.notification = {

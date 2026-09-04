@@ -367,7 +367,7 @@ export default function Dashboard() {
       {callScreenVisible && callPartnerInfo && (
         <CallScreen
           visible={callScreenVisible}
-          partner={callPartnerInfo as any}
+          partnerName={callPartnerInfo.fullName ?? 'Partner'}
           callId={callId}
           livekitUrl={callLivekitUrl}
           livekitToken={callLivekitToken}

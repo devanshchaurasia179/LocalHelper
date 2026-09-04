@@ -813,7 +813,7 @@ export default function ChatRoomScreen() {
       {callPartner && (
         <CallScreen
           visible={callScreenVisible}
-          partner={callPartner}
+          partnerName={callPartner.fullName ?? 'Partner'}
           callId={callId}
           livekitUrl={livekitUrl}
           livekitToken={livekitToken}
