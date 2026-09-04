@@ -6,7 +6,7 @@ import Customer from "../models/customer/Customer.js";
 import Partner from "../models/partner/Partner.js";
 import { getIO } from "../socket/index.js";
 import { startCallRecording, stopCallRecording } from "../services/callRecording.service.js";
-import { startCallTimer, stopCallTimer } from "../socket/call.socket.js";
+import { startCallTimer, stopCallTimer, startRingTimer, stopRingTimer } from "../socket/call.socket.js";
 import { sendToUser } from "../services/notification.service.js";
 
 // ─── Helper: count a user's registered FCM tokens ──────────────────────────────
@@ -191,6 +191,14 @@ export const createCall = async (req, res) => {
       console.error("[Call] FCM incoming_call push error (non-blocking):", err?.message || err)
     );
 
+    // Start 60-second ring timeout — auto-misses the call if nobody answers
+    try {
+      const io = getIO();
+      startRingTimer(io.of("/chat"), call);
+    } catch (ringErr) {
+      console.error("[Call] Ring timer start error (non-blocking):", ringErr.message);
+    }
+
     // Return call info but NOT the LiveKit token yet.
     // Customer should wait for "call_accepted" socket event before connecting to LiveKit.
     return res.status(201).json({
@@ -356,6 +364,14 @@ export const createCallAsPartner = async (req, res) => {
       console.error("[Call] FCM incoming_call push error (non-blocking):", err?.message || err)
     );
 
+    // Start 60-second ring timeout — auto-misses the call if nobody answers
+    try {
+      const io = getIO();
+      startRingTimer(io.of("/chat"), call);
+    } catch (ringErr) {
+      console.error("[Call] Ring timer start error (non-blocking):", ringErr.message);
+    }
+
     return res.status(201).json({
       success: true,
       call: {
@@ -502,6 +518,9 @@ export const acceptCall = async (req, res) => {
     call.startedAt = new Date();
     await call.save();
 
+    // Cancel the ring timeout — call has been answered
+    stopRingTimer(call._id.toString());
+
     const partner = await Partner.findById(partnerId).select("fullName");
 
     // Generate LiveKit token for partner
@@ -610,6 +629,9 @@ export const rejectCall = async (req, res) => {
     call.endedAt = new Date();
     await call.save();
 
+    // Cancel the ring timeout — call has been declined
+    stopRingTimer(call._id.toString());
+
     // Notify customer via socket
     try {
       const io = getIO();
@@ -674,6 +696,9 @@ export const acceptCallAsCustomer = async (req, res) => {
     call.status = "accepted";
     call.startedAt = new Date();
     await call.save();
+
+    // Cancel the ring timeout — call has been answered
+    stopRingTimer(call._id.toString());
 
     const customer = await Customer.findById(customerId).select("name");
 
@@ -770,6 +795,9 @@ export const rejectCallAsCustomer = async (req, res) => {
     call.status = "rejected";
     call.endedAt = new Date();
     await call.save();
+
+    // Cancel the ring timeout — call has been declined
+    stopRingTimer(call._id.toString());
 
     // Notify partner via socket
     try {

@@ -1,9 +1,143 @@
 import Call from "../models/call/call.js";
 import Customer from "../models/customer/Customer.js";
 import Partner from "../models/partner/Partner.js";
+import { sendToUser } from "../services/notification.service.js";
+
+// ─── Ring timeout (60 s) ──────────────────────────────────────────────────────
+
+/** In-memory store for ringing timeouts. Key: callId, Value: timeoutId */
+const activeRingTimers = new Map();
+
+const RING_TIMEOUT_MS = 60_000; // 60 seconds
 
 /**
- * In-memory store for active call timers.
+ * startRingTimer(namespace, call)
+ *
+ * Starts a 60-second countdown after a call is created.
+ * If the call is still "ringing" when the timer fires it is marked "missed",
+ * `call_missed` is emitted to both parties via socket, and a "Missed Call"
+ * FCM push is sent to the callee (the party who should have answered).
+ */
+export const startRingTimer = (namespace, call) => {
+  const callId = call._id.toString();
+  if (activeRingTimers.has(callId)) return; // already tracking
+
+  const timeoutId = setTimeout(async () => {
+    activeRingTimers.delete(callId);
+
+    try {
+      // Re-fetch so we don't act on a call that was already resolved.
+      const callDoc = await Call.findById(callId)
+        .populate("customer", "name fcmTokens")
+        .populate("partner", "fullName fcmTokens");
+
+      if (!callDoc || callDoc.status !== "ringing") return;
+
+      callDoc.status  = "missed";
+      callDoc.endedAt = new Date();
+      await callDoc.save();
+
+      const customerRoom = `customer:${callDoc.customer._id}`;
+      const partnerRoom  = `partner:${callDoc.partner._id}`;
+
+      // Socket events — both sides learn the call was missed
+      namespace.to(customerRoom).emit("call_missed", {
+        callId,
+        initiatedBy: callDoc.initiatedBy,
+        timestamp:   callDoc.endedAt,
+      });
+      namespace.to(partnerRoom).emit("call_missed", {
+        callId,
+        initiatedBy: callDoc.initiatedBy,
+        timestamp:   callDoc.endedAt,
+      });
+
+      console.log(`[RingTimer] Call ${callId} missed after ${RING_TIMEOUT_MS / 1000}s`);
+
+      // ── FCM missed-call notification ──────────────────────────────────────
+      // Notify the callee (the person who didn't answer).
+      // If customer initiated → partner was the callee → notify partner.
+      // If partner initiated  → customer was the callee → notify customer.
+      const calleeType = callDoc.initiatedBy === "customer" ? "partner" : "customer";
+      const calleeName =
+        calleeType === "partner"
+          ? callDoc.partner.fullName ?? "Partner"
+          : callDoc.customer.name   ?? "Customer";
+      const callerName =
+        calleeType === "partner"
+          ? callDoc.customer.name   ?? "Customer"
+          : callDoc.partner.fullName ?? "Partner";
+      const calleeId =
+        calleeType === "partner"
+          ? callDoc.partner._id.toString()
+          : callDoc.customer._id.toString();
+
+      // Notify callee: "You missed a call from <caller>"
+      sendToUser({
+        userType: calleeType,
+        userId:   calleeId,
+        notification: {
+          title: "Missed Call",
+          body:  `You missed a call from ${callerName}`,
+        },
+        data: {
+          callId,
+          callerName,
+          initiatedBy: callDoc.initiatedBy,
+        },
+        type: "missed_call",
+      }).catch((err) =>
+        console.error("[RingTimer] FCM missed_call (callee) push error:", err?.message || err)
+      );
+
+      // Also notify the caller: "<callee> didn't answer"
+      const callerType = callDoc.initiatedBy === "customer" ? "customer" : "partner";
+      const callerId   =
+        callerType === "customer"
+          ? callDoc.customer._id.toString()
+          : callDoc.partner._id.toString();
+
+      sendToUser({
+        userType: callerType,
+        userId:   callerId,
+        notification: {
+          title: "No Answer",
+          body:  `${calleeName} didn't answer your call`,
+        },
+        data: {
+          callId,
+          calleeName,
+          initiatedBy: callDoc.initiatedBy,
+        },
+        type: "missed_call",
+      }).catch((err) =>
+        console.error("[RingTimer] FCM missed_call (caller) push error:", err?.message || err)
+      );
+    } catch (err) {
+      console.error("[RingTimer] Auto-miss error:", err.message);
+    }
+  }, RING_TIMEOUT_MS);
+
+  activeRingTimers.set(callId, timeoutId);
+  console.log(`[RingTimer] Started ring timer for call ${callId} (${RING_TIMEOUT_MS / 1000}s)`);
+};
+
+/**
+ * stopRingTimer(callId)
+ *
+ * Cancels the ring timeout — call when the call is accepted, rejected,
+ * or cancelled before the timeout fires.
+ */
+export const stopRingTimer = (callId) => {
+  const timeoutId = activeRingTimers.get(callId?.toString());
+  if (timeoutId !== undefined) {
+    clearTimeout(timeoutId);
+    activeRingTimers.delete(callId.toString());
+    console.log(`[RingTimer] Stopped ring timer for call ${callId}`);
+  }
+};
+
+
  * Key: callId, Value: { intervalId, callId, customerId, partnerId, startedAt, allowedTime }
  */
 const activeCallTimers = new Map();
