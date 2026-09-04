@@ -118,9 +118,14 @@ export default function useCallManager() {
     } catch (error: any) {
       stopCallAudio();
       if (mountedRef.current) {
+        const code = error?.response?.data?.code;
+        const text1 =
+          code === 'INSUFFICIENT_BALANCE'          ? 'Insufficient Balance' :
+          code === 'CUSTOMER_INSUFFICIENT_BALANCE'  ? 'Customer Cannot Receive Calls' :
+                                                     'Call Failed';
         Toast.show({
           type: 'error',
-          text1: 'Call Failed',
+          text1,
           text2: error?.response?.data?.message || 'Could not start call',
         });
       }

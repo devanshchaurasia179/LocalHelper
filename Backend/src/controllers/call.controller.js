@@ -77,7 +77,7 @@ export const createCall = async (req, res) => {
       });
     }
 
-    const partner = await Partner.findById(partnerId).select("blockedCustomers accountStatus fullName fcmTokens");
+    const partner = await Partner.findById(partnerId).select("blockedCustomers accountStatus fullName fcmTokens walletBalance");
     if (!partner) {
       return res.status(404).json({ success: false, message: "Partner not found" });
     }
@@ -96,12 +96,24 @@ export const createCall = async (req, res) => {
       });
     }
 
+    // Check if partner also has sufficient balance to participate in the call
+    if ((partner.walletBalance ?? 0) < minimumCharge) {
+      return res.status(402).json({
+        success: false,
+        message: `${partner.fullName ?? "The partner"} does not have sufficient funds to receive calls right now.`,
+        code: "PARTNER_INSUFFICIENT_BALANCE",
+        minimumRequired: minimumCharge,
+      });
+    }
+
     // Create room & call record
     const roomName = `call_${crypto.randomUUID()}`;
 
-    // Calculate allowed time based on customer's wallet balance
-    // Rate: ₹30 per minute
-    const maxMinutes = Math.floor(customer.walletBalance / 30);
+    // Calculate allowed time based on the minimum wallet balance between both parties
+    // Rate: ₹30 per minute — both wallets are charged, so the call ends when either runs out
+    const customerMaxMinutes = Math.floor(customer.walletBalance / 30);
+    const partnerMaxMinutes  = Math.floor((partner.walletBalance ?? 0) / 30);
+    const maxMinutes = Math.min(customerMaxMinutes, partnerMaxMinutes);
     const allowedTime = maxMinutes * 60; // Convert to seconds
 
     const call = await Call.create({
@@ -243,12 +255,13 @@ export const createCallAsPartner = async (req, res) => {
       return res.status(404).json({ success: false, message: "Customer not found" });
     }
 
-    // Check if customer also has sufficient balance
+    // Check if customer also has sufficient balance to participate in the call
     if (customer.walletBalance < minimumCharge) {
       return res.status(402).json({
         success: false,
-        message: "Customer has insufficient wallet balance to receive calls.",
+        message: `${customer.name ?? "The customer"} does not have sufficient funds to receive calls right now.`,
         code: "CUSTOMER_INSUFFICIENT_BALANCE",
+        minimumRequired: minimumCharge,
       });
     }
 

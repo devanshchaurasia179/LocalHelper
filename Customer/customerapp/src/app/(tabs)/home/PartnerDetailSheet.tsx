@@ -818,10 +818,11 @@ export default function PartnerDetailSheet({
     } catch (err: any) {
       const msg = err?.response?.data?.message ?? 'Could not initiate call. Try again.';
       const code = err?.response?.data?.code;
-      Alert.alert(
-        code === 'INSUFFICIENT_BALANCE' ? 'Insufficient Balance' : 'Call Failed',
-        msg,
-      );
+      const title =
+        code === 'INSUFFICIENT_BALANCE'         ? 'Insufficient Balance' :
+        code === 'PARTNER_INSUFFICIENT_BALANCE'  ? 'Partner Cannot Receive Calls' :
+                                                   'Call Failed';
+      Alert.alert(title, msg);
     } finally {
       setCallLoading(false);
     }
