@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
   Image,
   Alert,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +23,7 @@ import { useRouter } from "expo-router";
 import { useConversations } from "@/hooks/useConversations";
 import { useCallHistory } from "@/hooks/useCallHistory";
 import { initiateCallToPartner, type CallRecord } from "@/api/call.api";
+import { api } from "@/constants/api";
 import { connectChatSocket, getChatSocket } from "@/services/chat.socket";
 import { consumePendingChat, subscribePendingChat } from "@/services/chatDeepLink";
 import type { Conversation } from "@/api/chat.api";
@@ -81,6 +83,70 @@ function getCallStatusInfo(status: CallRecord["status"]): { label: string; color
     default:
       return { label: status, color: colors.textSecondary, icon: "call-outline" };
   }
+}
+
+// ─── Call Confirm Modal ───────────────────────────────────────────────────────
+
+function CallConfirmModal({
+  visible,
+  partnerName,
+  walletBalance,
+  onConfirm,
+  onCancel,
+}: {
+  visible: boolean;
+  partnerName: string;
+  walletBalance: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={modalStyles.overlay}>
+        <Pressable style={StyleSheet.absoluteFill as any} onPress={onCancel} />
+        <View style={modalStyles.card}>
+          <View style={modalStyles.iconWrap}>
+            <Ionicons name="call" size={28} color="#6366F1" />
+          </View>
+          <Text style={modalStyles.title}>Call {partnerName}?</Text>
+          <Text style={modalStyles.message}>
+            Call charges are{" "}
+            <Text style={modalStyles.rate}>₹30 / min</Text>
+            {" "}and will be deducted from your wallet after the call ends.
+          </Text>
+          <View style={modalStyles.balanceRow}>
+            <Ionicons name="wallet-outline" size={16} color="#6B7280" />
+            <Text style={modalStyles.balanceLabel}>Your wallet balance:</Text>
+            <Text style={modalStyles.balanceValue}>₹{walletBalance.toFixed(2)}</Text>
+          </View>
+          {walletBalance < 30 && (
+            <View style={modalStyles.warnRow}>
+              <Ionicons name="warning-outline" size={14} color="#EF4444" />
+              <Text style={modalStyles.warnText}>
+                Insufficient balance. Minimum ₹30 required.
+              </Text>
+            </View>
+          )}
+          <View style={modalStyles.btnRow}>
+            <Pressable style={modalStyles.cancelBtn} onPress={onCancel}>
+              <Text style={modalStyles.cancelBtnText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[
+                modalStyles.confirmBtn,
+                walletBalance < 30 && modalStyles.confirmBtnDisabled,
+              ]}
+              onPress={onConfirm}
+              disabled={walletBalance < 30}
+            >
+              <Ionicons name="call" size={16} color="#fff" />
+              <Text style={modalStyles.confirmBtnText}>Dial Now</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 // ─── Tab Selector ─────────────────────────────────────────────────────────────
@@ -236,6 +302,18 @@ export default function ChatScreen() {
   const [livekitToken, setLivekitToken] = useState("");
   const [callScreenVisible, setCallScreenVisible] = useState(false);
 
+  // Call confirm modal state
+  const [pendingCallRecord, setPendingCallRecord] = useState<CallRecord | null>(null);
+  const [walletBalance, setWalletBalance] = useState(0);
+
+  // Fetch wallet balance on mount so the modal shows an accurate value
+  useEffect(() => {
+    api
+      .get<{ summary: { walletBalance: number } }>("/customer/transactions/summary")
+      .then((res) => setWalletBalance(res.data.summary.walletBalance))
+      .catch(() => {});
+  }, []);
+
   // Connect socket on mount
   useEffect(() => {
     let mounted = true;
@@ -303,28 +381,43 @@ export default function ChatScreen() {
     [router]
   );
 
-  const handleCallPartner = useCallback(async (call: CallRecord) => {
+  const handleCallPartner = useCallback((call: CallRecord) => {
+    setPendingCallRecord(call);
+  }, []);
+
+  const handleCallConfirmed = useCallback(async () => {
+    if (!pendingCallRecord) return;
+    const record = pendingCallRecord;
+    setPendingCallRecord(null);
     try {
-      const res = await initiateCallToPartner(call.partner._id);
+      const res = await initiateCallToPartner(record.partner._id);
       if (!res.success || !res.call || !res.livekit) {
         Alert.alert("Call Failed", res.message ?? "Could not reach partner. Try again later.");
         return;
       }
-      // Build a minimal NearbyPartner-compatible object for CallScreen
       setCallPartner({
-        _id: call.partner._id,
-        fullName: call.partner.fullName,
-        profilePhoto: call.partner.profilePhoto,
+        _id: record.partner._id,
+        fullName: record.partner.fullName,
+        profilePhoto: record.partner.profilePhoto,
       } as NearbyPartner);
       setCallId(res.call.id);
       setLivekitUrl(res.livekit.url);
       setLivekitToken(res.livekit.token);
       setCallScreenVisible(true);
+      // Refresh balance after call is set up (deduction happens on endCall)
+      api
+        .get<{ summary: { walletBalance: number } }>("/customer/transactions/summary")
+        .then((res) => setWalletBalance(res.data.summary.walletBalance))
+        .catch(() => {});
     } catch (err: any) {
       const msg = err?.response?.data?.message ?? "Could not initiate call. Try again.";
-      Alert.alert("Call Failed", msg);
+      const code = err?.response?.data?.code;
+      Alert.alert(
+        code === "INSUFFICIENT_BALANCE" ? "Insufficient Balance" : "Call Failed",
+        msg,
+      );
     }
-  }, []);
+  }, [pendingCallRecord]);
 
   const handleEndCall = useCallback(() => {
     setCallScreenVisible(false);
@@ -332,8 +425,12 @@ export default function ChatScreen() {
     setCallId("");
     setLivekitUrl("");
     setLivekitToken("");
-    // Refresh call history after call ends
+    // Refresh call history and wallet balance after call ends
     refreshCalls();
+    api
+      .get<{ summary: { walletBalance: number } }>("/customer/transactions/summary")
+      .then((res) => setWalletBalance(res.data.summary.walletBalance))
+      .catch(() => {});
   }, [refreshCalls]);
 
   const handleNavigate = useCallback((route: NavRoute) => {
@@ -467,6 +564,15 @@ export default function ChatScreen() {
           onEndCall={handleEndCall}
         />
       )}
+
+      {/* Call Confirm Modal */}
+      <CallConfirmModal
+        visible={pendingCallRecord !== null}
+        partnerName={pendingCallRecord?.partner?.fullName ?? "Partner"}
+        walletBalance={walletBalance}
+        onConfirm={handleCallConfirmed}
+        onCancel={() => setPendingCallRecord(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -606,4 +712,133 @@ const styles = StyleSheet.create({
   emptyWrap:      { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, paddingBottom: 100 },
   emptyTitle:     { fontFamily: fonts.oswaldBold, fontSize: 20, color: colors.textPrimary, marginTop: spacing.md, marginBottom: spacing.xs },
   emptySub:       { fontFamily: fonts.jostRegular, fontSize: 14, color: colors.textSecondary, textAlign: "center", lineHeight: 20 },
+});
+
+// ─── Call Confirm Modal Styles ────────────────────────────────────────────────
+
+const modalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.lg,
+  },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    width: "100%",
+    maxWidth: 320,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  iconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "rgba(99,102,241,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  title: {
+    fontFamily: fonts.jakartaSemiBold,
+    fontSize: 18,
+    color: "#1C1C28",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  message: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 21,
+    marginBottom: 16,
+  },
+  rate: {
+    fontFamily: fonts.jakartaSemiBold,
+    color: "#1C1C28",
+  },
+  balanceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#F9FAFB",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginBottom: 12,
+    width: "100%",
+  },
+  balanceLabel: {
+    fontFamily: fonts.jostMedium,
+    fontSize: 13,
+    color: "#6B7280",
+    flex: 1,
+  },
+  balanceValue: {
+    fontFamily: fonts.jakartaSemiBold,
+    fontSize: 14,
+    color: "#1C1C28",
+  },
+  warnRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FEF2F2",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 12,
+    width: "100%",
+  },
+  warnText: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 12,
+    color: "#EF4444",
+    flex: 1,
+  },
+  btnRow: {
+    flexDirection: "row",
+    gap: 10,
+    width: "100%",
+    marginTop: 4,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    alignItems: "center",
+  },
+  cancelBtnText: {
+    fontFamily: fonts.jostSemiBold,
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  confirmBtn: {
+    flex: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: "#6366F1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmBtnDisabled: {
+    backgroundColor: "#9CA3AF",
+  },
+  confirmBtnText: {
+    fontFamily: fonts.jostSemiBold,
+    fontSize: 14,
+    color: "#fff",
+  },
 });

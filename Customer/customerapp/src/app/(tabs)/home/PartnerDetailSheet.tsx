@@ -21,8 +21,10 @@ import Toast from 'react-native-toast-message';
 
 import { colors, spacing, radii, typography } from './theme';
 import { useBookPartner } from '@/hooks/useBookPartner';
-import { initiateChat, initiateCall } from '@/constants/booking.api';
+import { initiateChat } from '@/constants/booking.api';
 import { getOrCreateConversation } from '@/api/chat.api';
+import { initiateCallToPartner } from '@/api/call.api';
+import { api } from '@/constants/api';
 import type { NearbyPartner } from '@/api/nearby.api';
 import { nearbyCache } from '@/cache/nearbyCache';
 import { useRouter } from 'expo-router';
@@ -252,6 +254,198 @@ const modalStyles = StyleSheet.create({
   },
 });
 
+// ─── Call Confirm Modal ───────────────────────────────────────────────────────
+
+function CallConfirmModal({
+  visible,
+  partnerName,
+  walletBalance,
+  onConfirm,
+  onCancel,
+}: {
+  visible: boolean;
+  partnerName: string;
+  walletBalance: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={callModalStyles.overlay}>
+        <Pressable style={callModalStyles.backdrop} onPress={onCancel} />
+        <View style={callModalStyles.card}>
+          <View style={callModalStyles.iconWrap}>
+            <Ionicons name="call" size={28} color="#6366F1" />
+          </View>
+          <Text style={callModalStyles.title}>Call {partnerName}?</Text>
+          <Text style={callModalStyles.message}>
+            Call charges are{' '}
+            <Text style={callModalStyles.rate}>₹30 / min</Text>
+            {' '}and will be deducted from your wallet after the call ends.
+          </Text>
+          <View style={callModalStyles.balanceRow}>
+            <Ionicons name="wallet-outline" size={16} color="#6B7280" />
+            <Text style={callModalStyles.balanceLabel}>Your wallet balance:</Text>
+            <Text style={callModalStyles.balanceValue}>₹{walletBalance.toFixed(2)}</Text>
+          </View>
+          {walletBalance < 30 && (
+            <View style={callModalStyles.warnRow}>
+              <Ionicons name="warning-outline" size={14} color="#EF4444" />
+              <Text style={callModalStyles.warnText}>
+                Insufficient balance. Minimum ₹30 required.
+              </Text>
+            </View>
+          )}
+          <View style={callModalStyles.btnRow}>
+            <Pressable style={callModalStyles.cancelBtn} onPress={onCancel}>
+              <Text style={callModalStyles.cancelBtnText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[
+                callModalStyles.confirmBtn,
+                walletBalance < 30 && callModalStyles.confirmBtnDisabled,
+              ]}
+              onPress={onConfirm}
+              disabled={walletBalance < 30}
+            >
+              <Ionicons name="call" size={16} color="#fff" />
+              <Text style={callModalStyles.confirmBtnText}>Dial Now</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const callModalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  card: {
+    width: '85%',
+    maxWidth: 340,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    alignItems: 'center',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+  },
+  iconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(99,102,241,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  message: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: 16,
+  },
+  rate: {
+    fontWeight: '700',
+    color: '#111827',
+  },
+  balanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F9FAFB',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginBottom: 12,
+    alignSelf: 'stretch',
+  },
+  balanceLabel: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '500',
+    flex: 1,
+  },
+  balanceValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  warnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 12,
+    alignSelf: 'stretch',
+  },
+  warnText: {
+    fontSize: 12,
+    color: '#EF4444',
+    flex: 1,
+  },
+  btnRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignSelf: 'stretch',
+    marginTop: 4,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+  },
+  cancelBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  confirmBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 6,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: '#6366F1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmBtnDisabled: {
+    backgroundColor: '#9CA3AF',
+  },
+  confirmBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+});
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface PartnerDetailSheetProps {
@@ -399,6 +593,8 @@ export default function PartnerDetailSheet({
   // ── Chat / Call state ──────────────────────────────────────────────────────
   const [chatLoading, setChatLoading] = useState(false);
   const [callLoading, setCallLoading] = useState(false);
+  const [callConfirmVisible, setCallConfirmVisible] = useState(false);
+  const [walletBalance, setWalletBalance] = useState(0);
   /** Minutes unlocked after a successful call deduction — shown as a banner */
   const [callDuration, setCallDuration] = useState<number | null>(null);
 
@@ -421,6 +617,11 @@ export default function PartnerDetailSheet({
       setOfflineModalType(null);
       setEmergencyBooking(false);
       setCallDuration(null);
+
+      // Fetch fresh wallet balance so the call confirm modal is accurate
+      api.get<{ summary: { walletBalance: number } }>('/customer/transactions/summary')
+        .then((res) => setWalletBalance(res.data.summary.walletBalance))
+        .catch(() => {});
     }
   }, [visible, reset]);
 
@@ -599,45 +800,32 @@ export default function PartnerDetailSheet({
   // ── Call handler ───────────────────────────────────────────────────────────
   const handleCall = useCallback(() => {
     if (!partner) return;
-    const charge   = partner.callCharges?.amount ?? 0;
-    const duration = partner.callCharges?.durationMinutes ?? 10;
-    Alert.alert(
-      'Start Call',
-      charge > 0
-        ? `₹${charge} will be deducted from your wallet for a ${duration}-minute call with ${partner.fullName}.`
-        : `Start a free call with ${partner.fullName}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: charge > 0 ? `Pay ₹${charge} & Call` : 'Start Call',
-          onPress: async () => {
-            setCallLoading(true);
-            try {
-              // 1. Deduct call charges from wallet (if applicable)
-              if (charge > 0) {
-                const res = await initiateCall(partner._id);
-                setCallDuration(res.durationMinutes);
-                onCallPaid?.(partner._id, res.durationMinutes);
-              }
+    setCallConfirmVisible(true);
+  }, [partner]);
 
-              // 2. Initiate the actual real-time call via LiveKit
-              //    The parent handles connecting to LiveKit and showing CallScreen
-              onClose();
-              onCallInitiate?.(partner);
-            } catch (err: any) {
-              const msg = err?.response?.data?.message ?? 'Could not initiate call. Try again.';
-              Alert.alert(
-                err?.response?.data?.code === 'INSUFFICIENT_BALANCE' ? 'Insufficient Balance' : 'Error',
-                msg,
-              );
-            } finally {
-              setCallLoading(false);
-            }
-          },
-        },
-      ],
-    );
-  }, [partner, onCallPaid, onCallInitiate, onClose]);
+  const handleCallConfirmed = useCallback(async () => {
+    if (!partner) return;
+    setCallConfirmVisible(false);
+    setCallLoading(true);
+    try {
+      const res = await initiateCallToPartner(partner._id);
+      if (!res.success || !res.call || !res.livekit) {
+        Alert.alert('Call Failed', res.message ?? 'Could not reach partner. Try again later.');
+        return;
+      }
+      onClose();
+      onCallInitiate?.(partner);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? 'Could not initiate call. Try again.';
+      const code = err?.response?.data?.code;
+      Alert.alert(
+        code === 'INSUFFICIENT_BALANCE' ? 'Insufficient Balance' : 'Call Failed',
+        msg,
+      );
+    } finally {
+      setCallLoading(false);
+    }
+  }, [partner, onClose, onCallInitiate]);
 
   // ── Book handler ───────────────────────────────────────────────────────────
   const handleBook = useCallback(async () => {
@@ -1083,9 +1271,7 @@ export default function PartnerDetailSheet({
                   <Ionicons name="call-outline" size={16} color="#1E40AF" />
                 )}
                 <Text style={[styles.commsBtnText, styles.callBtnText]}>
-                  {partner.callCharges?.amount && partner.callCharges.amount > 0
-                    ? `Call · ₹${partner.callCharges.amount}/${partner.callCharges.durationMinutes}min`
-                    : 'Call'}
+                  Call · ₹30/min
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1135,6 +1321,15 @@ export default function PartnerDetailSheet({
       loading={emergencyBooking}
       onClose={handleOfflineModalClose}
       onConfirmEmergency={handleConfirmEmergency}
+    />
+
+    {/* ── Call Confirm Modal ────────────────────────────────────────────────── */}
+    <CallConfirmModal
+      visible={callConfirmVisible}
+      partnerName={partner.fullName}
+      walletBalance={walletBalance}
+      onConfirm={handleCallConfirmed}
+      onCancel={() => setCallConfirmVisible(false)}
     />
     </>
   );

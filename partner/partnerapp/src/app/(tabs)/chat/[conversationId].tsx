@@ -107,6 +107,69 @@ function containsPhoneNumber(text: string): boolean {
   return false;
 }
 
+// ─── Call Confirm Modal ───────────────────────────────────────────────────────
+
+function CallConfirmModal({
+  visible,
+  customerName,
+  walletBalance,
+  onConfirm,
+  onCancel,
+}: {
+  visible: boolean;
+  customerName: string;
+  walletBalance: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={callConfirmStyles.overlay}>
+        <View style={callConfirmStyles.card}>
+          <View style={callConfirmStyles.iconWrap}>
+            <Ionicons name="call" size={28} color="#6366F1" />
+          </View>
+          <Text style={callConfirmStyles.title}>Call {customerName}?</Text>
+          <Text style={callConfirmStyles.message}>
+            Call charges are{" "}
+            <Text style={callConfirmStyles.rate}>₹30 / min</Text>
+            {" "}and will be deducted from your wallet.
+          </Text>
+          <View style={callConfirmStyles.balanceRow}>
+            <Ionicons name="wallet-outline" size={16} color="#6B7280" />
+            <Text style={callConfirmStyles.balanceLabel}>Your wallet balance:</Text>
+            <Text style={callConfirmStyles.balanceValue}>₹{walletBalance.toFixed(2)}</Text>
+          </View>
+          {walletBalance < 30 && (
+            <View style={callConfirmStyles.warnRow}>
+              <Ionicons name="warning-outline" size={14} color="#EF4444" />
+              <Text style={callConfirmStyles.warnText}>
+                Insufficient balance. Minimum ₹30 required.
+              </Text>
+            </View>
+          )}
+          <View style={callConfirmStyles.btnRow}>
+            <Pressable style={callConfirmStyles.cancelBtn} onPress={onCancel}>
+              <Text style={callConfirmStyles.cancelBtnText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[
+                callConfirmStyles.confirmBtn,
+                walletBalance < 30 && callConfirmStyles.confirmBtnDisabled,
+              ]}
+              onPress={onConfirm}
+              disabled={walletBalance < 30}
+            >
+              <Ionicons name="call" size={16} color="#fff" />
+              <Text style={callConfirmStyles.confirmBtnText}>Dial Now</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 // ─── Warning Modal Component ──────────────────────────────────────────────────
 
 function PhoneWarningModal({
@@ -224,6 +287,7 @@ export default function ChatRoomScreen() {
 
   const [inputText, setInputText] = useState("");
   const [phoneWarningVisible, setPhoneWarningVisible] = useState(false);
+  const [callConfirmVisible, setCallConfirmVisible] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -238,6 +302,11 @@ export default function ChatRoomScreen() {
 
   const handleCall = useCallback(() => {
     if (!customerId) return;
+    setCallConfirmVisible(true);
+  }, [customerId]);
+
+  const handleCallConfirmed = useCallback(() => {
+    setCallConfirmVisible(false);
     initiateCall(customerId, customerName);
   }, [customerId, customerName, initiateCall]);
 
@@ -622,6 +691,15 @@ export default function ChatRoomScreen() {
         </View>
       </KeyboardAvoidingView>
 
+      {/* Call Confirm Modal */}
+      <CallConfirmModal
+        visible={callConfirmVisible}
+        customerName={customerName}
+        walletBalance={walletBalance}
+        onConfirm={handleCallConfirmed}
+        onCancel={() => setCallConfirmVisible(false)}
+      />
+
       {/* Phone Number Warning Modal */}
       <PhoneWarningModal
         visible={phoneWarningVisible}
@@ -867,7 +945,134 @@ const styles = StyleSheet.create({
   },
 });
 
-// ─── Warning Modal Styles ─────────────────────────────────────────────────────
+// ─── Call Confirm Modal Styles ────────────────────────────────────────────────
+
+const callConfirmStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.lg,
+  },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    width: "100%",
+    maxWidth: 320,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  iconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "rgba(99,102,241,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  title: {
+    fontFamily: fonts.jakartaSemiBold,
+    fontSize: 18,
+    color: "#1C1C28",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  message: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  rate: {
+    fontFamily: fonts.jakartaSemiBold,
+    color: "#1C1C28",
+  },
+  balanceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#F9FAFB",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginBottom: 12,
+    width: "100%",
+  },
+  balanceLabel: {
+    fontFamily: fonts.jostMedium,
+    fontSize: 13,
+    color: "#6B7280",
+    flex: 1,
+  },
+  balanceValue: {
+    fontFamily: fonts.jakartaSemiBold,
+    fontSize: 14,
+    color: "#1C1C28",
+  },
+  warnRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FEF2F2",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 12,
+    width: "100%",
+  },
+  warnText: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 12,
+    color: "#EF4444",
+    flex: 1,
+  },
+  btnRow: {
+    flexDirection: "row",
+    gap: 10,
+    width: "100%",
+    marginTop: 4,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    alignItems: "center",
+  },
+  cancelBtnText: {
+    fontFamily: fonts.jostSemiBold,
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  confirmBtn: {
+    flex: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: "#6366F1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmBtnDisabled: {
+    backgroundColor: "#9CA3AF",
+  },
+  confirmBtnText: {
+    fontFamily: fonts.jostSemiBold,
+    fontSize: 14,
+    color: "#fff",
+  },
+});
 
 const warningStyles = StyleSheet.create({
   overlay: {

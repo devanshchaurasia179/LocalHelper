@@ -14,6 +14,7 @@ import {
   RefreshControl,
   ActivityIndicator,
   Image,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -77,6 +78,69 @@ function getCallStatusInfo(status: CallRecord["status"]): { label: string; color
     default:
       return { label: status, color: colors.textSecondary, icon: "call-outline" };
   }
+}
+
+// ─── Call Confirm Modal ───────────────────────────────────────────────────────
+
+function CallConfirmModal({
+  visible,
+  customerName,
+  walletBalance,
+  onConfirm,
+  onCancel,
+}: {
+  visible: boolean;
+  customerName: string;
+  walletBalance: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={modalStyles.overlay}>
+        <View style={modalStyles.card}>
+          <View style={modalStyles.iconWrap}>
+            <Ionicons name="call" size={28} color="#6366F1" />
+          </View>
+          <Text style={modalStyles.title}>Call {customerName}?</Text>
+          <Text style={modalStyles.message}>
+            Call charges are{" "}
+            <Text style={modalStyles.rate}>₹30 / min</Text>
+            {" "}and will be deducted from your wallet.
+          </Text>
+          <View style={modalStyles.balanceRow}>
+            <Ionicons name="wallet-outline" size={16} color="#6B7280" />
+            <Text style={modalStyles.balanceLabel}>Your wallet balance:</Text>
+            <Text style={modalStyles.balanceValue}>₹{walletBalance.toFixed(2)}</Text>
+          </View>
+          {walletBalance < 30 && (
+            <View style={modalStyles.warnRow}>
+              <Ionicons name="warning-outline" size={14} color="#EF4444" />
+              <Text style={modalStyles.warnText}>
+                Insufficient balance. Minimum ₹30 required.
+              </Text>
+            </View>
+          )}
+          <View style={modalStyles.btnRow}>
+            <Pressable style={modalStyles.cancelBtn} onPress={onCancel}>
+              <Text style={modalStyles.cancelBtnText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[
+                modalStyles.confirmBtn,
+                walletBalance < 30 && modalStyles.confirmBtnDisabled,
+              ]}
+              onPress={onConfirm}
+              disabled={walletBalance < 30}
+            >
+              <Ionicons name="call" size={16} color="#fff" />
+              <Text style={modalStyles.confirmBtnText}>Dial Now</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 // ─── Tab Selector ─────────────────────────────────────────────────────────────
@@ -235,6 +299,24 @@ export default function ChatScreen() {
   const { initiateCall, processing } = useCall();
   const [socketStatus, setSocketStatus] = useState<"connecting" | "connected" | "error">("connecting");
 
+  // ── Call confirm modal state ─────────────────────────────────────────────
+  const [pendingCall, setPendingCall] = useState<CallRecord | null>(null);
+  const [walletBalance, setWalletBalance] = useState(0);
+
+  const fetchWalletBalance = useCallback(async () => {
+    try {
+      const { api } = await import("@/constants/api");
+      const response = await api.get<{ summary: { walletBalance: number } }>("/partner/transactions/summary");
+      setWalletBalance(response.data.summary.walletBalance);
+    } catch {
+      // best-effort
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchWalletBalance();
+  }, [fetchWalletBalance]);
+
   // Connect socket on mount and listen for new messages to refresh the list
   useEffect(() => {
     let mounted = true;
@@ -318,11 +400,17 @@ export default function ChatScreen() {
   const handleCallCustomer = useCallback(
     (call: CallRecord) => {
       if (processing) return;
-      const customerName = call.customer?.name ?? "Customer";
-      initiateCall(call.customer._id, customerName);
+      setPendingCall(call);
     },
-    [initiateCall, processing]
+    [processing]
   );
+
+  const handleCallConfirmed = useCallback(() => {
+    if (!pendingCall) return;
+    const customerName = pendingCall.customer?.name ?? "Customer";
+    setPendingCall(null);
+    initiateCall(pendingCall.customer._id, customerName);
+  }, [pendingCall, initiateCall]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -438,6 +526,15 @@ export default function ChatScreen() {
       )}
 
       <BottomNav />
+
+      {/* Call Confirm Modal */}
+      <CallConfirmModal
+        visible={pendingCall !== null}
+        customerName={pendingCall?.customer?.name ?? "Customer"}
+        walletBalance={walletBalance}
+        onConfirm={handleCallConfirmed}
+        onCancel={() => setPendingCall(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -594,4 +691,133 @@ const styles = StyleSheet.create({
   emptyWrap:      { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, paddingBottom: 100 },
   emptyTitle:     { fontFamily: fonts.oswaldBold, fontSize: 20, color: colors.textPrimary, marginTop: spacing.md, marginBottom: spacing.xs },
   emptySub:       { fontFamily: fonts.jostRegular, fontSize: 14, color: colors.textSecondary, textAlign: "center", lineHeight: 20 },
+});
+
+// ─── Call Confirm Modal Styles ────────────────────────────────────────────────
+
+const modalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.lg,
+  },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    width: "100%",
+    maxWidth: 320,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  iconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "rgba(99,102,241,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  title: {
+    fontFamily: fonts.jakartaSemiBold,
+    fontSize: 18,
+    color: "#1C1C28",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  message: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  rate: {
+    fontFamily: fonts.jakartaSemiBold,
+    color: "#1C1C28",
+  },
+  balanceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#F9FAFB",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginBottom: 12,
+    width: "100%",
+  },
+  balanceLabel: {
+    fontFamily: fonts.jostMedium,
+    fontSize: 13,
+    color: "#6B7280",
+    flex: 1,
+  },
+  balanceValue: {
+    fontFamily: fonts.jakartaSemiBold,
+    fontSize: 14,
+    color: "#1C1C28",
+  },
+  warnRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FEF2F2",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 12,
+    width: "100%",
+  },
+  warnText: {
+    fontFamily: fonts.jostRegular,
+    fontSize: 12,
+    color: "#EF4444",
+    flex: 1,
+  },
+  btnRow: {
+    flexDirection: "row",
+    gap: 10,
+    width: "100%",
+    marginTop: 4,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    alignItems: "center",
+  },
+  cancelBtnText: {
+    fontFamily: fonts.jostSemiBold,
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  confirmBtn: {
+    flex: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: "#6366F1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmBtnDisabled: {
+    backgroundColor: "#9CA3AF",
+  },
+  confirmBtnText: {
+    fontFamily: fonts.jostSemiBold,
+    fontSize: 14,
+    color: "#fff",
+  },
 });
